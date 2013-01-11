@@ -1923,7 +1923,7 @@ check_special_room(boolean newlev)
         case DELPHI:
             if ((mtmp = monstinroom(&mons[PM_POTTER], roomno)) &&
                 mtmp->mpeaceful) {
-                verbalize("%s, %s, welcome to Delphi!", Hello(NULL), plname);
+                verbalize("%s, %s, welcome to Potter's Cabin!", Hello(NULL), plname);
             }
             break;
         case TEMPLE:
