@@ -771,6 +771,7 @@ const struct objclass const_objects[] = {
     SCROLL(NULL, "FOOBIE BLETCH", 1, 0, 100),
     SCROLL(NULL, "TEMOV", 1, 0, 100),
     SCROLL(NULL, "GARVEN DEH", 1, 0, 100),
+    SCROLL(NULL, "SEGFAULT", 1, 0, 100),
     SCROLL(NULL, "READ ME", 1, 0, 100),
     /* these must come last because they have special descriptions */
     SCROLL("blank paper", "unlabeled", 0, 28, 60),
