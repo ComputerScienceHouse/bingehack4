@@ -1921,7 +1921,7 @@ check_special_room(boolean newlev)
                 pline("You enter an abandoned barracks.");
             break;
         case DELPHI:
-            if ((mtmp = monstinroom(&mons[PM_ORACLE], roomno)) &&
+            if ((mtmp = monstinroom(&mons[PM_POTTER], roomno)) &&
                 mtmp->mpeaceful) {
                 verbalize("%s, %s, welcome to Delphi!", Hello(NULL), plname);
             }

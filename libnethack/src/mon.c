@@ -1193,6 +1193,10 @@ mm_aggression(struct monst *magr,       /* monster that is currently deciding
     if (mdef->mtame && !magr->mpeaceful)
         return ALLOW_M | ALLOW_TM;
 
+    /* woodchucks vs. Potter */
+    if(magr->data == &mons[PM_WOODCHUCK] && mdef->data == &mons[PM_POTTER])
+        return ALLOW_M|ALLOW_TM;
+
     /* Various other combinations such as dog vs cat, cat vs rat, and elf vs
        orc have been suggested.  For the time being we don't support those. */
     return 0L;

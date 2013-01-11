@@ -14,7 +14,7 @@ set (LEVEL_DESCRIPTIONS
     ${LNH_DAT}/medusa.des
     ${LNH_DAT}/mines.des
     ${LNH_DAT}/Monk.des
-    ${LNH_DAT}/oracle.des
+    ${LNH_DAT}/Potter.des
     ${LNH_DAT}/Priest.des
     ${LNH_DAT}/Ranger.des
     ${LNH_DAT}/Rogue.des

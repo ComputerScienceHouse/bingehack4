@@ -152,6 +152,7 @@ outrumor(int truth,     /* 1=true, -1=false, 0=either */
     int truth_out;
 
     if (reading) {
+        truth=-1; /* If not from potter, do not show Potter quotes. */
         /* deal with various things that prevent reading */
         if (is_fainted() && mechanism == BY_COOKIE)
             return;
@@ -162,6 +163,9 @@ outrumor(int truth,     /* 1=true, -1=false, 0=either */
             return;
         }
     }
+    else{
+        truth=1; /* We're talking to Potter, we want the Potter quotes */
+    }
     line = getrumor(truth, buf, reading ? FALSE : TRUE, &truth_out);
     if (truth_out)
         exercise(A_WIS, truth_out == 1);
@@ -170,9 +174,9 @@ outrumor(int truth,     /* 1=true, -1=false, 0=either */
     switch (mechanism) {
     case BY_ORACLE:
         /* Oracle delivers the rumor */
-        pline("True to her word, the Oracle %ssays: ",
-              (!rn2(4) ? "offhandedly "
-               : (!rn2(3) ? "casually " : (rn2(2) ? "nonchalantly " : ""))));
+        pline("True to his word, Potter %ssays: ",
+              (!rn2(4) ? "nonchalantly "
+               : (!rn2(3) ? "casually " : (rn2(2) ? "excitedly " : ""))));
         verbalize("%s", line);
         return;
     case BY_COOKIE:
@@ -282,9 +286,9 @@ outoracle(boolean special, boolean delphi)
         if (delphi)
             add_menutext(&menu,
                          special ?
-                         "The Oracle scornfully takes all your money and says:"
+                         "Potter protests, but then takes your money and says:"
                          :
-                         "The Oracle meditates for a moment and then intones:");
+                         "Potter thinks for a second, and then announces in a gravelly voice:");
         else
             add_menutext(&menu, "The message reads:");
         add_menutext(&menu, "");
@@ -319,14 +323,14 @@ doconsult(struct monst *oracl)
         pline("There is no one here to consult.");
         return 0;
     } else if (!oracl->mpeaceful) {
-        pline("%s is in no mood for consultations.", Monnam(oracl));
+        pline("%s is in not in the mood for conversation (believe it or not...)", Monnam(oracl));
         return 0;
     } else if (!umoney) {
-        pline("You have no money.");
+        pline("You have no money.  There's no free lunch in wireless... and in being an oracle!");
         return 0;
     }
 
-    sprintf(qbuf, "\"Wilt thou settle for a minor consultation?\" (%d %s)",
+    sprintf(qbuf, "\"Would you mind talking for a little bit?\" (%d %s)",
             minor_cost, currency(minor_cost));
     switch (ynq(qbuf)) {
     default:
@@ -334,7 +338,7 @@ doconsult(struct monst *oracl)
         return 0;
     case 'y':
         if (umoney < minor_cost) {
-            pline("You don't even have enough money for that!");
+            pline("You don't even have enough money for that! There's no free lunch in wireless... and in being an oracle!");
             return 0;
         }
         u_pay = minor_cost;
@@ -343,7 +347,7 @@ doconsult(struct monst *oracl)
         if (umoney <= minor_cost ||     /* don't even ask */
             (oracle_cnt == 1 || oracle_flg < 0))
             return 0;
-        sprintf(qbuf, "\"Then dost thou desire a major one?\" (%d %s)",
+        sprintf(qbuf, "\"Oh! You'd like to sit and talk for a _long_ while?\" (%d %s)",
                 major_cost, currency(major_cost));
         if (yn(qbuf) != 'y')
             return 0;

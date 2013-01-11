@@ -223,16 +223,16 @@ dosounds(void)
     if (Is_oracle_level(&u.uz) && !rn2(400)) {
         /* make sure the Oracle is still here */
         for (mtmp = level->monlist; mtmp; mtmp = mtmp->nmon)
-            if (!DEADMONSTER(mtmp) && mtmp->data == &mons[PM_ORACLE])
+            if (!DEADMONSTER(mtmp) && mtmp->data == &mons[PM_POTTER])
                 break;
-        /* and don't produce silly effects when she's clearly visible */
+        /* and don't produce silly effects when he's clearly visible */
         if (mtmp && (hallu || !canseemon(mtmp))) {
             static const char *const ora_msg[5] = {
-                "a strange wind.",      /* Jupiter at Dodona */
-                "convulsive ravings.",  /* Apollo at Delphi */
-                "snoring snakes.",      /* AEsculapius at Epidaurus */
-                "someone say \"No more woodchucks!\"",
-                "a loud ZOT!"   /* both rec.humor.oracle */
+                "political commentary.",
+                "convulsive ravings about WLAN controllers.",
+                "an Adirondack woodsman.",
+                "someone ask you for your punchcards.", /* if(hallucinating) */
+                "loud praise for Netgear devices." /* if(hallucinating) */
             };
             You_hear(ora_msg[rn2(3) + hallu * 2]);
         }
