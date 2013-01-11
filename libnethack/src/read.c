@@ -66,13 +66,14 @@ doread(struct obj *scroll)
             "Yendor Military Soldiers Do It In Large Groups",
             "I survived Yendor Military Boot Camp",
             "Ludios Accounting School Intra-Mural Lacrosse Team",
-            "Oracle(TM) Fountains 10th Annual Wet T-Shirt Contest",
+            "Potter's House 10th Annual Liquid Nitrogen Rocket Contest",
             "Hey, black dragon!  Disintegrate THIS!",
             "I'm With Stupid -->",
             "Don't blame me, I voted for Izchak!",
             "Don't Panic",      /* HHGTTG */
             "Furinkan High School Athletic Dept.",      /* Ranma 1/2 */
             "Hel-LOOO, Nurse!", /* Animaniacs */
+            "CSH 35th Anniversary"
         };
         char buf[BUFSZ];
         int erosion;
