@@ -58,7 +58,7 @@ void do_date(const char *, int);
 void do_monstr(const char *);
 void do_permonst(const char *);
 void do_questtxt(const char *, const char *);
-void do_rumors(const char *, const char *, const char *);
+void do_rumors(const char *, const char *, const char*, const char *);
 void do_oracles(const char *, const char *);
 
 extern void objects_init(void); /* objects.c */
@@ -194,9 +194,9 @@ main(int argc, char *argv[])
 
     case 'r':
     case 'R':
-        if (argc != 5)
-            usage(argv[0], argv[1][1], 5);
-        do_rumors(argv[2], argv[3], argv[4]);
+        if (argc != 6)
+            usage(argv[0], argv[1][1], 6);
+        do_rumors(argv[2], argv[3], argv[4], argv[5]);
         break;
 
     case 'h':
@@ -239,9 +239,9 @@ xcrypt(const char *str)
 }
 
 void
-do_rumors(const char *in_tru, const char *in_false, const char *outfile)
+do_rumors(const char *in_tru, const char *in_false, const char *in_pot, const char *outfile)
 {
-    long true_rumor_size;
+    long true_rumor_size, false_rumor_size;
 
     if (!(ofp = fopen(outfile, WRTMODE))) {
         perror(outfile);
@@ -275,7 +275,28 @@ do_rumors(const char *in_tru, const char *in_false, const char *outfile)
         exit(EXIT_FAILURE);
     }
 
+    /* Because of Potter, we need to put the number of bytes of false rumors
+     * in the rumors file */
+    fseek(ifp, 0L, SEEK_END);
+    false_rumor_size = ftell(ifp);
+
+    fprintf(ofp, "%061x\n", false_rumor_size);
+    fseek(ifp, 0L, SEEK_SET);
+
     /* copy false rumors */
+    while (fgets(in_line, sizeof in_line, ifp) != 0)
+        fputs(xcrypt(in_line), ofp);
+
+    fclose(ifp);
+
+    if (!(ifp = fopen(in_pot, RDTMODE))) {
+        perror(in_pot);
+        fclose(ofp);
+        unlink(in_pot);
+        exit(EXIT_FAILURE);
+    }
+
+    /* copy potter rumors */
     while (fgets(in_line, sizeof in_line, ifp) != 0)
         fputs(xcrypt(in_line), ofp);
 

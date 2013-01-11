@@ -90,7 +90,8 @@ add_custom_command (OUTPUT quest.dat
 add_custom_command (OUTPUT rumors
                     COMMAND ${MAKEDEFS_BIN}
                     ARGS -r ${LNH_DAT}/rumors.tru
-                            ${LNH_DAT}/rumors.fal rumors
+                            ${LNH_DAT}/rumors.fal
+			    ${LNH_DAT}/rumors.pot rumors
                     DEPENDS makedefs)
 # makedefs -h
 add_custom_command (OUTPUT oracles

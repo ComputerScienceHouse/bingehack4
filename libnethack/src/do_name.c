@@ -548,7 +548,7 @@ x_monnam(const struct monst *mtmp,
         return buf;
     }
 
-    if(strncmp("Potter"), mtmp->data->mname, 7) == 0)
+    if (strncmp("Potter", mtmp->data->mname, 7) == 0)
         article = ARTICLE_NONE;
         
     /* Shopkeepers: use shopkeeper name.  For normal shopkeepers, just
