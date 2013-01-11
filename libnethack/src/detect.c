@@ -777,15 +777,12 @@ level_distance(d_level * where)
         return "near you";
 }
 
-static const struct {
-    const char *what;
-    d_level *where;
-} level_detects[] = {
-    {
-    "Delphi", &oracle_level}, {
-    "Medusa's lair", &medusa_level}, {
-    "a castle", &stronghold_level}, {
-"the Wizard of Yendor's tower", &wiz1_level},};
+static const struct {const char *what; d_level *where;} level_detects[] = {
+    {"Delphi", &oracle_level},
+    {"Medusa's lair", &medusa_level},
+    {"a castle", &stronghold_level},
+    {"the Wizard of Yendor's tower", &wiz1_level}
+};
 
 void
 use_crystal_ball(struct obj *obj)
