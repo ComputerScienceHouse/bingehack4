@@ -323,7 +323,7 @@ doconsult(struct monst *oracl)
         pline("There is no one here to consult.");
         return 0;
     } else if (!oracl->mpeaceful) {
-        pline("%s is in not in the mood for conversation (believe it or not...)", Monnam(oracl));
+        pline("%s is not in the mood for conversation (believe it or not...)", Monnam(oracl));
         return 0;
     } else if (!umoney) {
         pline("You have no money.  There's no free lunch in wireless... and in being an oracle!");

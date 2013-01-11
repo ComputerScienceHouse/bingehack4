@@ -2415,7 +2415,7 @@ const struct permonst mons[] = {
           NO_ATTK, NO_ATTK, NO_ATTK, NO_ATTK, NO_ATTK),
         SIZ(WT_HUMAN, 400, 0, MS_ORACLE, MZ_HUMAN), 0, 0,
         M1_HUMANOID | M1_OMNIVORE,
-        M2_NOPOLY | M2_HUMAN | M2_PEACEFUL | M2_FEMALE, M3_INFRAVISIBLE,
+        M2_NOPOLY | M2_HUMAN | M2_PEACEFUL | M2_MALE, M3_INFRAVISIBLE,
         CLR_BRIGHT_BLUE | HI_ULINE),
     MON("aligned priest", S_HUMAN,
         LVL(12, 12, 10, 50, 0), G_NOGEN,
