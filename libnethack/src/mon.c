@@ -1193,8 +1193,38 @@ mm_aggression(struct monst *magr,       /* monster that is currently deciding
     if (mdef->mtame && !magr->mpeaceful)
         return ALLOW_M | ALLOW_TM;
 
-    /* Various other combinations such as dog vs cat, cat vs rat, and elf vs
-       orc have been suggested.  For the time being we don't support those. */
+    /* Since the quest guardians are under siege, it makes sense to have 
+       them fight hostiles.  (But we don't want the quest leader to be in danger.) */
+    if(magr->data->msound==MS_GUARDIAN && mdef->mpeaceful==FALSE)
+        return ALLOW_M|ALLOW_TM;
+    /* and vice versa */
+    if(mdef->data->msound==MS_GUARDIAN && magr->mpeaceful==FALSE)
+        return ALLOW_M|ALLOW_TM;
+
+    /* elves vs. orcs */
+    if(is_elf(magr->data) && is_orc(mdef->data))
+        return ALLOW_M|ALLOW_TM;
+    /* and vice versa */
+    if(is_elf(mdef->data) && is_orc(magr->data))
+        return ALLOW_M|ALLOW_TM;
+
+    /* angels vs. demons */
+    if(magr->data->mlet==S_ANGEL && is_demon(mdef->data))
+        return ALLOW_M|ALLOW_TM;
+    /* and vice versa */
+    if(mdef->data->mlet==S_ANGEL && is_demon(magr->data))
+        return ALLOW_M|ALLOW_TM;
+
+    /* woodchucks vs. The Oracle */
+    if(magr->data == &mons[PM_WOODCHUCK] && mdef->data == &mons[PM_ORACLE])
+        return ALLOW_M|ALLOW_TM;
+
+    /* ravens like eyes */
+    if(magr->data == &mons[PM_RAVEN] && mdef->data == &mons[PM_FLOATING_EYE])
+        return ALLOW_M|ALLOW_TM;
+
+    /* Various other combinations such as dog vs cat, and cat vs rat
+    have been suggested.  For the time being we don't support those. */
     return 0L;
 }
 
