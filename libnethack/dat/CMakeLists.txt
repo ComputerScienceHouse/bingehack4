@@ -43,7 +43,7 @@ set (COMPILED_LEVELS
     minend-1.lev minend-2.lev minend-3.lev minetn-1.lev
     minetn-2.lev minetn-3.lev minetn-4.lev minetn-5.lev
     minetn-6.lev minetn-7.lev Mon-fila.lev Mon-filb.lev
-    Mon-goal.lev Mon-loca.lev Mon-strt.lev oracle.lev
+    Mon-goal.lev Mon-loca.lev Mon-strt.lev Potter.lev
     orcus.lev    Pri-fila.lev Pri-filb.lev Pri-goal.lev
     Pri-loca.lev Pri-strt.lev Ran-fila.lev Ran-filb.lev
     Ran-goal.lev Ran-loca.lev Ran-strt.lev Rog-fila.lev
