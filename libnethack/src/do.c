@@ -282,12 +282,17 @@ dosinkring(struct obj *obj)
               xname(obj));
         goto giveback;
     case RIN_SLOW_DIGESTION:
-        pline("The ring is regurgitated!");
-    giveback:
-        obj->in_use = FALSE;
-        dropx(obj);
-        trycall(obj);
-        return;
+        if (obj->oartifact == ART_RING_OF_POWER){
+            You_hear("unintelligible whispers");
+            break;
+        } else {
+            pline("The ring is regurgitated!");
+            giveback:
+            obj->in_use = FALSE;
+            dropx(obj);
+            trycall(obj);
+            return;
+        }
     case RIN_LEVITATION:
         pline("The sink quivers upward for a moment.");
         break;

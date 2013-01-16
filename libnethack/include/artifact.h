@@ -9,7 +9,7 @@
 # define SPFX_NOGEN  0x0000001L /* item is special, bequeathed by gods */
 # define SPFX_RESTR  0x0000002L /* item is restricted - can't be named */
 # define SPFX_INTEL  0x0000004L /* item is self-willed - intelligent */
-# define SPFX_SPEAK  0x0000008L /* item can speak (not implemented) */
+# define SPFX_SPEAK  0x0000008L /* item can speak (kind of implemented?) */
 # define SPFX_SEEK   0x0000010L /* item helps you search for things */
 # define SPFX_WARN   0x0000020L /* item warns you of danger */
 # define SPFX_ATTK   0x0000040L /* item has a special attack (attk) */
@@ -34,7 +34,7 @@
 # define SPFX_DBONUS 0x1F00000L /* attack bonus mask */
 # define SPFX_XRAY   0x2000000L /* gives X-RAY vision to player */
 # define SPFX_REFLECT 0x4000000L/* Reflection */
-
+# define SPFX_INVIS  0x8000000L /* Invisibility? */
 
 struct artifact {
     const char *name;

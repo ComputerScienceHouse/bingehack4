@@ -404,7 +404,7 @@ error_out:
 static void
 you_moved(void)
 {
-    int moveamt = 0, wtcap = 0, change = 0;
+    int moveamt = 0, wtcap = 0, change = 0, irop = 0;
     boolean monscanmove = FALSE;
 
     /* actual time passed */
@@ -621,6 +621,19 @@ you_moved(void)
             invault();
             if (u.uhave.amulet)
                 amulet();
+            if (u.uhave.ring_of_power && !rn2(5000)) {
+                for (irop = 0; irop < (rn2(10) ? 1 : rnd(8) + 1); irop++)
+                    if (propagate(monsndx(&mons[PM_NAZGUL]), FALSE, FALSE))
+                        makemon(&mons[PM_NAZGUL], level, u.ux, u.uy, NO_MM_FLAGS);
+            }
+            if (u.uhave.ring_of_power_worn){
+                if (!rn2(500))
+                    for (irop = 0; irop < (rn2(5) ? 1 : rnd(8) + 1); irop++)
+                        if (propagate(monsndx(&mons[PM_NAZGUL]), FALSE, FALSE))
+                            makemon(&mons[PM_NAZGUL], level, u.ux, u.uy, NO_MM_FLAGS);
+                if (!rn2(100))
+                    You_hear("unintelligible whispering");
+            }
             if (!rn2(40 + (int)(ACURR(A_DEX) * 3)))
                 u_wipe_engr(rnd(3));
             if (u.uevent.udemigod && !u.uinvulnerable) {
