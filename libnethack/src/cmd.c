@@ -5,6 +5,8 @@
 #include "hack.h"
 /* #define DEBUG *//* uncomment for debugging */
 
+#include <stdbool.h>
+
 /*
  * Some systems may have getchar() return EOF for various reasons, and
  * we should not quit before seeing at least NR_OF_EOFS consecutive EOFs.
@@ -127,6 +129,10 @@ const struct cmd_desc cmdlist[] = {
     {"name", "name a monster, item or type of object", M('n'), 'C', TRUE,
      do_naming, CMD_ARG_NONE | CMD_EXT},
     {"name mon", "christen a monster", 0, 0, TRUE, do_mname, CMD_ARG_NONE},
+    {"name item", "name an item", 0, 0, TRUE, do_oname,
+     CMD_ARG_NONE | CMD_ARG_OBJ},
+    {"name type", "name a type of objects", 0, 0, TRUE, do_tname,
+     CMD_ARG_NONE | CMD_ARG_OBJ},
     {"open", "open, close or unlock a door", 'o', 0, FALSE, doopen,
      CMD_ARG_NONE | CMD_ARG_DIR},
     {"overview", "show an overview of the dungeon", C('o'), 0, TRUE, dooverview,
@@ -150,9 +156,9 @@ const struct cmd_desc cmdlist[] = {
      CMD_ARG_NONE | CMD_ARG_OBJ},
     {"removearm", "remove multiple pieces of equipment", 'A', 0, FALSE,
      doddoremarm, CMD_ARG_NONE},
-    {"ride", "ride (or stop riding) a monster", 0, 0, FALSE, doride,
+    {"ride", "ride (or stop riding) a monster", M('r'), 0, FALSE, doride,
      CMD_ARG_NONE | CMD_EXT},
-    {"rub", "rub a lamp or a stone", M('r'), 0, FALSE, dorub,
+    {"rub", "rub a lamp or a stone", 0, 0, FALSE, dorub,
      CMD_ARG_NONE | CMD_EXT | CMD_ARG_OBJ},
     {"sacrifice", "offer a sacrifice to the gods", M('o'), 0, FALSE,
      dosacrifice, CMD_ARG_NONE | CMD_EXT | CMD_ARG_OBJ},
@@ -1511,18 +1517,19 @@ nh_get_commands(int *count)
 
 
 /* for better readability below */
+static void set_obj_cmd( struct nh_cmd_desc *obj_cmd, struct obj *obj, size_t i, const char *cname, const char *cdesc, bool singular ) {
+    int _o_c_idx = get_command_idx(cname);
+    char dbuf[80], nbuf[80];
+    strncpy(obj_cmd[i].name, cname, sizeof(obj_cmd[i].name));
+    snprintf(nbuf, 80, "%s %s", obj->quan > 1 ?
+                  (singular ? "one of these" : "these") : "this", cxname(obj));
+    snprintf(dbuf, 80, cdesc, nbuf);
+    strncpy(obj_cmd[i].desc, dbuf, sizeof(obj_cmd[i].desc));
+    obj_cmd[i].flags = cmdlist[_o_c_idx].flags;
+}
+
 #define SET_OBJ_CMD(cname, cdesc, singular) \
-do {\
-    int _o_c_idx = get_command_idx(cname);\
-    char dbuf[80], nbuf[80];\
-    strncpy(obj_cmd[i].name, cname, sizeof(obj_cmd[i].name));\
-    snprintf(nbuf, 80, "%s %s", obj->quan > 1 ? \
-                  (singular ? "one of these" : "these") : "this", cxname(obj));\
-    snprintf(dbuf, 80, cdesc, nbuf);\
-    strncpy(obj_cmd[i].desc, dbuf, sizeof(obj_cmd[i].desc));\
-    obj_cmd[i].flags = cmdlist[_o_c_idx].flags;\
-    i++;\
-} while (0)
+    set_obj_cmd(obj_cmd, obj, i++, cname, cdesc, singular)
 
 #define SET_OBJ_CMD2(cname, cdesc) \
 do {\
@@ -1607,7 +1614,7 @@ nh_get_object_commands(int *count, char invlet)
     else if (obj->otyp == OIL_LAMP || obj->otyp == MAGIC_LAMP ||
              obj->otyp == BRASS_LANTERN)
         SET_OBJ_CMD("apply", "Light or extinguish %s", 0);
-    else if (obj->otyp == POT_OIL && objects[obj->otyp].oc_name_known)
+    else if (obj->otyp == POT_OIL)
         SET_OBJ_CMD("apply", "Light or extinguish %s", 0);
     else if (obj->otyp == EXPENSIVE_CAMERA)
         SET_OBJ_CMD2("apply", "Take a photograph");
@@ -1628,13 +1635,15 @@ nh_get_object_commands(int *count, char invlet)
         SET_OBJ_CMD("apply", "Blow into %s", 0);
     else if (obj->otyp == LAND_MINE || obj->otyp == BEARTRAP)
         SET_OBJ_CMD("apply", "Arm %s", 0);
-    else if (obj->otyp == PICK_AXE || obj->otyp == DWARVISH_MATTOCK)
+    else if (is_pick(obj))
         SET_OBJ_CMD("apply", "Dig with %s", 0);
-    else if (obj->oclass == WAND_CLASS)
-        SET_OBJ_CMD("apply", "Break %s", 0);
+    else if (is_axe(obj))
+        SET_OBJ_CMD("apply", "Chop a tree with %s", 0);
+    else if (is_pole(obj))
+        SET_OBJ_CMD("apply", "Strike at a distance with %s", 0);
 
     /* drop item, works on almost everything */
-    if (!(obj->owornmask & ~W_WEP))
+    if (!(obj->owornmask & (W_ARMOR | W_RING | W_AMUL | W_TOOL)))
         SET_OBJ_CMD("drop", "Drop %s", 0);
 
     /* dip */
@@ -1684,7 +1693,7 @@ nh_get_object_commands(int *count, char invlet)
         SET_OBJ_CMD("rub", "Rub something on %s", 0);
 
     /* throw item, works on almost everything */
-    if (!(obj->owornmask & ~W_WEP)) {
+    if (!(obj->owornmask & (W_ARMOR | W_RING | W_AMUL | W_TOOL))) {
         /* you automatically throw only 1 item - except for gold */
         if (obj->oclass == COIN_CLASS)
             SET_OBJ_CMD("throw", "Throw %s", 0);
@@ -1693,13 +1702,7 @@ nh_get_object_commands(int *count, char invlet)
     }
 
     /* unequip armor */
-    if (obj->oclass == ARMOR_CLASS && (obj->owornmask & W_ARMOR))
-        SET_OBJ_CMD("takeoff", "Take %s off", 0);
-    else if (obj->oclass == RING_CLASS && (obj->owornmask & W_RING))
-        SET_OBJ_CMD("remove", "Take %s off", 0);
-    else if (obj->oclass == AMULET_CLASS && (obj->owornmask & W_AMUL))
-        SET_OBJ_CMD("remove", "Take %s off", 0);
-    else if (obj->oclass == TOOL_CLASS && (obj->owornmask & W_TOOL))
+    if (obj->owornmask & (W_ARMOR | W_RING | W_AMUL | W_TOOL))
         SET_OBJ_CMD("remove", "Take %s off", 0);
 
     /* invoke */
@@ -1708,6 +1711,8 @@ nh_get_object_commands(int *count, char invlet)
         obj->otyp == MIRROR)   /* deception, according to
                                   object_selection_checks */
         SET_OBJ_CMD("invoke", "Try to invoke a unique power of %s", 0);
+    else if (obj->oclass == WAND_CLASS)
+        SET_OBJ_CMD("invoke", "Break %s", 0);
 
     /* wield: hold in hands, works on everything but with different advice
        text; not mentioned for things that are already wielded */
@@ -1747,6 +1752,17 @@ nh_get_object_commands(int *count, char invlet)
         else if (obj->otyp == CORPSE)
             SET_OBJ_CMD("sacrifice", "Sacrifice %s at this altar", 1);
     }
+
+    /* name object */
+    if (obj->oclass != COIN_CLASS)
+        SET_OBJ_CMD("name item", "Name %s", 0);
+
+    /* name type */
+    if (obj->oclass != COIN_CLASS && obj->oclass != WEAPON_CLASS &&
+        obj->oclass != ROCK_CLASS && obj->oclass != CHAIN_CLASS &&
+        obj->oclass != BALL_CLASS && obj->oclass != VENOM_CLASS)
+        set_obj_cmd(obj_cmd, obj, i++, "name type", "Name all objects of this type", false);
+        SET_OBJ_CMD("name type", "Name all objects of this type", 0);
 
     *count = i;
     return obj_cmd;
