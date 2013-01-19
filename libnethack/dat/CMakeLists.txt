@@ -91,7 +91,7 @@ add_custom_command (OUTPUT rumors
                     COMMAND ${MAKEDEFS_BIN}
                     ARGS -r ${LNH_DAT}/rumors.tru
                             ${LNH_DAT}/rumors.fal
-			    ${LNH_DAT}/rumors.pot rumors
+                            ${LNH_DAT}/rumors.pot rumors
                     DEPENDS makedefs)
 # makedefs -h
 add_custom_command (OUTPUT oracles
@@ -118,3 +118,5 @@ install(FILES ${LNH_DAT_GEN}/nhdat
         DESTINATION ${DATADIR})
 install(FILES license
         DESTINATION ${DATADIR})
+
+# vim:et

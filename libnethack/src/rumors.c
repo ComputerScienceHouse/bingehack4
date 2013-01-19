@@ -54,7 +54,7 @@ init_rumors(dlb * fp)
         dlb_fseek(fp, true_rumor_size, SEEK_CUR);
 
         dlb_fgets(line, sizeof line, fp);
-        sscanf(line, "%6lx\n", &false_rumor_size);
+        sscanf(line, "%6x\n", &false_rumor_size);
         dlb_fseek(fp, 0L, SEEK_CUR);
         false_rumor_start = dlb_ftell(fp);
         dlb_fseek(fp, false_rumor_size, SEEK_CUR);

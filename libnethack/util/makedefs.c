@@ -241,7 +241,7 @@ xcrypt(const char *str)
 void
 do_rumors(const char *in_tru, const char *in_false, const char *in_pot, const char *outfile)
 {
-    long true_rumor_size, false_rumor_size;
+    int true_rumor_size, false_rumor_size;
 
     if (!(ofp = fopen(outfile, WRTMODE))) {
         perror(outfile);
@@ -259,7 +259,7 @@ do_rumors(const char *in_tru, const char *in_false, const char *in_pot, const ch
     /* get size of true rumors file */
     fseek(ifp, 0L, SEEK_END);
     true_rumor_size = ftell(ifp);
-    fprintf(ofp, "%06lx\n", true_rumor_size);
+    fprintf(ofp, "%06x\n", true_rumor_size);
     fseek(ifp, 0L, SEEK_SET);
 
     /* copy true rumors */
@@ -280,7 +280,7 @@ do_rumors(const char *in_tru, const char *in_false, const char *in_pot, const ch
     fseek(ifp, 0L, SEEK_END);
     false_rumor_size = ftell(ifp);
 
-    fprintf(ofp, "%061x\n", false_rumor_size);
+    fprintf(ofp, "%06x\n", false_rumor_size);
     fseek(ifp, 0L, SEEK_SET);
 
     /* copy false rumors */
