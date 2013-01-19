@@ -1215,8 +1215,8 @@ mm_aggression(struct monst *magr,       /* monster that is currently deciding
     if(mdef->data->mlet==S_ANGEL && is_demon(magr->data))
         return ALLOW_M|ALLOW_TM;
 
-    /* woodchucks vs. The Oracle */
-    if(magr->data == &mons[PM_WOODCHUCK] && mdef->data == &mons[PM_ORACLE])
+    /* woodchucks vs. Potter */
+    if(magr->data == &mons[PM_WOODCHUCK] && mdef->data == &mons[PM_POTTER])
         return ALLOW_M|ALLOW_TM;
 
     /* ravens like eyes */

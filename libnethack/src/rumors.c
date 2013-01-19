@@ -32,8 +32,9 @@ static void init_rumors(dlb *);
 static void init_oracles(dlb *);
 static void outoracle(boolean, boolean);
 
-static int true_rumor_start, true_rumor_size, true_rumor_end, false_rumor_start,
-    false_rumor_size, false_rumor_end;
+static int true_rumor_start, true_rumor_size, true_rumor_end,
+            false_rumor_start, false_rumor_size, false_rumor_end,
+            potter_rumor_start, potter_rumor_size, potter_rumor_end;
 static int oracle_flg = 0;      /* -1=>don't use, 0=>need init, 1=>init done */
 static unsigned oracle_cnt = 0;
 static int *oracle_loc = 0;
@@ -50,10 +51,19 @@ init_rumors(dlb * fp)
         dlb_fseek(fp, 0L, SEEK_CUR);
         true_rumor_start = dlb_ftell(fp);
         true_rumor_end = true_rumor_start + true_rumor_size;
-        dlb_fseek(fp, 0L, SEEK_END);
+        dlb_fseek(fp, true_rumor_size, SEEK_CUR);
+
+        dlb_fgets(line, sizeof line, fp);
+        sscanf(line, "%6x\n", &false_rumor_size);
+        dlb_fseek(fp, 0L, SEEK_CUR);
+        false_rumor_start = dlb_ftell(fp);
+        dlb_fseek(fp, false_rumor_size, SEEK_CUR);
         false_rumor_end = dlb_ftell(fp);
-        false_rumor_start = true_rumor_end;     /* ok, so it's redundant... */
-        false_rumor_size = false_rumor_end - false_rumor_start;
+
+        potter_rumor_start = false_rumor_end;
+        dlb_fseek(fp, 0L, SEEK_END);
+        potter_rumor_end = dlb_ftell(fp);
+        potter_rumor_size = potter_rumor_end - potter_rumor_start;
     } else
         true_rumor_size = -1L;  /* init failed */
 }
@@ -64,7 +74,7 @@ init_rumors(dlb * fp)
  * of them contain such references anyway.
  */
 char *
-getrumor(int truth,     /* 1=true, -1=false, 0=either */
+getrumor(int truth,     /* 1=true, -1=false, 0=either 3=potter (truier than true)*/
          char *rumor_buf, boolean exclude_cookie, int *truth_out)
 {
     dlb *rumors;
@@ -92,12 +102,16 @@ getrumor(int truth,     /* 1=true, -1=false, 0=either */
                 }
             }
             /* 
-             *      input:      1    0   -1
-             *       rn2 \ +1  2=T  1=T  0=F
-             *       adj./ +0  1=T  0=F -1=F
+             *      input:      3    1    0   -1
+             *       rn2 \ +1  4=P  2=T  1=T  0=F
+             *       adj./ +0  3=P  1=T  0=F -1=F
              */
             switch (adjtruth = truth + rn2(2)) {
-            case 2:    /* (might let a bogus input arg sneak thru) */
+            case 4:    /* (might let a bogus input arg sneak thru) */
+            case 3:
+                beginning = potter_rumor_start;
+                tidbit = mt_random() % potter_rumor_size;
+                break;
             case 1:
                 beginning = true_rumor_start;
                 tidbit = mt_random() % true_rumor_size;
@@ -114,8 +128,13 @@ getrumor(int truth,     /* 1=true, -1=false, 0=either */
             dlb_fseek(rumors, beginning + tidbit, SEEK_SET);
             dlb_fgets(line, sizeof line, rumors);
             if (!dlb_fgets(line, sizeof line, rumors) ||
-                (adjtruth > 0 && dlb_ftell(rumors) > true_rumor_end)) {
+                ((adjtruth == 2 || adjtruth == 1) && dlb_ftell(rumors) > true_rumor_end)) {
                 /* reached end of rumors -- go back to beginning */
+                dlb_fseek(rumors, beginning, SEEK_SET);
+                dlb_fgets(line, sizeof line, rumors);
+            }
+            else if (!dlb_fgets(line, sizeof line, rumors) ||
+                        (adjtruth < 1 && dlb_ftell(rumors) > false_rumor_end)){
                 dlb_fseek(rumors, beginning, SEEK_SET);
                 dlb_fgets(line, sizeof line, rumors);
             }
@@ -141,7 +160,7 @@ getrumor(int truth,     /* 1=true, -1=false, 0=either */
 }
 
 void
-outrumor(int truth,     /* 1=true, -1=false, 0=either */
+outrumor(int truth,     /* 1=true, -1=false, 0=either 3=potter*/
          int mechanism)
 {
     static const char fortune_msg[] =
@@ -162,6 +181,9 @@ outrumor(int truth,     /* 1=true, -1=false, 0=either */
             return;
         }
     }
+    else{
+        truth=3; /* We're talking to Potter, we want the Potter quotes */
+    }
     line = getrumor(truth, buf, reading ? FALSE : TRUE, &truth_out);
     if (truth_out)
         exercise(A_WIS, truth_out == 1);
@@ -170,9 +192,9 @@ outrumor(int truth,     /* 1=true, -1=false, 0=either */
     switch (mechanism) {
     case BY_ORACLE:
         /* Oracle delivers the rumor */
-        pline("True to her word, the Oracle %ssays: ",
-              (!rn2(4) ? "offhandedly "
-               : (!rn2(3) ? "casually " : (rn2(2) ? "nonchalantly " : ""))));
+        pline("True to his word, Potter %ssays: ",
+              (!rn2(4) ? "nonchalantly "
+               : (!rn2(3) ? "casually " : (rn2(2) ? "excitedly " : ""))));
         verbalize("%s", line);
         return;
     case BY_COOKIE:
@@ -282,9 +304,9 @@ outoracle(boolean special, boolean delphi)
         if (delphi)
             add_menutext(&menu,
                          special ?
-                         "The Oracle scornfully takes all your money and says:"
+                         "Potter protests, but then takes your money and says:"
                          :
-                         "The Oracle meditates for a moment and then intones:");
+                         "Potter thinks for a second, and then announces in a gravelly voice:");
         else
             add_menutext(&menu, "The message reads:");
         add_menutext(&menu, "");
@@ -319,14 +341,14 @@ doconsult(struct monst *oracl)
         pline("There is no one here to consult.");
         return 0;
     } else if (!oracl->mpeaceful) {
-        pline("%s is in no mood for consultations.", Monnam(oracl));
+        pline("%s is not in the mood for conversation (believe it or not...)", Monnam(oracl));
         return 0;
     } else if (!umoney) {
-        pline("You have no money.");
+        pline("You have no money.  There's no free lunch in wireless... and in being an oracle!");
         return 0;
     }
 
-    sprintf(qbuf, "\"Wilt thou settle for a minor consultation?\" (%d %s)",
+    sprintf(qbuf, "\"Would you mind talking for a little bit?\" (%d %s)",
             minor_cost, currency(minor_cost));
     switch (ynq(qbuf)) {
     default:
@@ -334,7 +356,7 @@ doconsult(struct monst *oracl)
         return 0;
     case 'y':
         if (umoney < minor_cost) {
-            pline("You don't even have enough money for that!");
+            pline("You don't even have enough money for that! There's no free lunch in wireless... and in being an oracle!");
             return 0;
         }
         u_pay = minor_cost;
@@ -343,7 +365,7 @@ doconsult(struct monst *oracl)
         if (umoney <= minor_cost ||     /* don't even ask */
             (oracle_cnt == 1 || oracle_flg < 0))
             return 0;
-        sprintf(qbuf, "\"Then dost thou desire a major one?\" (%d %s)",
+        sprintf(qbuf, "\"Oh! You'd like to sit and talk for a _long_ while?\" (%d %s)",
                 major_cost, currency(major_cost));
         if (yn(qbuf) != 'y')
             return 0;
