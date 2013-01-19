@@ -642,7 +642,7 @@ struct level_map {
     {"juiblex", &juiblex_level},
     {"knox", &knox_level},
     {"medusa", &medusa_level},
-    {"oracle", &oracle_level},
+    {"Potter", &oracle_level},
     {"orcus", &orcus_level},
     {"rogue", &rogue_level},
     {"sanctum", &sanctum_level},

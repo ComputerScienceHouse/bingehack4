@@ -400,7 +400,7 @@ pick_lock(struct obj *pick, schar dx, schar dy, schar dz)
             && mtmp->m_ap_type != M_AP_FURNITURE &&
             mtmp->m_ap_type != M_AP_OBJECT) {
             if (picktyp == CREDIT_CARD &&
-                (mtmp->isshk || mtmp->data == &mons[PM_ORACLE]))
+                (mtmp->isshk || mtmp->data == &mons[PM_POTTER]))
                 verbalize("No checks, no credit, no problem.");
             else
                 pline("I don't think %s would appreciate that.", mon_nam(mtmp));
