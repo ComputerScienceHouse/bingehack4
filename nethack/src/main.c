@@ -55,35 +55,41 @@ static struct nh_menuitem mainmenu_items_noclient[] = {
     {EXITGAME, MI_NORMAL, "quit", 'q', 'x'}
 };
 
-const char *nhlogo_small[12] = {        /* created using pbmtoascii */
-    "                                                       oo               _d#,   ",
-    "MMM,   MM            oo    MM     MM                   MM             ,HMMP'   ",
-    "MMMM   MM            MM    MM     MM                   MM           ,HMMMM     ",
-    "MMMM|  MM    ,oo,   oMMoo  MM     MM   ,ooo      ,ooo  MM   oo,   .dMM*MMM     ",
-    "MM`MH  MM   dMMMMb  #MM##  MM     MM  |MMMMM,   dMM#M| MM  dMP   ,MMH' MMM     ",
-    "MM TM, MM  |MM' 9Mb  MM    MM#####MM  `'  `Mb  |MH' `' MM dMP  ,HMM?   ]MM##HMH",
-    "MM `Mb MM  MMboodMM  MM    MM\"\"\"\"\"MM    ,ooMM  MM'     MMMMP  ?MMMH##MMMMMH*\"'\"",
-    "MM  HM.MM  MMH#####  MM    MM     MM  .HMH#MM  MM      MMMMb  *###\"\"\"\"\"9MM|    ",
-    "MM  |MMMM  9Mb       MM    MM     MM  HM' .MM  9M?     MM 9Mb          |MM|    ",
-    "MM   MMMM  `MMbood|  MMoo  MM     MM  HMbdMMM  `MMb_d| MM `MMb          MMb    ",
-    "MM   `MMM   `9MMMP'  `MMM  MM     MM  `*MM'MM   `9MMM' MM  `MMb         ?MH    ",
+const char *nhlogo_small[14] = {
+    "  CCCCCCCCCCCCCCCCC                                                           ",
+    " CCCCCCCCCCCCCCCCCCCC    HHH                                                  ",
+    "CCC               CCC    HHH                                                  ",
+    "CCC   SSSSSSSSS          HHH                                                  ",
+    "CCC   SSS   SSS   HHH    HHH  ____  _                  _    _            _    ",
+    "CCC   SSS         HHH    HHH |  _ \\(_)                | |  | |          | |   ",
+    "CCC   SSSSSSSSS   HHHHHHHHHH | |_) |_ _ __   __ _  ___| |__| | __ _  ___| | __",
+    "CCC   SSSSSSSSS   HHHHHHHHHH |  _ <| | '_ \\ / _` |/ _ \\  __  |/ _` |/ __| |/ /",
+    "CCC         SSS   HHH    HHH | |_) | | | | | (_| |  __/ |  | | (_| | (__|   < ",
+    "CCC   SSS   SSS   HHH    HHH |____/|_|_| |_|\\__, |\\___|_|  |_|\\__,_|\\___|_|\\_\\",
+    "CCC   SSSSSSSSS          HHH                 __/ |                            ",
+    "CCC               CCC    HHH                |___/                             ",
+    " CCCCCCCCCCCCCCCCCCCC    HHH                                                  ",
+    "  CCCCCCCCCCCCCCCCCC                                                          "
 };
 
-const char *nhlogo_large[14] = {
-    "                                                                     ooo                   .##.    ",
-    "####     ##b                      ###     ###                        MMM                 dMMMM'    ",
-    "MMMMb    MMM              MMM     MMM     MMM                        MMM              .dHMMMM'     ",
-    "MMMMM.   MMM              MMM     MMM     MMM                        MMM             oHMMMMMT      ",
-    "MMMMM|   MMM     ooo,    oMMMoo,  MMM     MMM    ,oooo        oooo,  MMM   ooo,    .dMMH*MMM|      ",
-    "MMM\"MH|  MMM   JMMMMMM.  MMMMMM|  MMM     MMM   dMMMMMM_    _MMMMMM  MMM  JMM|    JMMMH  MMM|      ",
-    "MMM 9M|  MMM  |MMM\"\"MMH   MMM     MMMoooooMMM  |MP\"\"\"TMM   |MMP' \"9  MMM |MMT   oHMMP\"   9MMbooo##b",
-    "MMM |MM  MMM  dMM'  |MMM  MMM     MMMMMMMMMMM         MMH  MMH'      MMMdMM\"  .dMMMR:_,ooHMMMMMMM##",
-    "MMM `MM| MMM  MMM###HMMM  MMM     MMM\"\"\"\"\"MMM    .o###MMM  MM|       MMMMMT  ,dMMMMMMMMMMMMMH*'\"\"  ",
-    "MMM  HML MMM  MMM#######  MMM     MMM     MMM   ,MMM##MMM  MM|       MMMMMb  `*###*\"\"\"'  9MMM      ",
-    "MMM  |MMMMMM  HMM.        MMM     MMM     MMM  ,MM*'  MMM  MMH       MMM|HMM.            |MMM|     ",
-    "MMM   |MMMMM  |MMH    ?b  MMM     MMM     MMM  |MM\\ ,dMMM  TMMb,  d  MMM |MMH            `MMM|     ",
-    "MMM   `MMMMM   9MMMMMMMH  `MMMM|  MMM     MMM  `9MMMMPMMM   \"MMM#MM  MMM  9MMb,           #MMM     ",
-    "###    ?####   `\"#####'    ?###|  ###     ###    `##' ###    \"####?  ###  `###b            *#*     ",
+const char *nhlogo_large[17] = {
+    "  CCCCCCCCCCCCCCCCCCCCC                                                                ",
+    " CCCCCCCCCCCCCCCCCCCCCCC                                                               ",
+    "CCCCC               CCCCC     HHHHH                                                    ",
+    "CCCCC    SSSSSSS    CCCCC     HHHHH                                                    ",
+    "CCCCC   SSSSSSSSS             HHHHH                                                    ",
+    "CCCCC  SSSS   SSSS  HHHHH     HHHHH    ____  _                  _    _            _    ",
+    "CCCCC  SSSS         HHHHH     HHHHH   |  _ \\(_)                | |  | |          | |   ",
+    "CCCCC    SSSS       HHHHHHHHHHHHHHH   | |_) |_ _ __   __ _  ___| |__| | __ _  ___| | __",
+    "CCCCC      SSSS     HHHHHHHHHHHHHHH   |  _ <| | '_ \\ / _` |/ _ \\  __  |/ _` |/ __| |/ /",
+    "CCCCC        SSSS   HHHHHHHHHHHHHHH   | |_) | | | | | (_| |  __/ |  | | (_| | (__|   < ",
+    "CCCCC         SSSS  HHHHH     HHHHH   |____/|_|_| |_|\\__, |\\___|_|  |_|\\__,_|\\___|_|\\_\\",
+    "CCCCC  SSSS   SSSS  HHHHH     HHHHH                   __/ |                            ",
+    "CCCCC   SSSSSSSSS             HHHHH                  |___/                             ",
+    "CCCCC    SSSSSSS    CCCCC     HHHHH                                                    ",
+    "CCCCC               CCCCC     HHHHH                                                    ",
+    " CCCCCCCCCCCCCCCCCCCCCCC                                                               ",
+    "  CCCCCCCCCCCCCCCCCCCCC                                                                "
 };
 
 #ifdef UNIX
