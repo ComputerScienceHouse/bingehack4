@@ -283,6 +283,7 @@ dosinkring(struct obj *obj)
         goto giveback;
     case RIN_SLOW_DIGESTION:
         if (obj->oartifact == ART_RING_OF_POWER){
+            suppress_more();
             You_hear("unintelligible whispers");
             break;
         } else {
