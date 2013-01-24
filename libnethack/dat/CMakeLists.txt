@@ -58,7 +58,7 @@ endmacro(quest_file)
 # DoD
 level_file(INPUT oracle.des OUTPUTS oracle)
 level_file(INPUT bigroom.des OUTPUTS bigrm-1 bigrm-2 bigrm-3 bigrm-4 bigrm-5 bigrm-6 bigrm-7 bigrm-8)
-level_file(INPUT medusa.des OUTPUTS medusa-1 medusa-2)
+level_file(INPUT medusa.des OUTPUTS medusa-1 medusa-2 medusa-3 medusa-4)
 level_file(INPUT castle.des OUTPUTS castle-1 castle-2 castle-3)
 
 # Mines
