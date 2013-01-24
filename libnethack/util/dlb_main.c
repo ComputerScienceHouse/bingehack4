@@ -38,7 +38,7 @@ static const char *list_file = LIBLISTFILE;
 # define O_BINARY 0
 #endif
 
-#define MAX_DLB_FILES 200       /* max # of files we'll handle */
+#define MAX_DLB_FILES 1000       /* max # of files we'll handle */
 #define DLB_VERS 1      /* version of dlb file we will write */
 
 /*
