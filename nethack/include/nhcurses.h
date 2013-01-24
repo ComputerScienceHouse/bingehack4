@@ -298,7 +298,7 @@ extern struct nh_player_info player;
 extern int initrole, initrace, initgend, initalign;
 extern nh_bool random_player;
 extern struct nh_cmd_desc *keymap[KEY_MAX];
-extern const char *nhlogo_small[12], *nhlogo_large[14];
+extern const char *nhlogo_small[14], *nhlogo_large[17];
 extern char *override_hackdir, *override_userdir;
 
 /*----------------------------------------------------------------------------*/

@@ -456,6 +456,8 @@ object_dlevel(struct obj *obj)
     default:
         panic("Object is nowhere in object_dlevel");
     }
+    /* This should not occur, but silence warnings */
+    return 0;
 }
 
 /* used by revive() and animate_statue() */
@@ -1840,9 +1842,9 @@ backfire(struct obj *otmp)
          * Artifacts aren't destroyed by a backfire, but the
          * explosion is more violent.
          */
-        pline("%s suddently produces a violent outburst of energy!",
+        pline("%s suddenly produces a violent outburst of energy!",
               The(xname(otmp)));
-        losehp(dice(otmp->spe + 4, 8), "oubursting wand", KILLED_BY_AN);
+        losehp(dice(otmp->spe + 4, 8), "outbursting wand", KILLED_BY_AN);
     } else {
         pline("%s suddenly explodes!", The(xname(otmp)));
         losehp(dice(otmp->spe + 2, 6), "exploding wand", KILLED_BY_AN);
@@ -2082,6 +2084,9 @@ zapyourself(struct obj *obj, boolean ordinary)
     case WAN_TELEPORTATION:
     case SPE_TELEPORT_AWAY:
         tele();
+        if (Teleport_control || !couldsee(u.ux0, u.uy0) ||
+            (distu(u.ux0, u.uy0) >= 16))
+            makeknown(obj->otyp);
         break;
 
     case WAN_DEATH:
@@ -3653,7 +3658,7 @@ zap_over_floor(xchar x, xchar y, int type, boolean * shopdamage)
     } else if (abstype == ZT_COLD &&
                (is_pool(level, x, y) || is_lava(level, x, y))) {
         boolean lava = is_lava(level, x, y);
-        boolean moat = !strcmp(waterbody_name(x, y), "moat");
+        boolean moat = is_moat(level, x, y);
 
         if (loc->typ == WATER) {
             /* For now, don't let WATER freeze. */

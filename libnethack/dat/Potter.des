@@ -1,9 +1,9 @@
 # NetHack may be freely redistributed.  See license for details.
 #
-# Oracle level
+# Potter level
 #
 
-LEVEL: "oracle"
+LEVEL: "Potter"
 
 ROOM: "ordinary" , lit, (3,3), (center,center), (11,9)
 NAME: "central"
@@ -23,7 +23,7 @@ FOUNTAIN: (0, 1)
 FOUNTAIN: (1, 0)
 FOUNTAIN: (1, 2)
 FOUNTAIN: (2, 1)
-MONSTER: '@', "Oracle", (1,1)
+MONSTER: '@', "Potter", (1,1)
 DOOR: false , nodoor , random, random
 
 ROOM: "ordinary" , random, random, random, random

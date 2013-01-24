@@ -58,7 +58,7 @@ void do_date(const char *, int);
 void do_monstr(const char *);
 void do_permonst(const char *);
 void do_questtxt(const char *, const char *);
-void do_rumors(const char *, const char *, const char *);
+void do_rumors(const char *, const char *, const char*, const char *);
 void do_oracles(const char *, const char *);
 
 static void make_version(void);
@@ -108,7 +108,7 @@ static const char *usage_info[] = {
 static noreturn void
 usage(char *argv0, char mode, int expected)
 {
-    int i;
+    size_t i;
 
     if (expected)
         fprintf(stderr,
@@ -192,9 +192,9 @@ main(int argc, char *argv[])
 
     case 'r':
     case 'R':
-        if (argc != 5)
-            usage(argv[0], argv[1][1], 5);
-        do_rumors(argv[2], argv[3], argv[4]);
+        if (argc != 6)
+            usage(argv[0], argv[1][1], 6);
+        do_rumors(argv[2], argv[3], argv[4], argv[5]);
         break;
 
     case 'h':
@@ -237,9 +237,9 @@ xcrypt(const char *str)
 }
 
 void
-do_rumors(const char *in_tru, const char *in_false, const char *outfile)
+do_rumors(const char *in_tru, const char *in_false, const char *in_pot, const char *outfile)
 {
-    long true_rumor_size;
+    int true_rumor_size, false_rumor_size;
 
     if (!(ofp = fopen(outfile, WRTMODE))) {
         perror(outfile);
@@ -257,7 +257,7 @@ do_rumors(const char *in_tru, const char *in_false, const char *outfile)
     /* get size of true rumors file */
     fseek(ifp, 0L, SEEK_END);
     true_rumor_size = ftell(ifp);
-    fprintf(ofp, "%06lx\n", true_rumor_size);
+    fprintf(ofp, "%06x\n", true_rumor_size);
     fseek(ifp, 0L, SEEK_SET);
 
     /* copy true rumors */
@@ -273,7 +273,28 @@ do_rumors(const char *in_tru, const char *in_false, const char *outfile)
         exit(EXIT_FAILURE);
     }
 
+    /* Because of Potter, we need to put the number of bytes of false rumors
+     * in the rumors file */
+    fseek(ifp, 0L, SEEK_END);
+    false_rumor_size = ftell(ifp);
+
+    fprintf(ofp, "%06x\n", false_rumor_size);
+    fseek(ifp, 0L, SEEK_SET);
+
     /* copy false rumors */
+    while (fgets(in_line, sizeof in_line, ifp) != 0)
+        fputs(xcrypt(in_line), ofp);
+
+    fclose(ifp);
+
+    if (!(ifp = fopen(in_pot, RDTMODE))) {
+        perror(in_pot);
+        fclose(ofp);
+        unlink(in_pot);
+        exit(EXIT_FAILURE);
+    }
+
+    /* copy potter rumors */
     while (fgets(in_line, sizeof in_line, ifp) != 0)
         fputs(xcrypt(in_line), ofp);
 
@@ -525,15 +546,20 @@ h_filter(char *line)
 
 static const char *special_oracle[] = {
     "\"...it is rather disconcerting to be confronted with the",
-    "following theorem from [Baker, Gill, and Solovay, 1975].",
+    "following theorem from [Shannon and Hartley, 1949].",
     "",
-    "Theorem 7.18  There exist recursive languages A and B such that",
-    "  (1)  P(A) == NP(A), and",
-    "  (2)  P(B) != NP(B)",
+    "Figure 1",
+    "      C = B log2(1+S/N)",
+    "  Where:",
+    "   - C is the channel capacity in bits per second",
+    "   - B is the bandwidth in hertz",
+    "   - S is the received signal power in watts",
+    "   - N is the received noise power in watts",
     "",
-    "This provides impressive evidence that the techniques that are",
-    "currently available will not suffice for proving that P != NP or          ",
-    "that P == NP.\"  [Garey and Johnson, p. 185.]"
+    "Considering all possible multi-level & multi-phase encoding techniques,",
+    "the theoretical tightest upper bound on the information rate does not ",
+    "increase satisfactorily at all with vastly increased signal power, given",
+    "any situation with a real-world noise rate.\""
 };
 
 /*
