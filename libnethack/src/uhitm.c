@@ -27,6 +27,20 @@ static int dieroll;
 
 #define PROJECTILE(obj) ((obj) && is_ammo(obj))
 
+/* Drunken Boxing non-damage conditions */
+enum {
+    DRUNK_THEFT = 0,
+    DRUNK_BLIND = 1,
+    DRUNK_ENTANGLE = 2,
+    /*
+     * This should always be the last item, and should be increased
+     * when adding a new drunken boxing outcome.  
+     */
+    DRUNK_NOTHING = 3
+};
+
+#define BLIND_TIME 25 /* Must be less than 127 (mon->mblinded is only 7 bits) */
+
 /* modified from hurtarmor() in mhitu.c */
 /* This is not static because it is also used for monsters rusting monsters */
 void
@@ -403,12 +417,19 @@ atk_done:
     return TRUE;
 }
 
+boolean
+drunkenboxing()
+{
+  return flags.drunken_boxing && Confusion && !uwep && u.weapon_skills[P_MARTIAL_ARTS].skill == P_GRAND_MASTER && !Upolyd && Role_if(PM_MONK);
+}
+
 /* returns TRUE if monster still lives */
 static boolean
 known_hitum(struct monst *mon, int *mhit, const struct attack *uattk, schar dx,
             schar dy)
 {
     boolean malive = TRUE;
+    int chance;
 
     /* AceHack patch: trying to hit a floating eye screws up if it can see, you 
        can see it, and you don't have free action; this is considerably less
@@ -466,6 +487,76 @@ known_hitum(struct monst *mon, int *mhit, const struct attack *uattk, schar dx,
                 cutworm(mon, x, y, uwep);
         }
     }
+
+    /* Don't do these on pets, or on dead things. */
+    if (drunkenboxing() && !mon->mtame && malive && *mhit) {
+            int tmp;
+            char msg[BUFSZ];
+            struct obj *dbobj;
+
+            /* You get a 1/4 chance to do *something* when attacking. */
+            chance = rnd(((DRUNK_NOTHING + 1) * 4) - 1);
+            switch(chance) {
+                    case DRUNK_THEFT:
+                            sprintf(msg, "Siezing an opportunity, you rifle through the %s's pack!", mon->data->mname);
+                            dbobj = display_minventory(mon, MINV_ALL, msg);
+                            if (dbobj) {
+                                    if (!dbobj->owornmask) {
+                                            /*
+                                            * Free it from the monster's inventory
+                                            * chain before we add it to the
+                                            * hero's.  Don't use steal_it() as
+                                            * that is too complicated for our
+                                            * purposes.
+                                            */
+                                            obj_extract_self(dbobj);
+                                            hold_another_object(dbobj, "You stole but dropped %s.", doname(dbobj), "You stole a ");
+                                    }
+                                    else
+                                            pline("You can't steal that item.");
+                            }
+                            else
+                                    pline("You stole nothing.");
+
+                            return(malive);
+                            break;
+                    case DRUNK_BLIND:
+                            if (can_blnd(&youmonst, mon, AT_CLAW, NULL)) {
+                                    pline("You poke the %s in the eye for good measure.", mon->data->mname);
+                                    mon->mcansee = 0;
+                                    tmp = rn1(25, 21);
+                                    /*
+                                     * Continuous blinding strikes
+                                     * accumulate, but never more
+                                     * than 127.
+                                     */
+                                    if(((int) mon->mblinded + tmp) > 127)
+                                            mon->mblinded = 127;
+                                    else
+                                            mon->mblinded += tmp;
+                            }
+                            else
+                                    pline("You try to poke the %s in the eye, but can't.", mon->data->mname);
+
+                            return(malive);
+                            break;
+                    case DRUNK_ENTANGLE:
+                            dbobj = random_type(ARMOR_CLASS, mon);
+                            if (dbobj) {
+                                    if (dbobj->owornmask) {
+                                            pline("You grapple with the %s and remove %s.", mon->data->mname, doname(dbobj));
+                                            update_mon_intrinsics(mon, dbobj, FALSE, FALSE);
+                                            dbobj->owornmask = 0L;
+                                    }
+                            }
+                            else
+                                    pline("You attempt to disrobe the %s but fail.", mon->data->mname);
+
+                            return(malive);
+                            break;
+            }
+    }
+
     return malive;
 }
 

@@ -630,6 +630,7 @@ extern const char *hist_lev_name(const d_level * l, boolean in_or_on);
 
 /* ### invent.c ### */
 
+extern struct obj *random_type(int, struct monst *);
 extern void assigninvlet(struct obj *);
 extern struct obj *merge_choice(struct obj *, struct obj *);
 extern int merged(struct obj **, struct obj **);
@@ -1690,6 +1691,7 @@ extern void save_you(struct memfile *mf, struct you *y);
 
 /* ### uhitm.c ### */
 
+extern boolean drunkenboxing();
 extern void hurtmarmor(struct monst *, int);
 extern boolean attack_checks(struct monst *, struct obj *, schar, schar);
 extern void check_caitiff(struct monst *);

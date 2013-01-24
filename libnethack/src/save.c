@@ -182,6 +182,7 @@ save_flags(struct memfile *mf)
     mwrite8(mf, flags.bones_enabled);
     mwrite8(mf, flags.permablind);
     mwrite8(mf, flags.permahallu);
+    mwrite8(mf, flags.drunken_boxing);
 
     mwrite(mf, flags.inv_order, sizeof (flags.inv_order));
 }
