@@ -69,8 +69,10 @@ level_file(INPUT mines.des
 
 # Sokoban
 level_file(INPUT sokoban.des
-           OUTPUTS soko1-1 soko1-2 soko2-1 soko2-2
-                   soko3-1 soko3-2 soko4-1 soko4-2)
+           OUTPUTS soko1-1 soko1-2 soko1-3 soko1-4
+                   soko2-1 soko2-2 soko2-3 soko2-4 soko2-5 soko2-6 soko2-7
+                   soko3-1 soko3-2 soko3-3 soko3-4 soko3-5 soko3-6 soko3-7
+                   soko4-1 soko4-2 soko4-3 soko4-4 soko4-5 soko4-6 soko4-7 soko4-8 soko4-9)
 
 # Quests
 quest_file(Arc Arch.des)
