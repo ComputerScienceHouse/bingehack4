@@ -87,6 +87,42 @@ assigninvlet(struct obj *otmp)
 /* note: assumes ASCII; toggling a bit puts lowercase in front of uppercase */
 #define inv_rank(o) ((o)->invlet ^ 040)
 
+/* Return a random item from the specified monster's inventory. */
+/* NOTE: This can be you or a monster. */
+/* Types are defined in include/objclass.h. */
+struct obj *
+random_type(type, monster)
+int type;
+struct monst *monster;
+{
+	struct obj *otmp;
+	int count = 0, matches = 0;
+	int sel;
+
+	if (!monster->minvent || type > MAXOCLASSES)
+		return(NULL);
+
+	for (otmp = monster->minvent; otmp; otmp = otmp->nobj) {
+		count++;
+		if (otmp->oclass == type)
+			matches++;
+	}
+
+	if (matches == 0)
+		return(NULL);
+
+	sel = rnd(matches);
+	for (otmp = monster->minvent; otmp; otmp = otmp->nobj) {
+		if (otmp->oclass == type) {
+			sel--;
+			if (sel == 0)
+				break;
+		}
+	}
+
+	return(otmp);
+}
+
 /* sort the inventory; used by addinv() and doorganize() */
 extern void
 reorder_invent(void)

@@ -185,6 +185,7 @@ static const struct nh_option_desc const_birth_options[] = {
     {"bones", "allow bones levels", OPTTYPE_BOOL, {VTRUE}},
     {"permablind", "spend the whole game blind", OPTTYPE_BOOL, {FALSE}},
     {"permahallu", "spend the whole game hallucinating", OPTTYPE_BOOL, {FALSE}},
+    {"drunkbox", "grand master martial artists can drunken box", OPTTYPE_BOOL, { .b = TRUE}},
     {"legacy", "print introductory message", OPTTYPE_BOOL, {VTRUE}},
     {"align", "your starting alignment", OPTTYPE_ENUM, {(void *)ROLE_NONE}},
     {"gender", "your starting gender", OPTTYPE_ENUM, {(void *)ROLE_NONE}},
@@ -221,6 +222,7 @@ static const struct nh_boolopt_map boolopt_map[] = {
     {"verbose", &flags.verbose},
 
     /* birth options */
+    {"drunkbox", &flags.drunken_boxing},
     {"elbereth", &flags.elbereth_enabled},
     {"reincarnation", &flags.rogue_enabled},
     {"seduction", &flags.seduce_enabled},
