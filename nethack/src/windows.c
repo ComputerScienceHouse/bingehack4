@@ -5,6 +5,10 @@
 #include "nhcurses.h"
 #include <signal.h>
 #include <locale.h>
+#include <errno.h>
+#include <stdio.h>
+#include <assert.h>
+#include <stdbool.h>
 
 #if !defined(PDCURSES)
 /*
@@ -401,7 +405,10 @@ nh_wgetch(WINDOW * win)
 
     doupdate(); /* required by pdcurses, noop for ncurses */
     do {
+        errno = 0;
         key = wgetch(win);
+        int saved_errno = errno;
+
 #ifdef UNIX
         if (key == 0x3 && ui_flags.playmode == MODE_WIZARD) {
             /* we're running in raw mode, so ctrl+c doesn't work. for wizard we 
@@ -434,6 +441,22 @@ nh_wgetch(WINDOW * win)
         }
 #endif
 
+        if (key == ERR) {
+            errno = saved_errno;
+            if (errno != 0 || win == NULL) {
+                endwin();
+                if (errno != 0) {
+                    perror("wgetch");
+                } else if (win == NULL) {
+                    fprintf(stderr, "wgetch: Attempt to getch from NULL window\n");
+                } else {
+                    assert(false);
+                }
+                exit(EXIT_FAILURE);
+            } else {
+                // wgetch's timeout expired
+            }
+        }
     } while (!key);
 
 #if defined(PDCURSES)
