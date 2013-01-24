@@ -331,6 +331,16 @@ make_corpse(struct monst *mtmp)
     obj->oinvis = mtmp->minvis;
 #endif
 
+    if (flags.drunken_boxing) {
+        /* 1/20 chance to grab the corpse as it's falling. */
+        int chance = rnd(20);
+        if (chance == 1) {
+                obj_extract_self(obj);
+                hold_another_object(obj, "You try to catch %s but drop it.", doname(obj), "You catch and wield a ");
+                setuwep(obj);
+        }
+    }
+
     stackobj(obj);
     newsym(x, y);
     return obj;

@@ -106,6 +106,7 @@ struct flag {
     boolean bones_enabled;      /* allow loading bones levels */
     boolean permablind; /* stay permanently blind */
     boolean permahallu; /* stay permanently hallucinating */
+    boolean drunken_boxing;     /* allow drunken boxing */
 };
 
 
