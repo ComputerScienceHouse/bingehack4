@@ -20,9 +20,7 @@ struct u_have {
     unsigned book:1;    /* carrying Book */
     unsigned menorah:1; /* carrying Candelabrum */
     unsigned questart:1;        /* carrying the Quest Artifact */
-    unsigned ring_of_power:1;       /* carrying Ring of Power */
-    unsigned ring_of_power_worn:1;  /* wearing Ring of Power */
-    unsigned unused:1;
+    unsigned unused:3;
 };
 
 struct u_event {

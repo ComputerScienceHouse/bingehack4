@@ -645,7 +645,7 @@ Ring_on(struct obj *obj)
        same type */
     if ((oldprop & W_RING) != W_RING)
         oldprop &= ~W_RING;
-    if (obj->oartifact == ART_RING_OF_POWER && !obj->cursed) curse(obj);
+
     switch (obj->otyp) {
     case RIN_TELEPORTATION:
     case RIN_REGENERATION:
@@ -663,11 +663,6 @@ Ring_on(struct obj *obj)
     case RIN_POLYMORPH_CONTROL:
     case RIN_FREE_ACTION:
     case RIN_SLOW_DIGESTION:
-        if (obj->oartifact != ART_RING_OF_POWER &&
-            !oldprop && !HInvis && !BInvis && !Blind) {
-            newsym(u.ux,u.uy);
-            self_invis_message();
-        }
     case RIN_SUSTAIN_ABILITY:
     case MEAT_RING:
         break;
@@ -774,15 +769,6 @@ Ring_off_or_gone(struct obj *obj, boolean gone)
     case RIN_POLYMORPH_CONTROL:
     case RIN_FREE_ACTION:
     case RIN_SLOW_DIGESTION:
-        if (obj->oartifact != ART_RING_OF_POWER && 
-            !Invis && !BInvis && !Blind) {
-            newsym(u.ux,u.uy);
-            pline("Your body seems to unfade%s", 
-                 See_invisible ? " completely" : "...");
-            if (gone) {
-                u.uhave.ring_of_power = 0;
-            }
-        }
     case RIN_SUSTAIN_ABILITY:
     case MEAT_RING:
         break;
@@ -1100,16 +1086,12 @@ cursed(struct obj *otmp)
 {
     /* Curses, like chickens, come home to roost. */
     if ((otmp == uwep) ? welded(otmp) : (int)otmp->cursed) {
-        if (otmp->oartifact == ART_RING_OF_POWER){
-            pline("You are compelled not to remove the precious");
-        } else {
-            pline("You can't.  %s cursed.",
-                (is_boots(otmp) || is_gloves(otmp) || otmp->otyp == LENSES ||
-                otmp->quan > 1L)
-                ? "They are" : "It is");
-            otmp->bknown = TRUE;
-            return 1;
-        }
+        pline("You can't.  %s cursed.",
+              (is_boots(otmp) || is_gloves(otmp) || otmp->otyp == LENSES ||
+               otmp->quan > 1L)
+              ? "They are" : "It is");
+        otmp->bknown = TRUE;
+        return 1;
     }
     return 0;
 }
@@ -1483,10 +1465,6 @@ doputon(struct obj *otmp)
         }
         if (otmp->oartifact && !touch_artifact(otmp, &youmonst))
             return 1;   /* costs a turn even though it didn't get worn */
-        if (otmp->oartifact == ART_RING_OF_POWER){
-            if (u.uhave.ring_of_power_worn) impossible("already wearing the ring of power?");
-            u.uhave.ring_of_power_worn = 1;
-        }
         setworn(otmp, mask);
         Ring_on(otmp);
     } else if (otmp->oclass == AMULET_CLASS) {
@@ -1888,14 +1866,6 @@ do_takeoff(void)
         otmp = uright;
         if (!cursed(otmp))
             Ring_off(uright);
-    } else if (taking_off == LEFT_RING || taking_off == RIGHT_RING) {
-        otmp = taking_off == LEFT_RING ? uleft : uright;
-        if (!cursed(otmp))
-            Ring_off(otmp);
-        if (otmp->oartifact == ART_RING_OF_POWER) {
-            if (!u.uhave.ring_of_power_worn) impossible("not wearing the ring of power?");
-            u.uhave.ring_of_power_worn = 0;
-        }
     } else if (taking_off == WORN_BLINDF) {
         if (!cursed(ublindf))
             Blindf_off(ublindf);

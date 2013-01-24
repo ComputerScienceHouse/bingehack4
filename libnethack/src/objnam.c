@@ -2214,8 +2214,8 @@ readobjnam(char *bp, struct obj *no_wish, boolean from_user)
         strncmpi(bp, "food detection", 14) && strncmpi(bp, "ring mail", 9) &&
         strncmpi(bp, "studded leather arm", 19) &&
         strncmpi(bp, "leather arm", 11) && strncmpi(bp, "tooled horn", 11) &&
-        strncmpi(bp, "food ration", 11) && strncmpi(bp, "meat ring", 9) &&
-        strncmpi(bp, "ring of power", 13))
+        strncmpi(bp, "food ration", 11) && strncmpi(bp, "meat ring", 9)
+        )
         for (i = 0; i < (int)(sizeof wrpsym); i++) {
             int j = strlen(wrp[i]);
 
@@ -2240,12 +2240,14 @@ readobjnam(char *bp, struct obj *no_wish, boolean from_user)
                 goto srch;
             }
         }
+
     /* "grey stone" check must be before general "stone" */
     for (i = 0; i < SIZE(o_ranges); i++)
         if (!strcmpi(bp, o_ranges[i].name)) {
             typ = rnd_class(o_ranges[i].f_o_range, o_ranges[i].l_o_range);
             goto typfnd;
         }
+
     if (!BSTRCMPI(bp, p - 6, " stone")) {
         p[-6] = 0;
         oclass = GEM_CLASS;

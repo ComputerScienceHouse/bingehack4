@@ -1858,10 +1858,6 @@ doeat(struct obj *otmp)
         stackobj(otmp);
         return 1;
     }
-    if (otmp->oartifact == ART_RING_OF_POWER) {
-        pline("You have a feeling your stomach is not quite as hot at the fires of Mount Doom.");
-        return 1;
-    }
     /* KMH -- Slow digestion is... indigestible */
     if (otmp->otyp == RIN_SLOW_DIGESTION) {
         pline("This ring is indigestible!");

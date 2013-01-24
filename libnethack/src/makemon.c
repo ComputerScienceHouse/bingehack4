@@ -175,7 +175,6 @@ m_initweap(struct monst *mtmp)
 /*
  * first a few special cases:
  *
- *      hobbits get the ring of power sometimes
  *      giants get a boulder to throw sometimes.
  *      ettins get clubs
  *      kobolds get darts to throw
@@ -318,12 +317,6 @@ m_initweap(struct monst *mtmp)
                 mongets(mtmp, ELVEN_MITHRIL_COAT);
             if (!rn2(10))
                 mongets(mtmp, DWARVISH_CLOAK);
-            if (!rn2(60) && !exist_artifact(RIN_SLOW_DIGESTION, artiname(ART_RING_OF_POWER))) {
-                otmp = mksobj(level, RIN_SLOW_DIGESTION, FALSE, FALSE);
-                otmp->quan = 1L;
-                otmp = oname(otmp, artiname(ART_RING_OF_POWER));
-                (void) mpickobj(mtmp, otmp);
-            }
         } else if (is_dwarf(ptr)) {
             if (rn2(7))
                 mongets(mtmp, DWARVISH_CLOAK);
