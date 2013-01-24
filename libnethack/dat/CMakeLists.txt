@@ -35,14 +35,18 @@ set (COMPILED_LEVELS
     air.lev      Arc-fila.lev Arc-filb.lev Arc-goal.lev
     Arc-loca.lev Arc-strt.lev asmodeus.lev astral.lev
     baalz.lev    Bar-fila.lev Bar-filb.lev Bar-goal.lev
-    Bar-loca.lev Bar-strt.lev bigrm-1.lev  bigrm-2.lev
-    bigrm-3.lev  bigrm-4.lev  bigrm-5.lev  castle.lev
+    Bar-loca.lev Bar-strt.lev
+    bigrm-1.lev  bigrm-2.lev bigrm-3.lev  bigrm-4.lev 
+    bigrm-5.lev  bigrm-6.lev bigrm-7.lev  bigrm-8.lev
+    castle-1.lev castle-2.lev castle-3.lev 
     Cav-fila.lev Cav-filb.lev Cav-goal.lev Cav-loca.lev
     Cav-strt.lev earth.lev    fakewiz1.lev fakewiz2.lev
     fire.lev     Hea-fila.lev Hea-filb.lev Hea-goal.lev
     Hea-loca.lev Hea-strt.lev juiblex.lev  Kni-fila.lev
     Kni-filb.lev Kni-goal.lev Kni-loca.lev Kni-strt.lev
-    knox.lev     medusa-1.lev medusa-2.lev minefill.lev
+    knox.lev     
+    medusa-1.lev medusa-2.lev medusa-3.lev medusa-4.lev
+    minefill.lev
     minend-1.lev minend-2.lev minend-3.lev minetn-1.lev
     minetn-2.lev minetn-3.lev minetn-4.lev minetn-5.lev
     minetn-6.lev minetn-7.lev Mon-fila.lev Mon-filb.lev
@@ -52,9 +56,14 @@ set (COMPILED_LEVELS
     Ran-goal.lev Ran-loca.lev Ran-strt.lev Rog-fila.lev
     Rog-filb.lev Rog-goal.lev Rog-loca.lev Rog-strt.lev
     Sam-fila.lev Sam-filb.lev Sam-goal.lev Sam-loca.lev
-    Sam-strt.lev sanctum.lev  soko1-1.lev  soko1-2.lev
-    soko2-1.lev  soko2-2.lev  soko3-1.lev  soko3-2.lev
-    soko4-1.lev  soko4-2.lev  Tou-fila.lev Tou-filb.lev
+    Sam-strt.lev sanctum.lev
+    soko1-1.lev  soko1-2.lev  soko1-3.lev  soko1-4.lev
+    soko2-1.lev  soko2-2.lev  soko2-3.lev  soko2-4.lev
+    soko2-7.lev  soko3-1.lev  soko3-2.lev  soko3-3.lev
+    soko3-4.lev  soko3-5.lev  soko3-6.lev  soko3-7.lev
+    soko4-1.lev  soko4-2.lev  soko4-3.lev  soko4-4.lev
+    soko4-5.lev  soko4-6.lev  soko4-7.lev  soko4-8.lev
+    soko4-8.lev  Tou-fila.lev Tou-filb.lev
     Tou-goal.lev Tou-loca.lev Tou-strt.lev tower1.lev
     tower2.lev   tower3.lev   Val-fila.lev Val-filb.lev
     Val-goal.lev valley.lev   Val-loca.lev Val-strt.lev
@@ -125,9 +134,9 @@ endmacro(quest_file)
 
 # DoD
 level_file(INPUT Potter.des OUTPUTS Potter)
-level_file(INPUT bigroom.des OUTPUTS bigrm-1 bigrm-2 bigrm-3 bigrm-4 bigrm-5)
-level_file(INPUT medusa.des OUTPUTS medusa-1 medusa-2)
-level_file(INPUT castle.des OUTPUTS castle)
+level_file(INPUT bigroom.des OUTPUTS bigrm-1 bigrm-2 bigrm-3 bigrm-4 bigrm-5 bigrm-6 bigrm-7 bigrm-8)
+level_file(INPUT medusa.des OUTPUTS medusa-1 medusa-2 medusa-3 medusa-4)
+level_file(INPUT castle.des OUTPUTS castle-1 castle-2 castle-3)
 
 # Mines
 level_file(INPUT mines.des
@@ -137,8 +146,10 @@ level_file(INPUT mines.des
 
 # Sokoban
 level_file(INPUT sokoban.des
-           OUTPUTS soko1-1 soko1-2 soko2-1 soko2-2
-                   soko3-1 soko3-2 soko4-1 soko4-2)
+           OUTPUTS soko1-1 soko1-2 soko1-3 soko1-4
+                   soko2-1 soko2-2 soko2-3 soko2-4 soko2-5 soko2-6 soko2-7
+                   soko3-1 soko3-2 soko3-3 soko3-4 soko3-5 soko3-6 soko3-7
+                   soko4-1 soko4-2 soko4-3 soko4-4 soko4-5 soko4-6 soko4-7 soko4-8 soko4-9)
 
 # Quests
 quest_file(Arc Arch.des)
