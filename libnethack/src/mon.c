@@ -191,6 +191,7 @@ make_corpse(struct monst *mtmp)
     struct obj *obj = NULL;
     int x = mtmp->mx, y = mtmp->my;
     int mndx = monsndx(mdat);
+    struct obj *otmp;
 
     switch (mndx) {
     case PM_GRAY_DRAGON:
@@ -336,8 +337,9 @@ make_corpse(struct monst *mtmp)
         int chance = rnd(20);
         if (chance == 1) {
                 obj_extract_self(obj);
-                hold_another_object(obj, "You try to catch %s but drop it.", doname(obj), "You catch and wield a ");
-                setuwep(obj);
+                otmp = hold_another_object(obj, "You try to catch %s but drop it.", doname(obj), "You catch and wield a ");
+                if (otmp->where == OBJ_INVENT)
+                    setuwep(otmp);
         }
     }
 
