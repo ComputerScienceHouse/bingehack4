@@ -371,7 +371,7 @@ dochug(struct monst *mtmp)
     if (mdat == &mons[PM_WATCHMAN] || mdat == &mons[PM_WATCH_CAPTAIN])
         watch_on_duty(mtmp);
 
-    else if (is_mind_flayer(mdat) && !rn2(20)) {
+    else if ((is_mind_flayer(mdat) || mdat == &mons[PM_CTHULHU]) && !rn2(20)) {
         struct monst *m2, *nmon = NULL;
 
         if (canseemon(mtmp))
