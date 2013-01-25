@@ -40,11 +40,11 @@ set (COMPILED_LEVELS
     bigrm-5.lev  bigrm-6.lev bigrm-7.lev  bigrm-8.lev
     castle-1.lev castle-2.lev castle-3.lev 
     Cav-fila.lev Cav-filb.lev Cav-goal.lev Cav-loca.lev
-    Cav-strt.lev earth.lev    fakewiz1.lev fakewiz2.lev
+    Cav-strt.lev cthulhu.lev earth.lev    fakewiz1.lev fakewiz2.lev
     fire.lev     Hea-fila.lev Hea-filb.lev Hea-goal.lev
     Hea-loca.lev Hea-strt.lev juiblex.lev  Kni-fila.lev
     Kni-filb.lev Kni-goal.lev Kni-loca.lev Kni-strt.lev
-    knox.lev     
+    knox.lev  lilith.lev lolth.lev mammon.lev
     medusa-1.lev medusa-2.lev medusa-3.lev medusa-4.lev
     minefill.lev
     minend-1.lev minend-2.lev minend-3.lev minetn-1.lev
@@ -56,7 +56,7 @@ set (COMPILED_LEVELS
     Ran-goal.lev Ran-loca.lev Ran-strt.lev Rog-fila.lev
     Rog-filb.lev Rog-goal.lev Rog-loca.lev Rog-strt.lev
     Sam-fila.lev Sam-filb.lev Sam-goal.lev Sam-loca.lev
-    Sam-strt.lev sanctum.lev
+    Sam-strt.lev sammael.lev sanctum.lev
     soko1-1.lev  soko1-2.lev  soko1-3.lev  soko1-4.lev
     soko2-1.lev  soko2-2.lev  soko2-3.lev  soko2-4.lev
     soko2-7.lev  soko3-1.lev  soko3-2.lev  soko3-3.lev
@@ -170,7 +170,7 @@ quest_file(Wiz Wizard.des)
 level_file(INPUT knox.des OUTPUTS knox)
 
 # Gehennom
-level_file(INPUT gehennom.des OUTPUTS asmodeus baalz juiblex orcus sanctum valley)
+level_file(INPUT gehennom.des OUTPUTS asmodeus baalz cthulhu juiblex lilith lolth mammon orcus sammael sanctum valley)
 level_file(INPUT yendor.des OUTPUTS fakewiz1 fakewiz2 wizard1 wizard2 wizard3)
 
 # Vlad's

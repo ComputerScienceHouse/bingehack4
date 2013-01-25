@@ -2683,6 +2683,16 @@ const struct permonst mons[] = {
         M2_NOPOLY | M2_DEMON | M2_STALK | M2_HOSTILE | M2_PNAME | M2_NASTY |
         M2_LORD | M2_MALE | M2_COLLECT,
         M3_WANTSAMUL | M3_INFRAVISIBLE | M3_INFRAVISION, CLR_BRIGHT_MAGENTA),
+    MON("Pazuzu", S_DEMON,
+        LVL(60, 18, -5, 80, +15), (G_HELL | G_NOCORPSE | G_NOGEN | G_UNIQ),
+        A(ATTK(AT_CLAW, AD_PHYS, 3, 6), ATTK(AT_CLAW, AD_DISE, 1, 6),
+          ATTK(AT_STNG, AD_DRST, 2, 6), NO_ATTK,
+          NO_ATTK, NO_ATTK),
+        SIZ(900, 500, 0, MS_SHRIEK, MZ_LARGE), MR_FIRE | MR_POISON, 0,
+        M1_FLY | M1_SEE_INVIS | M1_POIS,
+        M2_NOPOLY | M2_DEMON | M2_STALK | M2_HOSTILE | M2_PNAME | M2_NASTY | M2_LORD | 
+        M2_MALE | M2_COLLECT,
+        M3_WANTSAMUL | M3_INFRAVISIBLE | M3_INFRAVISION, CLR_BRIGHT_MAGENTA),
     MON("Orcus", S_DEMON,
         LVL(66, 9, -6, 85, -20), (G_HELL | G_NOCORPSE | G_NOGEN | G_UNIQ),
         A(ATTK(AT_WEAP, AD_PHYS, 3, 6), ATTK(AT_CLAW, AD_PHYS, 3, 4),
@@ -2713,6 +2723,26 @@ const struct permonst mons[] = {
         M2_NOPOLY | M2_DEMON | M2_STALK | M2_HOSTILE | M2_PNAME | M2_NASTY |
         M2_PRINCE | M2_MALE | M2_COLLECT,
         M3_WANTSAMUL | M3_INFRAVISIBLE | M3_INFRAVISION, CLR_BRIGHT_MAGENTA),
+    MON("Mammon", S_DEMON,
+        LVL(84, 15, -2, 80, 15), (G_HELL | G_NOCORPSE | G_NOGEN | G_UNIQ),
+        A(ATTK(AT_WEAP, AD_PHYS, 4, 6), ATTK(AT_WEAP, AD_PHYS, 4, 6),
+          ATTK(AT_MAGC, AD_SPEL, 6, 6), ATTK(AT_CLAW, AD_SGLD, 1, 2),
+          NO_ATTK, NO_ATTK),
+        SIZ(1500, 500, 0, MS_BRIBE, MZ_HUMAN), MR_FIRE | MR_POISON, 0,
+        M1_FLY | M1_SEE_INVIS | M1_POIS | M1_HUMANOID,
+        M2_NOPOLY | M2_DEMON | M2_STALK | M2_HOSTILE | M2_PNAME | M2_NASTY | 
+        M2_PRINCE | M2_MALE | M2_GREEDY | M2_JEWELS | M2_COLLECT,
+        M3_WANTSALL | M3_WAITFORU | M3_INFRAVISIBLE | M3_INFRAVISION, CLR_BRIGHT_MAGENTA),
+    MON("Lolth", S_DEMON,
+        LVL(89, 20, -5, 85, -20), (G_HELL|G_NOCORPSE|G_NOGEN|G_UNIQ),
+        A(ATTK(AT_BITE, AD_DRST, 2, 6), ATTK(AT_BITE, AD_DRDX, 2, 6),
+          ATTK(AT_BITE, AD_DRCO, 2, 6), ATTK(AT_MAGC, AD_SPEL, 6, 6),
+          NO_ATTK, NO_ATTK),
+        SIZ(1500, 500, 0, MS_CUSS, MZ_LARGE), MR_FIRE|MR_POISON, 0,
+        M1_FLY|M1_SEE_INVIS|M1_POIS,
+        M2_NOPOLY|M2_DEMON|M2_STALK|M2_HOSTILE|M2_PNAME|M2_NASTY|
+        M2_PRINCE|M2_FEMALE,
+        M3_WANTSAMUL|M3_WAITFORU|M3_INFRAVISIBLE|M3_INFRAVISION, CLR_BRIGHT_MAGENTA),
     MON("Baalzebub", S_DEMON,
         LVL(89, 9, -5, 85, 20), (G_HELL | G_NOCORPSE | G_NOGEN | G_UNIQ),
         A(ATTK(AT_BITE, AD_DRST, 2, 6), ATTK(AT_GAZE, AD_STUN, 2, 6),
@@ -2723,6 +2753,29 @@ const struct permonst mons[] = {
         M2_PRINCE | M2_MALE,
         M3_WANTSAMUL | M3_WAITFORU | M3_INFRAVISIBLE | M3_INFRAVISION,
         CLR_BRIGHT_MAGENTA),
+    MON("Lilith", S_DEMON,
+        LVL(105, 12, -7, 90, -20), (G_HELL | G_NOCORPSE | G_NOGEN | G_UNIQ),
+        A(ATTK(AT_BITE, AD_SSEX, 0, 10), ATTK(AT_CLAW, AD_PHYS, 4, 4),
+          ATTK(AT_MAGC, AD_FIRE, 6,  6), NO_ATTK, NO_ATTK, NO_ATTK),
+        SIZ(1500, 500, 0, MS_SEDUCE, MZ_HUMAN), MR_FIRE | MR_COLD | MR_POISON, 0,
+        M1_FLY | M1_SEE_INVIS | M1_HUMANOID | M1_POIS,
+        M2_NOPOLY | M2_DEMON | M2_STALK | M2_HOSTILE | M2_PNAME | M2_STRONG | 
+        M2_NASTY | M2_PRINCE | M2_FEMALE,
+        M3_WANTSAMUL | M3_WAITFORU | M3_INFRAVISIBLE | M3_INFRAVISION, CLR_BRIGHT_MAGENTA),
+/*RLC A female character can partially overcome the charisma penalty by wearing
+  a ring of adornment.  Males can't do this effectively, because Lilith will
+  eventually steal the ring.  This advantage is offset by giving Sammael magic
+  missiles, which can't be resisted save by armor (which Sammael will remove)
+  or certain artifacts. */
+    MON("Sammael", S_DEMON,
+        LVL(105, 12, -7, 90, -20), (G_HELL | G_NOCORPSE | G_NOGEN | G_UNIQ),
+        A(ATTK(AT_BITE, AD_SSEX, 0, 10), ATTK(AT_CLAW, AD_PHYS, 4, 4),
+          ATTK(AT_MAGC, AD_MAGM, 6,  6), NO_ATTK, NO_ATTK, NO_ATTK),
+        SIZ(1500, 500, 0, MS_SEDUCE, MZ_HUMAN), MR_FIRE | MR_COLD | MR_POISON, 0,
+        M1_FLY | M1_SEE_INVIS | M1_HUMANOID | M1_POIS,
+        M2_NOPOLY | M2_DEMON | M2_STALK | M2_HOSTILE | M2_PNAME | M2_STRONG | 
+        M2_NASTY | M2_PRINCE | M2_MALE,
+        M3_WANTSAMUL | M3_WAITFORU | M3_INFRAVISIBLE | M3_INFRAVISION, CLR_BRIGHT_MAGENTA),
     MON("Asmodeus", S_DEMON,
         LVL(105, 12, -7, 90, 20), (G_HELL | G_NOCORPSE | G_NOGEN | G_UNIQ),
         A(ATTK(AT_CLAW, AD_PHYS, 4, 4), ATTK(AT_MAGC, AD_COLD, 6, 6),
@@ -2733,6 +2786,17 @@ const struct permonst mons[] = {
         M2_NASTY | M2_PRINCE | M2_MALE,
         M3_WANTSAMUL | M3_WAITFORU | M3_INFRAVISIBLE | M3_INFRAVISION,
         CLR_BRIGHT_MAGENTA),
+    MON("Cthulhu", S_DEMON,
+        LVL(106, 15, -8, 95, -20), (G_HELL | G_NOCORPSE | G_NOGEN | G_UNIQ),
+        A(ATTK(AT_MAGC, AD_SPEL, 3, 6), ATTK(AT_CLAW, AD_PHYS, 3, 8),
+          ATTK(AT_BITE, AD_PHYS, 3,10), ATTK(AT_HUGS, AD_PHYS, 3, 6),
+          ATTK(AT_TENT, AD_DRIN, 2, 1), ATTK(AT_GAZE, AD_CONF, 0, 0)),
+        SIZ(3000, 500, 0, MS_ROAR, MZ_GIGANTIC), MR_FIRE | MR_POISON, 0,
+        M1_SWIM | M1_AMPHIBIOUS | M1_BREATHLESS | M1_THICK_HIDE | M1_SEE_INVIS | 
+        M1_NOHANDS | M1_POIS,
+        M2_NOPOLY | M2_DEMON | M2_STALK | M2_HOSTILE | M2_PNAME | M2_NASTY | M2_STRONG | 
+        M2_PRINCE | M2_NEUTER,
+        M3_WAITFORU | M3_WANTSAMUL | M3_INFRAVISION, CLR_BRIGHT_MAGENTA),
     MON("Demogorgon", S_DEMON,
         LVL(106, 15, -8, 95, -20), (G_HELL | G_NOCORPSE | G_NOGEN | G_UNIQ),
         A(ATTK(AT_MAGC, AD_SPEL, 8, 6), ATTK(AT_STNG, AD_DRLI, 1, 4),
