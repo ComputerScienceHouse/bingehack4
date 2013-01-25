@@ -297,6 +297,9 @@ addinv_core1(struct obj *obj)
         if (u.uhave.book)
             impossible("already have the book?");
         u.uhave.book = 1;
+    } else if (obj->oartifact == ART_RING_OF_POWER){
+        if (u.uhave.ring_of_power) impossible("already have ring of power?");
+        u.uhave.ring_of_power = 1;
     } else if (obj->oartifact) {
         if (is_quest_artifact(obj)) {
             if (u.uhave.questart)
@@ -546,6 +549,9 @@ freeinv_core(struct obj *obj)
         if (!u.uhave.book)
             impossible("don't have the book?");
         u.uhave.book = 0;
+    } else if (obj->oartifact == ART_RING_OF_POWER) {
+        if (!u.uhave.ring_of_power) impossible("don't have the ring of power");
+        u.uhave.ring_of_power = 0;
     } else if (obj->oartifact) {
         if (is_quest_artifact(obj)) {
             if (!u.uhave.questart)
