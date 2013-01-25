@@ -489,13 +489,13 @@ known_hitum(struct monst *mon, int *mhit, const struct attack *uattk, schar dx,
     }
 
     /* Don't do these on pets, or on dead things. */
-    if (drunkenboxing() && !mon->mtame && malive && *mhit) {
+    /* You get a 1/4 chance to do *something* when attacking. */
+    if (drunkenboxing() && !mon->mtame && malive && *mhit && rn2(4)) {
             int tmp;
             char msg[BUFSZ];
             struct obj *dbobj;
 
-            /* You get a 1/4 chance to do *something* when attacking. */
-            chance = rnd(((DRUNK_NOTHING + 1) * 4) - 1);
+            chance = rn2(DRUNK_NOTHING);
             switch(chance) {
                     case DRUNK_THEFT:
                             sprintf(msg, "Siezing an opportunity, you rifle through %s's pack!", mon_nam(mon));
