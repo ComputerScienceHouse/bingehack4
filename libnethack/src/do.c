@@ -187,7 +187,11 @@ flooreffects(struct obj * obj, int x, int y, const char *verb)
         newsym(x, y);
         return TRUE;
     } else if (is_lava(lev, x, y)) {
-        return fire_damage(obj, FALSE, FALSE, x, y);
+        if (obj->oartifact == ART_RING_OF_POWER) {
+            pline("You hear the screams of Sauron as The Ring is destroyed.");
+            return TRUE;
+        } else
+            return fire_damage(obj, FALSE, FALSE, x, y);
     } else if (is_pool(lev, x, y)) {
         /* Reasonably bulky objects (arbitrary) splash when dropped. If you're
            floating above the water even small things make noise. Stuff dropped 
@@ -282,12 +286,18 @@ dosinkring(struct obj *obj)
               xname(obj));
         goto giveback;
     case RIN_SLOW_DIGESTION:
-        pline("The ring is regurgitated!");
-    giveback:
-        obj->in_use = FALSE;
-        dropx(obj);
-        trycall(obj);
-        return;
+        if (obj->oartifact == ART_RING_OF_POWER){
+            suppress_more();
+            You_hear("unintelligible whispers");
+            break;
+        } else {
+            pline("The ring is regurgitated!");
+            giveback:
+            obj->in_use = FALSE;
+            dropx(obj);
+            trycall(obj);
+            return;
+        }
     case RIN_LEVITATION:
         pline("The sink quivers upward for a moment.");
         break;

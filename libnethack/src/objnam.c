@@ -2214,8 +2214,8 @@ readobjnam(char *bp, struct obj *no_wish, boolean from_user)
         strncmpi(bp, "food detection", 14) && strncmpi(bp, "ring mail", 9) &&
         strncmpi(bp, "studded leather arm", 19) &&
         strncmpi(bp, "leather arm", 11) && strncmpi(bp, "tooled horn", 11) &&
-        strncmpi(bp, "food ration", 11) && strncmpi(bp, "meat ring", 9)
-        )
+        strncmpi(bp, "food ration", 11) && strncmpi(bp, "meat ring", 9) &&
+        strncmpi(bp, "ring of power", 13))
         for (i = 0; i < (int)(sizeof wrpsym); i++) {
             int j = strlen(wrp[i]);
 
