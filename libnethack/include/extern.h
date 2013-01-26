@@ -1691,7 +1691,7 @@ extern void save_you(struct memfile *mf, struct you *y);
 
 /* ### uhitm.c ### */
 
-extern boolean drunkenboxing();
+extern boolean drunkenboxing(void);
 extern void hurtmarmor(struct monst *, int);
 extern boolean attack_checks(struct monst *, struct obj *, schar, schar);
 extern void check_caitiff(struct monst *);
