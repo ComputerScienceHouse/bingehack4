@@ -528,6 +528,8 @@ Armor_gone(void)
 static void
 Amulet_on(void)
 {
+    char buf[BUFSZ];
+
     switch (uamul->otyp) {
     case AMULET_OF_ESP:
     case AMULET_OF_LIFE_SAVING:
@@ -577,6 +579,20 @@ Amulet_on(void)
         break;
     case AMULET_OF_YENDOR:
         break;
+    case AMULET_OF_CHANGE_TITLE:
+        /* Cursed and uncursed amulets do nothing. */
+        if (uamul->blessed) {
+            getlin("The amulet glows. What do you want to be called?", buf);
+            strncpy(u.title, buf, sizeof(u.title) - 1);
+            u.title[sizeof(u.title) - 1] = '\0';
+            pline("You are now known as %s the %s.", plname, u.title);
+            u.customtitle = 1;
+            iflags.botl = 1;
+            makeknown(AMULET_OF_CHANGE_TITLE);
+            pline("The amulet disintegrates!");
+            useup(uamul);
+        }
+        break;
     }
 }
 
@@ -622,6 +638,12 @@ Amulet_off(void)
             HSleeping = 0;
         return;
     case AMULET_OF_YENDOR:
+        break;
+    case AMULET_OF_CHANGE_TITLE:
+        /*
+         * This probably isn't necessary as the amulet _should_
+         * disintegrate after being put on.
+         */
         break;
     }
     setworn(NULL, W_AMUL);

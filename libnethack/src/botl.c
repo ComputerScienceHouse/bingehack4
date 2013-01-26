@@ -54,6 +54,10 @@ rank_of(int lev, short monnum, boolean female)
     int i;
 
 
+    /* Custom titles override everything. */
+    if (u.customtitle)
+        return u.title;
+
     /* Find the role */
     for (role = (struct Role *)roles; role->name.m; role++)
         if (monnum == role->malenum || monnum == role->femalenum)
