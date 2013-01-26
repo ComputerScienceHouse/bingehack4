@@ -534,11 +534,12 @@ const struct objclass const_objects[] = {
            OBJ(name,desc), BITS(0,0,0,0,1,0,0,0,0,0,0,P_NONE,IRON), power, \
            AMULET_CLASS, prob, 0, 20, 150, 0, 0, 0, 0, 20, HI_METAL )
 
-    AMULET("amulet of ESP", "circular", TELEPAT, 175),
+    AMULET("amulet of ESP", "circular", TELEPAT, 165),
     AMULET("amulet of life saving", "spherical", LIFESAVED, 75),
     AMULET("amulet of strangulation", "oval", STRANGLED, 135),
     AMULET("amulet of restful sleep", "triangular", SLEEPING, 135),
-    AMULET("amulet versus poison", "pyramidal", POISON_RES, 165),
+    AMULET("amulet versus poison", "pyramidal", POISON_RES, 155),
+    AMULET("amulet of change title", "rectangular", 0, 20),
     AMULET("amulet of change", "square", 0, 130),
     /* POLYMORPH */
     AMULET("amulet of unchanging", "concave", UNCHANGING, 45),
