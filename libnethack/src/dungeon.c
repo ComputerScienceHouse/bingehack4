@@ -2055,7 +2055,7 @@ dooverview(void)
         }
     }
 
-    n = display_menu(menu.items, menu.icount, "Dungeon overview:", PICK_ONE,
+    n = windowprocs.win_display_menu(menu.items, menu.icount, "Dungeon overview:", PICK_ONE,
                      PLHINT_ANYWHERE, selected);
     free(menu.items);
     if (n <= 0)

@@ -41,7 +41,7 @@ static int artifact_score(struct obj *, boolean, struct menulist *);
 static void savelife(int);
 static boolean check_survival(int how, char *kilbuf);
 static boolean should_query_disclose_options(char *defquery);
-static void container_contents(struct obj *, boolean, boolean);
+static void container_contents(struct obj *, boolean, boolean, boolean);
 static void NORETURN done_noreturn(int how);
 
 #define done_stopprint program_state.stopprint
@@ -243,7 +243,7 @@ disclose(int how, boolean taken, long umoney)
                     obj->known = obj->bknown = obj->dknown = obj->rknown = 1;
                 }
                 display_inventory(NULL, TRUE);
-                container_contents(invent, TRUE, TRUE);
+                container_contents(invent, TRUE, TRUE, TRUE);
             }
             if (c == 'q')
                 done_stopprint++;
@@ -300,7 +300,7 @@ dump_disclose(int how)
         obj->known = obj->bknown = obj->dknown = obj->rknown = 1;
     }
     display_inventory(NULL, TRUE);
-    container_contents(invent, TRUE, TRUE);
+    container_contents(invent, TRUE, TRUE, TRUE);
     dump_spells();
     dump_skills();
     enlightenment(how >= PANICKED ? 1 : 2);     /* final */
@@ -1002,7 +1002,7 @@ done_noreturn(int how)
 
 
 static void
-container_contents(struct obj *list, boolean identified, boolean all_containers)
+container_contents(struct obj *list, boolean identified, boolean all_containers, boolean suppress_empty)
 {
     struct obj *box, *obj;
     char buf[BUFSZ];
@@ -1042,11 +1042,11 @@ container_contents(struct obj *list, boolean identified, boolean all_containers)
 
                 free(objlist);
                 sprintf(buf, "Contents of %s:", the(xname(box)));
-                display_objects(items, icount, buf, PICK_NONE, PLHINT_CONTAINER,
+                windowprocs.win_display_objects(items, icount, buf, PICK_NONE, PLHINT_CONTAINER,
                                 NULL);
                 if (all_containers)
-                    container_contents(box->cobj, identified, TRUE);
-            } else {
+                    container_contents(box->cobj, identified, TRUE, suppress_empty);
+            } else if (!suppress_empty) {
                 pline("%s empty.", Tobjnam(box, "are"));
                 win_pause_output(P_MESSAGE);
             }
