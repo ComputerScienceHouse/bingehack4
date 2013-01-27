@@ -528,7 +528,7 @@ Armor_gone(void)
 static void
 Amulet_on(void)
 {
-    char buf[TITLESZ];
+    char buf[BUFSZ];
 
     switch (uamul->otyp) {
     case AMULET_OF_ESP:
