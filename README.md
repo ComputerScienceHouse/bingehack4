@@ -18,7 +18,7 @@ There are two branches that exist in the main repository; 'master' is for the ve
 * cmake ≥ 2.8.3
 * ncurses
 * jansson (C-language JSON parsing library) ≥ 2.4
-* libpq (C-language JSON parsing library)
+* libpq(xx) (PostgreSQL-project library)
 
 We use and support Linux and OS X as development environments, as well as both gcc and [clang][clang].
 We test our client game terminal support for functionality on:
