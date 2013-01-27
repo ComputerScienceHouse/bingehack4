@@ -32,11 +32,12 @@ enum {
     DRUNK_THEFT = 0,
     DRUNK_BLIND = 1,
     DRUNK_ENTANGLE = 2,
+    DRUNK_ROLL = 3,
     /*
      * This should always be the last item, and should be increased
      * when adding a new drunken boxing outcome.  
      */
-    DRUNK_NOTHING = 3
+    DRUNK_NOTHING = 4
 };
 
 #define BLIND_TIME 25 /* Must be less than 127 (mon->mblinded is only 7 bits) */
@@ -518,7 +519,6 @@ known_hitum(struct monst *mon, int *mhit, const struct attack *uattk, schar dx,
                             else
                                     pline("You stole nothing.");
 
-                            return(malive);
                             break;
                     case DRUNK_BLIND:
                             if (can_blnd(&youmonst, mon, AT_CLAW, NULL)) {
@@ -538,7 +538,6 @@ known_hitum(struct monst *mon, int *mhit, const struct attack *uattk, schar dx,
                             else
                                     pline("You try to poke %s in the eye, but can't.", mon_nam(mon));
 
-                            return(malive);
                             break;
                     case DRUNK_ENTANGLE:
                             dbobj = random_type(ARMOR_CLASS, mon);
@@ -552,7 +551,13 @@ known_hitum(struct monst *mon, int *mhit, const struct attack *uattk, schar dx,
                             else
                                     pline("You attempt to disrobe %s but fail.", mon_nam(mon));
 
-                            return(malive);
+                            break;
+                    case DRUNK_ROLL:
+                            if (!level->flags.noteleport && !Punished) {
+                                pline("You tumble past %s!", mon_nam(mon));
+                                teleds(mon->mx, mon->my, FALSE);
+                                rloc_to(mon, u.ux0, u.uy0);
+                            }
                             break;
             }
     }
