@@ -2471,6 +2471,7 @@ dofiretrap(struct obj *box)
     struct level *lev = box ? box->olev : level;
     boolean see_it = !Blind;
     int num, alt;
+    struct obj *obj, *obj2;
 
 /* Bug: for box case, the equivalent of burn_floor_paper() ought
  * to be done upon its contents.
@@ -2549,6 +2550,19 @@ dofiretrap(struct obj *box)
         if (tt) {
             tt->tx = xbak;
             tt->ty = ybak;
+        }
+    }
+    for (obj = invent; obj; obj = obj2) {
+        obj2 = obj->nobj;
+        if (obj->oartifact == ART_RING_OF_POWER){
+            pline("A fiery inscription appears on the Ring of Power.");
+            if (Role_if(PM_WIZARD) || youmonst.data->mflags2 & M2_DEMON || youmonst.data->mlet == S_IMP){
+                pline("It reads: One Ring to rule them all, One Ring to find them, One Ring to bring the all, and in the darkness bind them.");
+            }
+            else {
+                pline("It reads: Ash nazg durbatuluk, ash nazg gimbatul, ash nazg thrakatuluk, agh burzum-ishi krimpatul.");
+            }
+            break;
         }
     }
 }
