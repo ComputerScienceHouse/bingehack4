@@ -1,3 +1,4 @@
 libnethack.dylib
 libnethack.so
+libnethack.a
 monstr.c

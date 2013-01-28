@@ -1114,6 +1114,8 @@ restore_you(struct memfile *mf, struct you *y)
     y->uhave.book = (hflags >> 29) & 1;
     y->uhave.menorah = (hflags >> 28) & 1;
     y->uhave.questart = (hflags >> 27) & 1;
+    y->uhave.ring_of_power = (hflags >> 28) & 1;
+    y->uhave.ring_of_power_worn = (hflags >> 29) & 1;
 
     y->uhp = mread32(mf);
     y->uhpmax = mread32(mf);
@@ -1269,7 +1271,8 @@ save_you(struct memfile *mf, struct you *y)
     hflags =
         (y->uhave.amulet << 31) | (y->uhave.bell << 30) |
         (y->uhave.book << 29) | (y-> uhave.  menorah << 28) |
-        (y->uhave.questart << 27);
+        (y->uhave.questart << 27) | (y->uhave.ring_of_power << 28) |
+        (y->uhave.ring_of_power_worn << 29);
 
     mtag(mf, 0, MTAG_YOU);
     mwrite32(mf, yflags);

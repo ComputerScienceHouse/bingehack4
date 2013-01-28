@@ -20,7 +20,9 @@ struct u_have {
     unsigned book:1;    /* carrying Book */
     unsigned menorah:1; /* carrying Candelabrum */
     unsigned questart:1;        /* carrying the Quest Artifact */
-    unsigned unused:3;
+    unsigned ring_of_power:1;       /* carrying Ring of Power */
+    unsigned ring_of_power_worn:1;  /* wearing Ring of Power */
+    unsigned unused:1;
 };
 
 struct u_event {
@@ -135,7 +137,7 @@ struct you {
     unsigned uinvulnerable:1;   /* you're invulnerable (praying) */
     unsigned uburied:1; /* you're buried */
     unsigned uedibility:1;      /* blessed food detection; sense unsafe food */
-    /* 1 free bit! */
+    unsigned customtitle:1; /* currently have a custom title */
 
     unsigned udg_cnt;   /* how long you have been demigod */
     struct u_event uevent;      /* certain events have happened */
@@ -189,6 +191,8 @@ struct you {
     xchar skill_record[P_SKILL_LIMIT];  /* skill advancements */
     struct skills weapon_skills[P_NUM_SKILLS];
     boolean twoweap;    /* KMH -- Using two-weapon combat */
+# define TITLESZ 20
+    char title[TITLESZ];
 
     int initrole;       /* starting role (index into roles[]) */
     int initrace;       /* starting race (index into races[]) */

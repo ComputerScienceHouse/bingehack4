@@ -83,29 +83,33 @@ get_property(DLB_BIN TARGET dlb PROPERTY LOCATION)
 add_custom_command (OUTPUT data
                     COMMAND makedefs
                     ARGS -d ${LNH_DAT}/data.base data
-                    MAIN_DEPENDENCY data.base)
+                    MAIN_DEPENDENCY data.base
+                    DEPENDS makedefs)
 # makedefs -e
 add_custom_command (OUTPUT dungeon.pdf
                     COMMAND makedefs
                     ARGS -e ${LNH_DAT}/dungeon.def dungeon.pdf
-                    MAIN_DEPENDENCY dungeon.def)
+                    MAIN_DEPENDENCY dungeon.def
+                    DEPENDS makedefs)
 # makedefs -q
 add_custom_command (OUTPUT quest.dat
                     COMMAND makedefs
                     ARGS -q ${LNH_DAT}/quest.txt quest.dat
-                    MAIN_DEPENDENCY quest.txt)
+                    MAIN_DEPENDENCY quest.txt
+                    DEPENDS makedefs)
 # makedefs -r
 add_custom_command (OUTPUT rumors
                     COMMAND makedefs
                     ARGS -r ${LNH_DAT}/rumors.tru
                             ${LNH_DAT}/rumors.fal
                             ${LNH_DAT}/rumors.pot rumors
-                    DEPENDS rumors.tru rumors.fal rumors.pot)
+                    DEPENDS makedefs)
 # makedefs -h
 add_custom_command (OUTPUT oracles
                     COMMAND makedefs
                     ARGS -h ${LNH_DAT}/oracles.txt oracles
-                    MAIN_DEPENDENCY oracles.txt)
+                    MAIN_DEPENDENCY oracles.txt
+                    DEPENDS makedefs)
 
 add_custom_command (OUTPUT dungeon
                     COMMAND dgn_comp

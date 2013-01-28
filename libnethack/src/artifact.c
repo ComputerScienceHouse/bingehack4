@@ -493,6 +493,12 @@ set_artifact_intrinsic(struct obj *otmp, boolean on, long wp_mask)
         else
             EReflecting &= ~wp_mask;
     }
+    if (spfx & SPFX_INVIS) {
+        if (on)
+            EInvis |= wp_mask;
+        else
+            EInvis &= ~wp_mask;
+    }
 
     if (wp_mask == W_ART && !on && oart->inv_prop) {
         /* might have to turn off invoked power too */
