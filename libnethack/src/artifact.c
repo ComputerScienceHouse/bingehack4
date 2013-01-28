@@ -493,6 +493,12 @@ set_artifact_intrinsic(struct obj *otmp, boolean on, long wp_mask)
         else
             EReflecting &= ~wp_mask;
     }
+    if (spfx & SPFX_INVIS) {
+        if (on)
+            EInvis |= wp_mask;
+        else
+            EInvis &= ~wp_mask;
+    }
 
     if (wp_mask == W_ART && !on && oart->inv_prop) {
         /* might have to turn off invoked power too */
@@ -1432,7 +1438,7 @@ arti_invoke(struct obj *obj)
             u.uprops[oart->inv_prop].intrinsic;
         boolean on = (eprop & W_ARTI) != 0;  /* true if invoked prop just set */
 
-        if (on && obj->age > moves) {
+        if (on && (obj->age > moves)) {
             /* the artifact is tired :-) */
             u.uprops[oart->inv_prop].extrinsic ^= W_ARTI;
             pline("You feel that %s %s ignoring you.", the(xname(obj)),
