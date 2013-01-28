@@ -1,6 +1,6 @@
 # CMakeLists.txt for NetHack4 4.2.0
 
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required (VERSION 2.8.3)
 project (NetHack4 C)
 
 if (WIN32)
