@@ -1,4 +1,4 @@
-[![Build Status](http://jenkins.csh.rit.edu/job/bingehack4/badge/icon)](http://jenkins.csh.rit.edu/job/bingehack4/)
+[![Build Status](https://travis-ci.org/ComputerScienceHouse/bingehack4.png?branch=master)](https://travis-ci.org/ComputerScienceHouse/bingehack4)
 
 # BingeHack 4 #
 
