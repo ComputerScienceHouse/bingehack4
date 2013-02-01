@@ -31,7 +31,7 @@ We test our client game terminal support for functionality on:
 ## Useful Links ##
 
 * [Play BingeHack4!](telnet://games-ng.csh.rit.edu)
-* [CSH's Jenkins-CI Build Server: BingeHack4 Project](http://jenkins.csh.rit.edu/job/bingehack4/)
+* [CSH's Travis-CI Build Server: BingeHack4 Project](https://travis-ci.org/ComputerScienceHouse/bingehack4)
 * [BingeHack4's Wiki](https://github.com/ComputerScienceHouse/bingehack4/wiki)
 * [Upstream NetHack4 Git Repository](http://gitorious.org/nitrohack/ais523/commits/nicehack)
 
