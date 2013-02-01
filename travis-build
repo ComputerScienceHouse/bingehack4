@@ -22,3 +22,5 @@ else
 	echo "Unsupported build system $BUILD_SYSTEM" >&2
 	exit 1
 fi
+
+exit 0
