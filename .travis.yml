@@ -7,3 +7,6 @@ script: mkdir build && cd build && cmake .. && make
 compiler:
     - clang
     - gcc
+notifications:
+    email:
+        - bingehack@csh.rit.edu
