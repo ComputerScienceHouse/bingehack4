@@ -7,6 +7,9 @@ script: mkdir build && cd build && cmake .. && make
 compiler:
     - clang
     - gcc
+env:
+    - CFLAGS="-O3"
+    -
 notifications:
     email:
         - bingehack@csh.rit.edu
