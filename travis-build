@@ -1,0 +1,24 @@
+#!/bin/bash
+set -e
+#set -x
+
+mkdir build
+cd build
+
+if [[ -z "$BUILD_SYSTEM" ]]; then
+	BUILD_SYSTEM="cmake"
+fi
+
+if [[ "$BUILD_SYSTEM" == cmake ]]; then
+	cmake ..
+	make
+elif [[ "$BUILD_SYSTEM" == aimake ]]; then
+	tempfile="$(mktemp)"
+	trap "rm -f \"$tempfile\"" EXIT ERR
+
+	../aimake -r .. 2>&1 | tee "$tempfile"
+	grep -qi "fail" "$tempfile" && exit 1
+else
+	echo "Unsupported build system $BUILD_SYSTEM" >&2
+	exit 1
+fi
