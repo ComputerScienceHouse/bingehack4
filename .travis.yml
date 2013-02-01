@@ -3,7 +3,7 @@ install:
     - sudo apt-get update -qq
     - sudo apt-get install -qq libjansson-dev postgresql-client
 language: c
-script: mkdir build && cd build && cmake .. && make
+script: ./travis-build
 compiler:
     - clang
     - gcc
