@@ -432,20 +432,7 @@ known_hitum(struct monst *mon, int *mhit, const struct attack *uattk, schar dx,
     boolean malive = TRUE;
     int chance;
 
-    /* AceHack patch: trying to hit a floating eye screws up if it can see, you 
-       can see it, and you don't have free action; this is considerably less
-       evil to the player than the vanilla alternative. */
-    if (mon->data == &mons[PM_FLOATING_EYE] && canseemon(mon) && !Free_action &&
-        !Reflecting && mon->mcansee) {
-        *mhit = 0;
-        pline("%s glares at you.", Monnam(mon));
-        /* can't keep this short enough to be a oneliner, it seems; so no need
-           to try to keep this and the previous message below 80 between them.
-           (On 80x24, this also causes a suitably scary --More-- after the
-           first message.) */
-        pline("You manage to look away just in time; "
-              "but that disturbs your aim, and you miss.");
-    } else if (!*mhit) {
+    if (!*mhit) {
         missum(mon, uattk);
     } else {
         int oldhp = mon->mhp;
@@ -2395,9 +2382,8 @@ passive(struct monst *mon, boolean mhit, int malive, uchar aatyp)
                         pline("You momentarily stiffen under %s gaze!",
                               s_suffix(mon_nam(mon)));
                     else {
-                        /* In AceHack, this is now a forced miss rather than
-                           causing paralysis; thus no further passive effects
-                           are desired here */
+                        pline("You are frozen by %s gaze!", s_suffix(mon_nam(mon)));
+                        nomul((ACURR(A_WIS) > 12 || rn2(4)) ? -tmp : -127, "frozen by a monster's gaze");
                     }
                 } else {
                     pline("%s cannot defend itself.", Adjmonnam(mon, "blind"));
