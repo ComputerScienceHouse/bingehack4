@@ -537,7 +537,6 @@ restore_flags(struct memfile *mf, struct flag *f)
     f->bones_enabled = mread8(mf);
     f->permablind = mread8(mf);
     f->permahallu = mread8(mf);
-    f->drunken_boxing = mread8(mf);
 
     mread(mf, f->inv_order, sizeof (f->inv_order));
 }

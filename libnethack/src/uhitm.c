@@ -421,7 +421,7 @@ atk_done:
 boolean
 drunkenboxing()
 {
-  return flags.drunken_boxing && Confusion && !uwep && u.weapon_skills[P_MARTIAL_ARTS].skill == P_GRAND_MASTER && !Upolyd && Role_if(PM_MONK);
+  return Confusion && !uwep && u.weapon_skills[P_MARTIAL_ARTS].skill == P_GRAND_MASTER && !Upolyd && Role_if(PM_MONK);
 }
 
 /* returns TRUE if monster still lives */
