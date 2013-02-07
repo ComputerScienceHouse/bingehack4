@@ -147,6 +147,8 @@ dump_catch_menus(boolean intercept)
     windowprocs.win_display_menu = dump_display_menu;
     windowprocs.win_display_objects = dump_display_objects;
     windowprocs.win_outrip = dump_outrip;
+    windowprocs.win_print_message = dump_print_message;
+    windowprocs.win_print_message_nonblocking = dump_print_message_nonblocking;
 }
 
 
@@ -243,3 +245,33 @@ dump_outrip(struct nh_menuitem *items, int icount, boolean ts, const char *name,
     dump_display_menu(items, icount, "Final status:", PICK_NONE,
                       PLHINT_ANYWHERE, NULL);
 }
+
+static void
+dump_print_message_core(int turn, const char *msg, nh_bool canblock)
+{
+    int hsize, vsize, maxlen;
+    nh_bool died;
+
+    if (!dumpfp) {
+        return 0;
+    }
+
+    if (!*msg)
+        return; /* empty message. done. */
+
+    fprintf(dumpfp, "%s\n", msg);
+}
+
+/* Blocking? Frankly, my dear, I don't give a damn. */
+void
+dump_print_message(int turn, const char *inmsg)
+{
+    dump_print_message_core(turn, inmsg, TRUE);
+}
+
+void
+dump_print_message_nonblocking(int turn, const char *inmsg)
+{
+    dump_print_message_core(turn, inmsg, FALSE);
+}
+    
