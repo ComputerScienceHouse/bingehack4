@@ -15,6 +15,9 @@ static int dump_display_objects(struct nh_objitem *, int, const char *, int,
 static void dump_outrip(struct nh_menuitem *items, int icount, boolean ts,
                         const char *plname, int gold, const char *killbuf,
                         int end_how, int year);
+static void dump_print_message_core(int turn, const char *msg, nh_bool canblock);
+static void dump_print_message(int turn, const char *inmsg);
+static void dump_print_message_nonblocking(int turn, const char *inmsg);
 
 #if !defined(WIN32)
 # define TIMESTAMP_FORMAT "%Y-%m-%d %H:%M"
@@ -249,11 +252,9 @@ dump_outrip(struct nh_menuitem *items, int icount, boolean ts, const char *name,
 static void
 dump_print_message_core(int turn, const char *msg, nh_bool canblock)
 {
-    int hsize, vsize, maxlen;
-    nh_bool died;
 
     if (!dumpfp) {
-        return 0;
+        return;
     }
 
     if (!*msg)
