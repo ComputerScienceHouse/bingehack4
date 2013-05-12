@@ -179,6 +179,9 @@
 # define EDetect_monsters       u.uprops[DETECT_MONSTERS].extrinsic
 # define Detect_monsters        (HDetect_monsters || EDetect_monsters)
 
+# define HDetect_fish           u.uprops[DETECT_FISH].intrinsic
+# define EDetect_fish           u.uprops[DETECT_FISH].extrinsic
+# define Detect_fish            (HDetect_fish || EDetect_fish)
 
 /*** Appearance and behavior ***/
 # define Adornment              u.uprops[ADORNED].extrinsic
