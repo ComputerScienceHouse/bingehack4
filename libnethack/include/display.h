@@ -38,7 +38,7 @@
 
 # define sensemon(mon) (mon->dlevel == level && \
                        (tp_sensemon(mon) || Detect_monsters || \
-                        MATCH_WARN_OF_MON(mon)))
+                        (Detect_fish && is_swimmer(mon->data)) ||MATCH_WARN_OF_MON(mon)))
 
 /*
  * mon_warning() is used to warn of any dangerous monsters in your

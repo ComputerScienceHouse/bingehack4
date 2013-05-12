@@ -228,6 +228,11 @@ static const struct artifact const_artilist[] = {
       (SPFX_RESTR | SPFX_INTEL | SPFX_INVIS), 0, 0, //It speaks, it is just handled elsewhere (allmain)
       NO_ATTK, NO_DFNS, NO_CARY,
       0, A_NONE, NON_PM, NON_PM, 5000L),
+
+    A("The Trident of Fish Command", TRIDENT,
+      (SPFX_DFLAG1 | SPFX_FISH | SPFX_RESTR), 0, M1_SWIM,
+      PHYS(5, 0), NO_DFNS, NO_CARY,
+      0, A_NONE, NON_PM, NON_PM, 200l),
 /*
  *  terminator; otyp must be zero
  */
