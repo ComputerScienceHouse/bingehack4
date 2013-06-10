@@ -56,8 +56,8 @@ static struct nh_menuitem mainmenu_items_noclient[] = {
 };
 
 const char *nhlogo_small[14] = {
-    "  CCCCCCCCCCCCCCCCC                                                           ",
-    " CCCCCCCCCCCCCCCCCCCC    HHH                                                  ",
+    "  CCCCCCCCCCCCCCCCC             PLEASE report bugs (and dev with us!) at:     ",
+    " CCCCCCCCCCCCCCCCCCCC    HHH http://github.com/ComputerSciencehouse/bingehack4",
     "CCC               CCC    HHH                                                  ",
     "CCC   SSSSSSSSS          HHH                                                  ",
     "CCC   SSS   SSS   HHH    HHH  ____  _                  _    _            _    ",
@@ -87,9 +87,9 @@ const char *nhlogo_large[17] = {
     "CCCCC  SSSS   SSSS  HHHHH     HHHHH                   __/ |                            ",
     "CCCCC   SSSSSSSSS             HHHHH                  |___/                             ",
     "CCCCC    SSSSSSS    CCCCC     HHHHH                                                    ",
-    "CCCCC               CCCCC     HHHHH                                                    ",
-    " CCCCCCCCCCCCCCCCCCCCCCC                                                               ",
-    "  CCCCCCCCCCCCCCCCCCCCC                                                                "
+    "CCCCC               CCCCC     HHHHH     This server is running _BETA_ quality software!",
+    " CCCCCCCCCCCCCCCCCCCCCCC                PLEASE report bugs (and dev with us!) at:      ",
+    "  CCCCCCCCCCCCCCCCCCCCC             https://github.com/ComputerScienceHouse/bingehack4/"
 };
 
 #ifdef UNIX
