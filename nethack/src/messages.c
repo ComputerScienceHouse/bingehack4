@@ -181,21 +181,11 @@ more(void)
     if (settings.standout)
         attr = A_STANDOUT;
 
-    if (getmaxy(msgwin) == 1) {
-        wmove(msgwin, getmaxy(msgwin) - 1, COLNO - 8);
-        wattron(msgwin, attr);
-        waddstr(msgwin, "--More--");
-        wattroff(msgwin, attr);
-        wrefresh(msgwin);
-    } else {
-        newline();
-        draw_msgwin();
-        wmove(msgwin, getmaxy(msgwin) - 1, COLNO / 2 - 4);
-        wattron(msgwin, attr);
-        waddstr(msgwin, "--More--");
-        wattroff(msgwin, attr);
-        wrefresh(msgwin);
-    }
+    wmove(msgwin, getmaxy(msgwin) - 1, COLNO - 8);
+    wattron(msgwin, attr);
+    waddstr(msgwin, "--More--");
+    wattroff(msgwin, attr);
+    wrefresh(msgwin);
 
     getyx(msgwin, cursy, cursx);
     wtimeout(msgwin, 666);      /* enable blinking */
@@ -254,7 +244,7 @@ fresh_message_line(nh_bool canblock)
 static void
 curses_print_message_core(int turn, const char *msg, nh_bool canblock)
 {
-    int hsize, vsize, maxlen;
+    int hsize, maxlen;
     nh_bool died;
 
     if (!msghistory)
@@ -288,20 +278,19 @@ curses_print_message_core(int turn, const char *msg, nh_bool canblock)
 
     /* 
      * generally we want to put as many messages on one line as possible to
-     * maximize space usage. A new line is begun after each player turn or if
-     * more() is called via pause_messages(). "You die" also deserves its own line.
+     * maximize space usage. A new line is begun after each player turn. 
+     * "You die" also deserves its own line.
      * 
-     * If the message area is only one line high, space for "--More--" must be
-     * reserved at the end of the line, otherwise  --More-- is shown on a new line.
+     * Space for "--More--" must be reserved at the end of the line.
+     * 
      */
 
-    getmaxyx(msgwin, vsize, hsize);
+    hsize = getmaxx(msgwin);
 
     maxlen = hsize;
     if (maxlen >= COLNO)
         maxlen = COLNO - 1;
-    if (vsize == 1)
-        maxlen -= 8;    /* for "--More--" */
+    maxlen -= 8;
 
     died = !strncmp(msg, "You die", 7);
     if (strlen(msglines[curline]) + strlen(msg) + 1 < maxlen && !died) {
