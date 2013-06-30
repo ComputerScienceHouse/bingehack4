@@ -16,6 +16,7 @@ set (LIBNETHACK_SRC
     steal.c    steed.c    teleport.c timeout.c  topten.c  track.c    trap.c
     uhitm.c    u_init.c   vault.c    version.c  vision.c  weapon.c   were.c
     wield.c    windows.c  wizard.c   worm.c     worn.c    write.c    xmalloc.c zap.c
+    events.c
     )
 set (LIBNETHACK_GENERATED_SRC
     ${LNH_SRC_GEN}/monstr.c

@@ -540,6 +540,7 @@ extern int delete_bonesfile(char *bonesid);
 extern void paniclog(const char *, const char *);
 extern boolean lock_fd(int fd, int retry);
 extern void unlock_fd(int fd);
+const char *fqname(const char *filename, int whichprefix, int buffnum);
 
 /* ### fountain.c ### */
 
