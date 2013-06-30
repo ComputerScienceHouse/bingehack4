@@ -31,8 +31,6 @@ char bones[] = "bonesnn.xxx";
 # endif
 #endif
 
-static const char *fqname(const char *, int, int);
-
 
 void
 display_file(const char *fname, boolean complain)
