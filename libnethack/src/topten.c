@@ -6,6 +6,7 @@
 #include "patchlevel.h"
 #include "quest.h"
 #include "dlb.h"
+#include "events.h"
 
 #include <fcntl.h>
 
@@ -20,6 +21,7 @@
 #define NAMSZ   15
 #define DTHSZ   99
 
+// If you modify this struct, remember to update emit_dead_event
 struct toptenentry {
     int points;
     int deathdnum, deathlev;
@@ -428,6 +430,25 @@ toptenlist_insert(struct toptenentry *ttlist, struct toptenentry *newtt)
     return TRUE;
 }
 
+static void
+emit_dead_event(struct toptenentry *tt)
+{
+    char *argv[9];
+    argv[0] = tt->name;
+    argv[1] = tt->plrole;
+    argv[2] = tt->plrace;
+    argv[3] = tt->plgend;
+    argv[4] = tt->plalign;
+    asprintf(&argv[5], "%d", tt->deathlev);
+    asprintf(&argv[6], "%d", tt->hp);
+    asprintf(&argv[7], "%d", tt->maxhp);
+    argv[8] = tt->death;
+    event_trigger_async(EVENT_TYPE_DEAD, 9, argv);
+    free(argv[5]);
+    free(argv[6]);
+    free(argv[7]);
+}
+
 /*
  * Add the result of the current game to the score list
  */
@@ -446,6 +467,7 @@ update_topten(int how)
     fill_topten_entry(&newtt, how);
     update_log(&newtt);
     update_xlog(&newtt);
+    emit_dead_event(&newtt);
 
     /* nothing more to do for non-scoring games */
     if (wizard || discover)
