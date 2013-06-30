@@ -19,6 +19,9 @@ There are two branches that exist in the main repository; 'master' is for the ve
 * ncurses
 * jansson (C-language JSON parsing library) ≥ 2.4
 * libpq(xx) (PostgreSQL-project library)
+* bison
+* flex
+* zlib
 
 We use and support Linux and OS X as development environments, as well as both gcc and [clang][clang].
 We test our client game terminal support for functionality on:
