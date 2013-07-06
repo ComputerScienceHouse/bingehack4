@@ -22,6 +22,11 @@ LEVALIGN:	neutral
 CHAINBRANCH:	"Sokoban" "Potter" + (1, 0) up
 RNDLEVEL:	"bigrm" "B" @ (10, 3) 40 8
 CHAINBRANCH:	"The Quest" "Potter" + (6, 2) portal
+
+LEVEL:		"NRH3" "N" @ (5, 5)
+LEVALIGN:	neutral
+CHAINBRANCH:	"Potter" "NRH3" + (1, 0) up
+
 BRANCH:		"Fort Ludios" @ (18, 4) portal
 RNDLEVEL:	"medusa" "none" @ (-5, 4) 4
 LEVALIGN:	chaotic

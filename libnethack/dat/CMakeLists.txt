@@ -27,7 +27,8 @@ set (LEVEL_DESCRIPTIONS
     ${LNH_DAT}/tower.des
     ${LNH_DAT}/Valkyrie.des
     ${LNH_DAT}/Wizard.des
-    ${LNH_DAT}/yendor.des 
+    ${LNH_DAT}/yendor.des
+    ${LNH_DAT}/NRH3.des
     )
 
 # the compiled levels that will be added to nhdat
@@ -69,7 +70,7 @@ set (COMPILED_LEVELS
     Val-goal.lev valley.lev   Val-loca.lev Val-strt.lev
     water.lev    wizard1.lev  wizard2.lev  wizard3.lev
     Wiz-fila.lev Wiz-filb.lev Wiz-goal.lev Wiz-loca.lev
-    Wiz-strt.lev
+    Wiz-strt.lev NRH3.lev
     )
 
 set (NHDAT_SRC dungeon quest.dat rumors oracles ${COMPILED_LEVELS} history data)
@@ -137,6 +138,7 @@ macro(quest_file BASE INPUT)
 endmacro(quest_file)
 
 # DoD
+level_file(INPUT NRH3.des OUTPUTS NRH3)
 level_file(INPUT Potter.des OUTPUTS Potter)
 level_file(INPUT bigroom.des OUTPUTS bigrm-1 bigrm-2 bigrm-3 bigrm-4 bigrm-5 bigrm-6 bigrm-7 bigrm-8)
 level_file(INPUT medusa.des OUTPUTS medusa-1 medusa-2 medusa-3 medusa-4)
