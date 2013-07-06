@@ -1,0 +1,3 @@
+#!/bin/sh
+cd bingehack-tweeter
+exec ./bingehack-twitter.rb "$@"
