@@ -1,4 +1,4 @@
-#	SCCS Id: @(#)nrh.des	3.4.3
+#	SCCS Id: @(#)NRH3.des	3.4.3
 #	Created by Spencer Bell, December 2010
 # NetHack may be freely redistributed.  See license for details.
 #
@@ -6,7 +6,7 @@
 # Maps are 72x19
 # T is currently a stand-in for Drink
 
-MAZE:"nrh",' '
+MAZE:"NRH3",' '
 FLAGS: noteleport,hardfloor
 MESSAGE:"Welcome to CSH!"
 GEOMETRY:center,center
@@ -37,8 +37,8 @@ ENDMAP
 NON_DIGGABLE:(00,00,72,19)
 REGION:(00,00,72,19),lit,"ordinary"
 # Stairs locations
-STAIR:(04,04),down
-STAIR:(61,16),up
+STAIR:(33,09),down
+STAIR:(37,09),up
 #   Throne room, with Croesus on the throne
 #REGION:(37,08,46,11),lit,"throne"
 #MONSTER:'@',"Croesus",(43,10),hostile
