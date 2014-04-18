@@ -402,6 +402,25 @@ beg(struct monst *mtmp)
     }
 }
 
+char *
+whatthefoxsays()
+{
+    switch(rn2(6)){
+    case 0:
+        return "goes ring-ding-ding-ding-dingeringeding!";
+    case 1:
+        return "goes wa-pa-pa-pa-pa-pa-pow!";
+    case 2:
+        return "goes hatee-hatee-hatee-ho!";
+    case 3:
+        return "goes jacha-chacha-chacha-chow!";
+    case 4:
+        return "goes fraka-kaka-kaka-kaka-kow!";
+    case 5:
+        return "goes a-hee-ahee ha-hee!";
+    }
+}
+
 static int
 domonnoise(struct monst *mtmp)
 {
@@ -541,12 +560,17 @@ domonnoise(struct monst *mtmp)
             else if (mtmp->mtame && EDOG(mtmp)->hungrytime > moves + 1000)
                 pline_msg = "yips.";
             else {
-                if (mtmp->data != &mons[PM_DINGO])  /* dingos do not
+                if (mtmp->data == &mons[PM_FOX])
+                    pline_msg = whatthefoxsays();
+                else if (mtmp->data != &mons[PM_DINGO])  /* dingos do not
                                                        actually bark */
                     pline_msg = "barks.";
             }
         } else {
-            pline_msg = "growls.";
+            if (mtmp->data == &mons[PM_FOX])
+                pline_msg = whatthefoxsays();
+            else
+                pline_msg = "growls.";
         }
         break;
     case MS_MEW:
@@ -807,7 +831,6 @@ domonnoise(struct monst *mtmp)
         verbalize(verbl_msg);
     return 1;
 }
-
 
 int
 dotalk(int dx, int dy, int dz)
