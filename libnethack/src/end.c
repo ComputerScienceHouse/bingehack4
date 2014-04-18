@@ -99,7 +99,7 @@ done_in_by(struct monst *mtmp)
     pline("You die...");
     buf[0] = '\0';
     killer_format = KILLED_BY_AN;
-    /* "killed by the high priest of Crom" is okay, "killed by the high priest" 
+    /* "killed by the high priest of Crom" is okay, "killed by the high priest"
        alone isn't */
     if ((mtmp->data->geno & G_UNIQ) != 0 &&
         !(mtmp->data == &mons[PM_HIGH_PRIEST] && !mtmp->ispriest)) {
@@ -453,7 +453,7 @@ calc_score(int how, boolean show, long umoney)
     /* The principle here is that each category is worth up to 30000 points;
        most categories are calculated via base-2 logarithm, to give massive
        diminishing returns to farming in any particular category; categories
-       which have an intrinsic maximum anyway (such as the percentages) instead 
+       which have an intrinsic maximum anyway (such as the percentages) instead
        are based on the square root of the percentage progress made. */
     long total = 0;
     long category_raw;
@@ -525,7 +525,7 @@ calc_score(int how, boolean show, long umoney)
                 category_points);
         add_menutext(&menu, buf);
     }
-    /* Valuables. Scored the same way as gold, based on their gp values. Scores 
+    /* Valuables. Scored the same way as gold, based on their gp values. Scores
        only on ascension or escape. */
     category_raw = 0;
     if (how == ESCAPED || how == ASCENDED) {
@@ -641,7 +641,7 @@ check_survival(int how, char *kilbuf)
     }
 
     /* kilbuf: used to copy killer in case it comes from something like
-       xname(), which would otherwise get overwritten when we call xname() when 
+       xname(), which would otherwise get overwritten when we call xname() when
        listing possessions pbuf: holds sprintf'd output for raw_print and
        putstr */
     if (how == ASCENDED || (!killer && how == GENOCIDED))
@@ -706,7 +706,6 @@ display_rip(int how, char *kilbuf, char *pbuf, long umoney)
 
     /* clean up unneeded windows */
     if (program_state.game_running) {
-        win_pause_output(P_MESSAGE);
 
         if (!done_stopprint || flags.tombstone)
             show_endwin = TRUE;
@@ -886,7 +885,7 @@ done_noreturn(int how)
     if (program_state.viewing)
         terminate();
 
-    /* 
+    /*
      *      The game is now over...
      */
     program_state.gameover = 1;
@@ -923,7 +922,7 @@ done_noreturn(int how)
             int mnum = u.umonnum;
 
             if (!Upolyd) {
-                /* Base corpse on race when not poly'd since original u.umonnum 
+                /* Base corpse on race when not poly'd since original u.umonnum
                    is based on role, and all role monsters are human. */
                 mnum = (flags.female &&
                         urace.femalenum !=
@@ -981,7 +980,7 @@ done_noreturn(int how)
     if (bones_ok && !discover) {
         if (!wizard || yn("Save bones?") == 'y')
             savebones(corpse);
-        /* corpse may be invalid pointer now so ensure that it isn't used again 
+        /* corpse may be invalid pointer now so ensure that it isn't used again
          */
         corpse = NULL;
     }
@@ -1070,7 +1069,7 @@ terminate(void)
     }
 
     program_state.game_running = 0;
-    if (!program_state.panicking)       /* logging could be in disorder, ex: RO 
+    if (!program_state.panicking)       /* logging could be in disorder, ex: RO
                                            logfile */
         log_finish(LS_IN_PROGRESS);     /* didn't necessarily get here via
                                            done() */
