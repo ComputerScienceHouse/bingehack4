@@ -221,7 +221,10 @@ parse_config_line(char *line)
         if (!settings.dbname)
             settings.dbname = strdup(val);
     }
-
+    else if (!strcmp(line, "dboptions")) {
+        if (!settings.dboptions)
+            settings.dboptions = strdup(val);
+    }
     else
         /* it's a warning, no need to return FALSE */
         fprintf(stderr, "Warning: unrecognized option \"%s\".\n", line);
@@ -317,6 +320,7 @@ setup_defaults(void)
 
     if (!settings.client_timeout)
         settings.client_timeout = DEFAULT_CLIENT_TIMEOUT;
+
 }
 
 
@@ -339,6 +343,8 @@ free_config(void)
         free(settings.dbuser);
     if (settings.dbpass)
         free(settings.dbpass);
+    if (settings.dboptions)
+        free(settings.dboptions);
     memset(&settings, 0, sizeof (settings));
 }
 

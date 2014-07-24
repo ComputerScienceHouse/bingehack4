@@ -75,7 +75,7 @@ struct settings {
     char nodaemon;
     char disable_ipv4;
     char disable_ipv6;
-    char *dbhost, *dbname, *dbport, *dbuser, *dbpass;
+    char *dbhost, *dbname, *dbport, *dbuser, *dbpass, *dboptions;
 };
 
 # define SUN_PATH_MAX (sizeof(settings.bind_addr_unix.sun_path))
