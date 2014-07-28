@@ -221,6 +221,7 @@ parse_config_line(char *line)
         if (!settings.dbname)
             settings.dbname = strdup(val);
     }
+
     else if (!strcmp(line, "dboptions")) {
         if (!settings.dboptions)
             settings.dboptions = strdup(val);
@@ -320,7 +321,6 @@ setup_defaults(void)
 
     if (!settings.client_timeout)
         settings.client_timeout = DEFAULT_CLIENT_TIMEOUT;
-
 }
 
 

@@ -125,7 +125,7 @@ static const char SQL_add_topten_entry[] =
 
 
 static PGconn *conn;
-static char *uri;
+static char *uri = NULL;
 
 /*
  * init the database connection.
@@ -135,24 +135,17 @@ init_database(void)
 {
     if (conn)
         close_database();
-    int uri_size = snprintf(NULL, 0, "postgresql://%s:%s@%s:%s/%s?%s",
-                            settings.dbuser ? settings.dbuser : "",
-                            settings.dbpass ? settings.dbpass : "",
-                            settings.dbhost ? settings.dbhost : "",
-                            settings.dbport ? settings.dbport : "",
-                            settings.dbname ? settings.dbname : "",
-                            settings.dboptions ? settings.dboptions : "") + 1;
-    if ((uri = calloc(uri_size, sizeof(char))) == NULL) {
+    int uri_len = asprintf(&uri, "postgresql://%s:%s@%s:%s/%s?%s",
+                           settings.dbuser ? settings.dbuser : "",
+                           settings.dbpass ? settings.dbpass : "",
+                           settings.dbhost ? settings.dbhost : "",
+                           settings.dbport ? settings.dbport : "",
+                           settings.dbname ? settings.dbname : "",
+                           settings.dboptions ? settings.dboptions : "");
+    if (uri_len == -1) {
         fprintf(stderr, "Failed to calloc database URI. %s\n", strerror(errno));
         goto err;
     }
-    snprintf(uri, uri_size, "postgresql://%s:%s@%s:%s/%s?%s",
-             settings.dbuser ? settings.dbuser : "",
-             settings.dbpass ? settings.dbpass : "",
-             settings.dbhost ? settings.dbhost : "",
-             settings.dbport ? settings.dbport : "",
-             settings.dbname ? settings.dbname : "",
-             settings.dboptions ? settings.dboptions : "");
     conn = PQconnectdb(uri);
     if (PQstatus(conn) == CONNECTION_BAD) {
         fprintf(stderr, "Database connection failed. Check your settings.\n");
@@ -162,9 +155,11 @@ init_database(void)
     return TRUE;
 
 err:
-    if (uri)
+    if (uri) 
+    {
         free(uri);
         uri = NULL;
+    }
     PQfinish(conn);
     return FALSE;
 }
