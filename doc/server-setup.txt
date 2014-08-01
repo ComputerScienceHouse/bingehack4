@@ -24,7 +24,7 @@ Build okay?  Great!  Now we must create a configuration file so that nethack kno
 	dbuser=nh4server
 	dbpass=(** the password you specified earlier **)
 	dbname=NetHack4
-        dboptions=sslmode=prefer
+	dboptions=sslmode=prefer
 The password's in plaintext in this file, so you may want to make the file unreadable to others if using this for real.
 
 
