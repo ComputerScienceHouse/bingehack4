@@ -125,6 +125,7 @@ report_startup(void)
     log_msg("  dbuser = %s", settings.dbuser ? settings.dbuser : "(not set)");
     log_msg("  dbpass = %s", settings.dbpass ? "(not shown)" : "(not set)");
     log_msg("  dbname = %s", settings.dbname ? settings.dbname : "(not set)");
+    log_msg("  dboptions = %s", settings.dboptions ? settings.dboptions : "(not set)");
 
     startup_pid = getpid();
 }
