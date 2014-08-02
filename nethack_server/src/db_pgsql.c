@@ -135,13 +135,13 @@ init_database(void)
 {
     if (conn)
         close_database();
-    int uri_len = asprintf(&uri, "postgresql://%s:%s@%s:%s/%s?%s",
-                           settings.dbuser ? settings.dbuser : "",
-                           settings.dbpass ? settings.dbpass : "",
-                           settings.dbhost ? settings.dbhost : "",
-                           settings.dbport ? settings.dbport : "",
-                           settings.dbname ? settings.dbname : "",
-                           settings.dboptions ? settings.dboptions : "");
+    int uri_len = asprintf(&uri, "user=%s password=%s host=%s port=%s dbname=%s %s",
+                           settings.dbuser ? settings.dbuser : "''",
+                           settings.dbpass ? settings.dbpass : "''",
+                           settings.dbhost ? settings.dbhost : "''",
+                           settings.dbport ? settings.dbport : "''",
+                           settings.dbname ? settings.dbname : "''",
+                           settings.dboptions ? settings.dboptions : "''");
     if (uri_len == -1) {
         fprintf(stderr, "Failed to calloc database URI. %s\n", strerror(errno));
         goto err;
