@@ -98,7 +98,8 @@ draw_sidebar(void)
         /* assign all unused space to the inventory list whether it is needed
            or not */
         invheight = ui_flags.viewheight - flheight - 1;
-        mvwhline(sidebar, invheight, 0, ACS_HLINE, sbwidth);
+        if (ui_flags.draw_frame)
+            mvwhline(sidebar, invheight, 0, ACS_HLINE, sbwidth);
     } else if (flooritems)
         flheight = ui_flags.viewheight;
     else
