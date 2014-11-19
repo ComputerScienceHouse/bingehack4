@@ -228,7 +228,7 @@ create_game_windows(void)
 
         if (ui_flags.draw_sidebar)
             sidebar =
-                derwin(basewin, ui_flags.viewheight, COLS - COLNO, 0, COLNO);
+                derwin(basewin, ui_flags.viewheight, COLS - COLNO - 1, 0, COLNO + 1);
     }
 
     keypad(mapwin, TRUE);
