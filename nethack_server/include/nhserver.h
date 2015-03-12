@@ -147,9 +147,16 @@ extern int db_set_user_password(int uid, const char *password);
 extern long db_add_new_game(int uid, const char *filename, const char *role,
                             const char *race, const char *gend,
                             const char *align, int mode, const char *plname,
-                            const char *levdesc);
+                            const char *levdesc,  int hp, int maxhp, int en,
+                            int maxen, int wis, int intell, int stren, int dex,
+                            int con, int cha);
 extern void db_update_game(int gameid, int moves, int depth,
                            const char *levdesc);
+extern void db_update_game_and_stats(int gameid, int moves, int depth,
+                                     const char *levdesc, int level, int hp,
+                                     int maxhp, int en, int maxen, int wis,
+                                     int intell, int stren, int dex, int con,
+                                     int cha);
 extern int db_get_game_filename(int uid, int gid, char *namebuf, int buflen);
 extern void db_delete_game(int uid, int gid);
 extern struct gamefile_info *db_list_games(int completed, int uid, int limit,
@@ -160,6 +167,7 @@ extern void db_restore_options(int uid);
 extern void db_add_topten_entry(int gid, int points, int hp, int maxhp,
                                 int deaths, int end_how, const char *death,
                                 const char *entrytxt);
+extern struct nh_board_entry *db_get_board_entries(char *since, int *length);
 
 /* kill.c */
 extern int create_pidfile(void);

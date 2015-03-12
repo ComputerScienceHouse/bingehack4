@@ -82,8 +82,8 @@ extern EXPORT nh_bool nhnet_view_replay_step(struct nh_replay_info *info,
                                              int count);
 extern EXPORT void nhnet_view_replay_finish(void);
 extern EXPORT struct nh_cmd_desc *nhnet_get_commands(int *count);
-extern EXPORT struct nh_cmd_desc *nhnet_get_object_commands(
-    int *count, char invlet);
+extern EXPORT struct nh_cmd_desc *nhnet_get_object_commands(int *count,
+                                                            char invlet);
 extern EXPORT struct nh_drawing_info *nhnet_get_drawing_info(void);
 extern EXPORT nh_bool nhnet_set_option(const char *name,
                                        union nh_optvalue value, nh_bool isstr);
@@ -103,6 +103,9 @@ extern EXPORT struct nh_topten_entry *nhnet_get_topten(int *out_len,
                                                        const char *player,
                                                        int top, int around,
                                                        nh_bool own);
+extern EXPORT struct nh_board_entry *nhnet_get_board_entries(
+                                                    char *entries_since,
+                                                    int *length);
 extern EXPORT int nhnet_change_email(const char *email);
 extern EXPORT int nhnet_change_password(const char *password);
 
@@ -124,6 +127,7 @@ extern EXPORT int nhnet_change_password(const char *password);
 #  define nh_build_plselection_prompt nhnet_build_plselection_prompt
 #  define nh_root_plselection_prompt  nhnet_root_plselection_prompt
 #  define nh_get_topten               nhnet_get_topten
+#  define nh_get_board_entries        nhnet_get_board_entries
 # endif
 
 #endif

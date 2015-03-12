@@ -993,6 +993,61 @@ nhnet_get_topten(int *out_len, char *statusbuf, const char * volatile player,
 }
 
 
+struct nh_board_entry *
+nhnet_get_board_entries(char *entries_since, int *length)
+{
+    struct nh_board_entry *brdlist;
+    json_t *jmsg, *jarr, *jobj;
+    const char *plrole, *plrace, *plgend, *plalign, *name, *leveldesc, *ts;
+    int i;
+
+    if (!nhnet_active())
+        return NULL;
+
+    if (!api_entry())
+        return NULL;
+
+    jmsg =
+        json_pack("{ss}", "get_entries_since", entries_since);
+    jmsg = send_receive_msg("get_board_entries", jmsg);
+    if (json_unpack(jmsg, "{so}", "brdlist", &jarr) == -1 ||
+            !json_is_array(jarr)) {
+        print_error("Incorrect return object in nhnet_get_board_entries");
+        brdlist = NULL;
+    } else {
+        *length = json_array_size(jarr);
+        brdlist = xmalloc(sizeof (struct nh_board_entry) * (*length));
+        for(i = 0; i < *length; i++) {
+            jobj = json_array_get(jarr, i);
+            json_unpack(jobj,
+                        "{si,si,si,si,si,si,si,si,si,si,si,si,si,si,ss,ss,ss,ss,ss,ss,ss}",
+                        "level", &brdlist[i].level, "depth", &brdlist[i].depth,
+                        "hp", &brdlist[i].hp, "hpmax", &brdlist[i].hpmax,
+                        "en", &brdlist[i].en, "enmax", &brdlist[i].enmax,
+                        "wi", &brdlist[i].wi, "in", &brdlist[i].in,
+                        "st", &brdlist[i].st, "dx", &brdlist[i].dx,
+                        "co", &brdlist[i].co, "ch", &brdlist[i].ch,
+                        "ts", &brdlist[i].lastactive,
+                        "moves", &brdlist[i].moves, "plrole", &plrole,
+                        "plrace", &plrace, "plgend", &plgend,
+                        "plalign", &plalign, "name", &name,
+                        "leveldesc", &leveldesc, "lastactive", &ts);
+            strncpy(brdlist[i].plrole, plrole, PLRBUFSZ - 1);
+            strncpy(brdlist[i].plrace, plrace, PLRBUFSZ - 1);
+            strncpy(brdlist[i].plgend, plgend, PLRBUFSZ - 1);
+            strncpy(brdlist[i].plalign, plalign, PLRBUFSZ - 1);
+            strncpy(brdlist[i].name, name, PLRBUFSZ - 1);
+            strncpy(brdlist[i].leveldesc, leveldesc, COLNO - 1);
+            strncpy(brdlist[i].lastactive, ts, COLNO - 1);
+        }
+    }
+    json_decref(jmsg);
+
+    api_exit();
+    return brdlist;
+}
+
+
 int
 nhnet_change_email(const char *email)
 {

@@ -1178,10 +1178,10 @@ domove(schar dx, schar dy, schar dz)
            Wait! message. This is different from ceiling hiders, who aren't
            handled in attack(). */
 
-        /* If they used a 'm' command, trying to move onto a monster prints the 
-           below message and wastes a turn.  The exception is if the monster is 
+        /* If they used a 'm' command, trying to move onto a monster prints the
+           below message and wastes a turn.  The exception is if the monster is
            unseen and the player doesn't remember an invisible monster--then,
-           we fall through to attack() and attack_check(), which still wastes a 
+           we fall through to attack() and attack_check(), which still wastes a
            turn, but prints a different message and makes the player remember
            the monster.  */
         if (flags.nopick && !flags.travel &&

@@ -502,12 +502,12 @@ you_moved(void)
                 u.ublesscnt--;
             iflags.botl = 1;
 
-            /* One possible result of prayer is healing.  Whether or * not you
-               get healed depends on your current hit points. * If you are
-               allowed to regenerate during the prayer, the * end-of-prayer
-               calculation messes up on this. * Another possible result is
-               rehumanization, which requires * that encumbrance and movement
-               rate be recalculated. */
+            /* One possible result of prayer is healing.  Whether or not you get
+               healed depends on your current hit points. If you are allowed to
+               regenerate during the prayer, the end-of-prayer calculation
+               messes up on this. Another possible result is rehumanization,
+               which requires that encumbrance and movement rate be
+               recalculated. */
             if (u.uinvulnerable) {
                 /* for the moment at least, you're in tiptop shape */
                 wtcap = UNENCUMBERED;

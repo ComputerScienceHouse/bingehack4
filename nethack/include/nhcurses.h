@@ -359,6 +359,9 @@ extern int curses_display_objects(struct nh_objitem *items, int icount,
                                   const char *title, int how,
                                   int placement_hint,
                                   struct nh_objresult *pick_list);
+extern void resize_menu(struct gamewin *gw);
+extern void assign_menu_accelerators(struct win_menu *mdat);
+extern void layout_menu(struct gamewin *gw);
 extern void draw_objlist(WINDOW * win, int icount, struct nh_objitem *items,
                          int *selected, int how);
 
@@ -423,6 +426,9 @@ extern void curses_update_status_silent(struct nh_player_info *pi);
 
 /* topten.c */
 extern void show_topten(char *player, int top, int around, nh_bool own);
+
+/* board.c */
+extern void show_bingeboard(void);
 
 /* windows.c */
 extern void init_curses_ui(void);

@@ -2038,7 +2038,7 @@ do_command(int command, int repcount, boolean firsttime, struct nh_cmd_arg *arg)
     if (command == -1)
         return COMMAND_UNKNOWN;
 
-    /* in some cases, a command function will accept either it's proper
+    /* in some cases, a command function will accept either its proper
        argument type or no argument; we're looking for the possible type of the 
        argument here */
     functype = (cmdlist[command].flags & CMD_ARG_FLAGS);

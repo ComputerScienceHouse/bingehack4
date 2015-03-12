@@ -599,6 +599,24 @@ struct nh_topten_entry {
     nh_bool highlight;
 };
 
+/*
+ * return type for nh_get_board_since()
+ */
+struct nh_board_entry {
+    int level, depth;
+    int hp, hpmax;
+    int en, enmax;
+    int wi, in, st, dx, co, ch;
+    int moves;
+    char plrole[PLRBUFSZ];
+    char plrace[PLRBUFSZ];
+    char plgend[PLRBUFSZ];
+    char plalign[PLRBUFSZ];
+    char name[PLRBUFSZ];
+    char lastactive[COLNO];
+    char leveldesc[COLNO];
+};
+
 struct nh_window_procs {
     void (*win_pause) (enum nh_pause_reason reason);
     void (*win_display_buffer) (const char *buf, nh_bool trymove);

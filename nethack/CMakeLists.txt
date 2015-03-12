@@ -22,6 +22,7 @@ set (ENABLE_NETCLIENT TRUE CACHE BOOL "Enable network client mode")
 
 set (NH_CURSES_SRC
     src/main.c
+    src/board.c
     src/color.c
     src/dialog.c
     src/gameover.c

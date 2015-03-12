@@ -99,6 +99,10 @@ extern EXPORT struct nh_topten_entry *nh_get_topten(int *out_len,
                                                     const char *player, int top,
                                                     int around, nh_bool own);
 
+/* board.c */
+extern EXPORT struct nh_board_entry *nh_get_board_entries(char *entries_since,
+                                                          int *length);
+
 # undef EXPORT
 
 # define set_menuitem(it, i, r, cap, acc, sel) \
