@@ -1007,8 +1007,7 @@ nhnet_get_board_entries(char *entries_since, int *length)
     if (!api_entry())
         return NULL;
 
-    jmsg =
-        json_pack("{ss}", "get_entries_since", entries_since);
+    jmsg = json_pack("{ss}", "get_entries_since", entries_since);
     jmsg = send_receive_msg("get_board_entries", jmsg);
     if (json_unpack(jmsg, "{so}", "brdlist", &jarr) == -1 ||
             !json_is_array(jarr)) {

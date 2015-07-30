@@ -15,6 +15,7 @@
 # include <fcntl.h>
 # include <unistd.h>
 # include <errno.h>
+# include <limits.h>
 
 # include <jansson.h>
 

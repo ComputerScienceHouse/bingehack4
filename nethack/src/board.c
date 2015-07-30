@@ -4,11 +4,11 @@
 #include "nhcurses.h"
 #include <time.h>
 
-struct gamewin *gw;
-struct win_menu *mdat;
-nh_bool done;
-struct nh_board_entry *entries;
-int listlen, maxplayersize;
+static struct gamewin *gw;
+static struct win_menu *mdat;
+static nh_bool done;
+static struct nh_board_entry *entries;
+static int listlen, maxplayersize;
 
 static void
 board_display_curses_ui(struct nh_menuitem *items, int icount)
@@ -29,38 +29,59 @@ board_display_curses_ui(struct nh_menuitem *items, int icount)
     mdat->icount = icount;
     mdat->title = "Binge Board";
     mdat->selected = calloc(icount, sizeof (nh_bool));
+    if (!mdat->selected)
+        curses_msgwin("Couldn't allocate memory for the binge board");
+        return;
     mdat->x1 = 0;
     mdat->y1 = 0;
     mdat->x2 = -1;
     mdat->y2 = -1;
 
-    x1 = 0;
-    y1 = 0;
-    x2 = COLS;
-    y2 = LINES;
-
     assign_menu_accelerators(mdat);
     layout_menu(gw);
 
-    starty = (y2 - y1 - mdat->height) / 2 + y1;
-    startx = (x2 - x1 - mdat->width) / 2 + x1;
+    startx = (COLS - mdat->width) / 2;
+    starty = (LINES - mdat->height) / 2;
 
     gw->win = newwin(mdat->height, mdat->width, starty, startx);
-    keypad(gw->win, TRUE);
-    wattron(gw->win, FRAME_ATTRS);
+    if (gw->win == NULL) {
+        curses_msgwin("Error: newwin returned NULL!");
+        return;
+    }
+    if (keypad(gw->win, TRUE) == ERR) {
+        curses_msgwin("Error: keypad for gw->win errored out!");
+        return;
+    }
+    if (wattron(gw->win, FRAME_ATTRS) == ERR) {
+        curses_msgwin("Error: wattron for gw->win errored out!");
+        return;
+    }
     box(gw->win, 0, 0);
-    wattroff(gw->win, FRAME_ATTRS);
+    if (wattroff(gw->win, FRAME_ATTRS) == ERR) {
+        curses_msgwin("Error: wattroff for gw->win errored out!");
+        return;
+    }
     mdat->content =
         derwin(gw->win, mdat->innerheight, mdat->innerwidth,
                mdat->frameheight - 1, 2);
-    leaveok(gw->win, TRUE);
-    leaveok(mdat->content, TRUE);
+    if (mdat->content == NULL) {
+        curses_msgwin("Error: derwin for gw->win errored out!");
+        return;
+    }
+    if (leaveok(gw->win, TRUE) == ERR) {
+        curses_msgwin("Error: leaveok for gw->win errored out!");
+        return;
+    }
+    if (leaveok(mdat->content, TRUE) == ERR) {
+        curses_msgwin("Error: leaveok for mdat->content errored out!");
+        return;
+    }
     wtimeout(gw->win, 500);
 }
 
 static void
 board_add_entry(struct nh_board_entry *entry, struct nh_menuitem **items,
-                int *size, int *icount, int maxwidth, int maxplayerwidth,
+                int *size, int *icount, int maxplayerwidth,
                 enum nh_menuitem_role txtrole)
 {
     char fmtline[BUFSZ], line[BUFSZ], name[BUFSZ], hptxt[BUFSZ], entxt[BUFSZ];
@@ -79,13 +100,13 @@ board_add_entry(struct nh_board_entry *entry, struct nh_menuitem **items,
         inactive = "";
     }
 
-    sprintf(name, "%s the %s %s %s %s", entry->name, entry->plalign,
-            entry->plgend, entry->plrace, entry->plrole);
-    sprintf(hptxt, "%d/%d", entry->hp, entry->hpmax);
-    sprintf(entxt, "%d/%d", entry->en, entry->enmax);
-    sprintf(fmtline, "%%1s  %%-%ds | %%-12s | %%-7s %%-7s | %%3d %%3d %%3d %%3d %%3d %%3d | %%5d | %%5d | %%5d",
-            maxplayerwidth);
-    sprintf(line, fmtline, inactive, name,
+    snprintf(name, 60, "%s the %s %s %s %s", entry->name, entry->plalign,
+             entry->plgend, entry->plrace, entry->plrole);
+    snprintf(hptxt, 7, "%d/%d", entry->hp, entry->hpmax);
+    snprintf(entxt, 7, "%d/%d", entry->en, entry->enmax);
+    snprintf(fmtline, 146, "%%1s  %%-%ds | %%-12s | %%-7s %%-7s | %%3d %%3d %%3d %%3d %%3d %%3d | %%5d | %%5d | %%5d",
+             maxplayerwidth);
+    snprintf(line, 146, fmtline, inactive, name,
             entry->leveldesc, hptxt, entxt, entry->wi, entry->in, entry->st,
             entry->dx, entry->co, entry->ch, entry->moves, entry->depth,
             entry->level);
@@ -99,18 +120,21 @@ get_max_playerdesc(struct nh_board_entry *entries, int listlen)
     struct nh_board_entry *tmpentry;
     for(i = 0; i < listlen; i++) {
         tmpentry = (entries + i);
-        tmpsize = strlen(tmpentry->name) //Length of the player's name
-                    + 5                  //Length of " the "
-                    + strlen(tmpentry->plalign) //Length of their alignment
-                    + 1                  //Space
+        tmpsize = strlen(tmpentry->name)
+                    + strlen(" the ")
+                    + strlen(tmpentry->plalign)
+                    + strlen(" ")
                     + strlen(tmpentry->plgend)
-                    + 1                  //Space
+                    + strlen(" ")
                     + strlen(tmpentry->plrace)
-                    + 1                  //Space
+                    + strlen(" ")
                     + strlen(tmpentry->plrole);
         if(maxsize < tmpsize) {
             maxsize = tmpsize;
         }
+    }
+    if (maxsize > 60) {
+        maxsize = 60;
     }
     return maxsize;
 }
@@ -144,7 +168,10 @@ update_board(struct nh_menuitem **items, char *time)
                                    wraps */
 
     free((*items));
-    (*items) = malloc(size * sizeof (struct nh_menuitem));
+    (*items) = calloc(size, sizeof (struct nh_menuitem));
+    if ((*items) == NULL) {
+        return;
+    }
 
     if(new_listlen == 0) {
         new_maxplayersize = 0;
@@ -165,7 +192,7 @@ update_board(struct nh_menuitem **items, char *time)
                 txtrole = MI_TEXT;
             }
             board_add_entry(&new_entries[i], items, &size, &icount,
-                             min(COLS, BUFSZ) - 4, new_maxplayersize, txtrole);
+                             new_maxplayersize, txtrole);
         }
         add_menu_txt((*items), size, icount, "", MI_TEXT);
     }

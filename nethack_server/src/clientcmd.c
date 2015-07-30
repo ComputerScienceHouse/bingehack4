@@ -637,8 +637,8 @@ ccmd_get_board_entries(json_t * params)
     jarr = json_array();
     for (i = 0; i < listlen; i++) {
         jobj =
-            json_pack
-            ("{si,si,si,si,si,si,si,si,si,si,si,si,si,si,ss,ss,ss,ss,ss,ss,ss}",
+            json_pack(
+             "{si,si,si,si,si,si,si,si,si,si,si,si,si,si,ss,ss,ss,ss,ss,ss,ss}",
              "level", entries[i].level, "depth", entries[i].depth,
              "hp", entries[i].hp, "hpmax", entries[i].hpmax,
              "en", entries[i].en, "enmax", entries[i].enmax,

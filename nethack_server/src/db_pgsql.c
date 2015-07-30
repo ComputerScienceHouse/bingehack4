@@ -463,7 +463,7 @@ db_add_new_game(int uid, const char *filename, const char *role,
     const int paramFormats[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                  0, 0, 0 };
     const char *gameid_str;
-    int gid;
+    int gid, numparams;
 
     sprintf(uidstr, "%d", uid);
     sprintf(modestr, "%d", mode);
@@ -478,9 +478,10 @@ db_add_new_game(int uid, const char *filename, const char *role,
     sprintf(costr, "%d", co);
     sprintf(chstr, "%d", ch);
 
+    numparams = sizeof(params) / sizeof(const char *);
     res =
-        PQexecParams(conn, SQL_add_game, 19, NULL, params, NULL, paramFormats,
-                     0);
+        PQexecParams(conn, SQL_add_game, numparams, NULL, params, NULL,
+                     paramFormats, 0);
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         log_msg("db_add_new_game error while adding (%s - %s): %s", plname,
                 filename, PQerrorMessage(conn));
@@ -766,9 +767,9 @@ db_add_topten_entry(int gid, int points, int hp, int maxhp, int deaths,
 struct nh_board_entry *
 db_get_board_entries(char *since, int *length) {
     PGresult *res;
-    int i, levelcol, depthcol, hpcol, hpmaxcol, encol, enmaxcol, wicol, incol,
-        stcol, dxcol, cocol, chcol, tscol, movescol, plrolecol, plracecol,
-        plgendcol, plaligncol, namecol, leveldesccol;
+    int i, tmp, levelcol, depthcol, hpcol, hpmaxcol, encol, enmaxcol, wicol,
+        incol, stcol, dxcol, cocol, chcol, tscol, movescol, plrolecol,
+        plracecol, plgendcol, plaligncol, namecol, leveldesccol;
     const char *plrole, *plrace, *plgend, *plalign, *name, *leveldesc, *ts;
 
     const char *const params[] = { since };
@@ -805,21 +806,99 @@ db_get_board_entries(char *since, int *length) {
     namecol = PQfnumber(res, "plname");
     leveldesccol = PQfnumber(res, "level_desc");
 
-    entries = malloc(sizeof (struct nh_board_entry) * (*length));
+    entries = calloc((*length), sizeof (struct nh_board_entry));
     for (i = 0; i < *length; i++) {
-        entries[i].level = atoi(PQgetvalue(res, i, levelcol));
-        entries[i].depth = atoi(PQgetvalue(res, i, depthcol));
-        entries[i].hp = atoi(PQgetvalue(res, i, hpcol));
-        entries[i].hpmax = atoi(PQgetvalue(res, i, hpmaxcol));
-        entries[i].en = atoi(PQgetvalue(res, i, encol));
-        entries[i].enmax = atoi(PQgetvalue(res, i, enmaxcol));
-        entries[i].wi = atoi(PQgetvalue(res, i, wicol));
-        entries[i].in = atoi(PQgetvalue(res, i, incol));
-        entries[i].st = atoi(PQgetvalue(res, i, stcol));
-        entries[i].dx = atoi(PQgetvalue(res, i, dxcol));
-        entries[i].co = atoi(PQgetvalue(res, i, cocol));
-        entries[i].ch = atoi(PQgetvalue(res, i, chcol));
-        entries[i].moves = atoi(PQgetvalue(res, i, movescol));
+        tmp = strtol(PQgetvalue(res, i, levelcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].level = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, depthcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].depth = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, hpcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].hp = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, hpmaxcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].hpmax = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, encol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].en = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, enmaxcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].enmax = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, wicol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].wi = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, incol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].in = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, stcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].st = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, dxcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].dx = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, cocol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].co = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, chcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].ch = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, movescol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].moves = tmp;
+
 
         plrole = PQgetvalue(res, i, plrolecol);
         plrace = PQgetvalue(res, i, plracecol);
