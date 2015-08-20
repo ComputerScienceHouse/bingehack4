@@ -507,7 +507,7 @@ you_moved(void)
                allowed to regenerate during the prayer, the * end-of-prayer
                calculation messes up on this. * Another possible result is
                rehumanization, which requires * that encumbrance and movement
-               rate be recalculated */
+               rate be recalculated. */
             if (u.uinvulnerable) {
                 /* for the moment at least, you're in tiptop shape */
                 wtcap = UNENCUMBERED;

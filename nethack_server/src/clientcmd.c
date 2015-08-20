@@ -625,10 +625,10 @@ ccmd_get_topten(json_t * params)
 static void
 ccmd_get_board_entries(json_t * params)
 {
-    struct nh_board_entry *entries;
-    int listlen, i;
-    char *since;
-    json_t *jmsg, *jarr, *jobj;
+    struct nh_board_entry *entries = NULL;
+    int listlen = 0, i = 0;
+    char *since = NULL;
+    json_t *jmsg = NULL, *jarr = NULL, *jobj = NULL;
     if (json_unpack(params, "{ss}", "get_entries_since", &since) == -1)
         exit_client("Bad parameters for get_board_entries");
 

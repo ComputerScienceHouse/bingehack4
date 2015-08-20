@@ -33,13 +33,13 @@ static const char SQL_init_games_table[] =
     "depth integer NOT NULL, " "level integer NOT NULL, "
     "level_desc text NOT NULL, " "done boolean NOT NULL DEFAULT FALSE, "
     "owner integer NOT NULL REFERENCES users (uid), " "ts timestamp NOT NULL, "
-    "start_ts timestamp NOT NULL, " "health integer NOT NULL, " 
+    "start_ts timestamp NOT NULL, " "health integer NOT NULL, "
     "maxhealth integer NOT NULL, " "energy integer NOT NULL, "
     "maxenergy integer NOT NULL, " "wi integer NOT NULL, "
     "intel integer NOT NULL, " "str integer NOT NULL, "
     "dx integer NOT NULL, " "co integer NOT NULL, "
     "ch integer NOT NULL" ");";
-    
+
 
 static const char SQL_init_options_table[] =
     "CREATE TABLE options(" "uid integer NOT NULL REFERENCES users (uid), "
@@ -451,10 +451,11 @@ db_add_new_game(int uid, const char *filename, const char *role,
                 int en, int enmax, int wi, int in, int st, int dx,
                 int co, int ch)
 {
-    PGresult *res;
-    char uidstr[16], modestr[16], hpstr[16], hpmaxstr[16], enstr[16],
-         enmaxstr[16], wistr[16], intstr[16], ststr[16], dxstr[16], 
-         costr[16], chstr[16];
+    PGresult *res = NULL;
+    char uidstr[16] = "\0", modestr[16] = "\0", hpstr[16] = "\0",
+         hpmaxstr[16] = "\0", enstr[16] = "\0", enmaxstr[16] = "\0",
+         wistr[16] = "\0", intstr[16] = "\0", ststr[16] = "\0",
+         dxstr[16] = "\0", costr[16] = "\0", chstr[16] = "\0";
 
     const char *const params[] = { filename, role, race, gend, align, modestr,
         uidstr, plname, levdesc, hpstr, hpmaxstr, enstr, enmaxstr, wistr,
@@ -462,8 +463,8 @@ db_add_new_game(int uid, const char *filename, const char *role,
     };
     const int paramFormats[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                  0, 0, 0 };
-    const char *gameid_str;
-    int gid, numparams;
+    const char *gameid_str = NULL;
+    int gid = 0, numparams = 0;
 
     sprintf(uidstr, "%d", uid);
     sprintf(modestr, "%d", mode);
@@ -529,10 +530,12 @@ db_update_game_and_stats(int game, int moves, int depth, const char *levdesc,
                          int level, int hp, int hpmax, int en, int enmax,
                          int wi, int in, int st, int dx, int co, int ch)
 {
-    PGresult *res;
-    char gidstr[16], movesstr[16], depthstr[16], lvlstr[16], hpstr[16],
-         hpmaxstr[16], enstr[16], enmaxstr[16], wistr[16], intstr[16],
-         ststr[16], dxstr[16], costr[16], chstr[16];
+    PGresult *res = NULL;
+    char gidstr[16] = "\0", movesstr[16] = "\0", depthstr[16] = "\0",
+         lvlstr[16] = "\0", hpstr[16] = "\0", hpmaxstr[16] = "\0",
+         enstr[16] = "\0", enmaxstr[16] = "\0", wistr[16] = "\0",
+         intstr[16] = "\0", ststr[16] = "\0", dxstr[16] = "\0",
+         costr[16] = "\0", chstr[16] = "\0";
     const char *const params[] = { gidstr, movesstr, depthstr, lvlstr, levdesc,
                                    hpstr, hpmaxstr, enstr, enmaxstr, wistr,
                                    intstr, ststr, dxstr, costr, chstr };
@@ -767,14 +770,17 @@ db_add_topten_entry(int gid, int points, int hp, int maxhp, int deaths,
 struct nh_board_entry *
 db_get_board_entries(char *since, int *length) {
     PGresult *res;
-    int i, tmp, levelcol, depthcol, hpcol, hpmaxcol, encol, enmaxcol, wicol,
-        incol, stcol, dxcol, cocol, chcol, tscol, movescol, plrolecol,
-        plracecol, plgendcol, plaligncol, namecol, leveldesccol;
-    const char *plrole, *plrace, *plgend, *plalign, *name, *leveldesc, *ts;
+    int i = 0, tmp = 0, levelcol = 0, depthcol = 0, hpcol = 0, hpmaxcol = 0,
+        encol = 0, enmaxcol = 0, wicol = 0, incol = 0, stcol = 0, dxcol = 0,
+        cocol = 0, chcol = 0, tscol = 0, movescol = 0, plrolecol = 0,
+        plracecol = 0, plgendcol = 0, plaligncol = 0, namecol = 0,
+        leveldesccol = 0;
+    const char *plrole = NULL, *plrace = NULL, *plgend = NULL, *plalign = NULL,
+          *name = NULL, *leveldesc = NULL, *ts = NULL;
 
     const char *const params[] = { since };
     const int paramFormats[] = { 0 };
-    struct nh_board_entry *entries;
+    struct nh_board_entry *entries = NULL;
 
     res =
         PQexecParams(conn, SQL_get_games_since, 1, NULL, params, NULL,
@@ -908,13 +914,13 @@ db_get_board_entries(char *since, int *length) {
         leveldesc = PQgetvalue(res, i, leveldesccol);
         ts = PQgetvalue(res, i, tscol);
 
-        strcpy(entries[i].plrole, plrole);
-        strcpy(entries[i].plrace, plrace);
-        strcpy(entries[i].plgend, plgend);
-        strcpy(entries[i].plalign, plalign);
-        strcpy(entries[i].name, name);
-        strcpy(entries[i].leveldesc, leveldesc);
-        strcpy(entries[i].lastactive, ts);
+        strncpy(entries[i].plrole, plrole, PLRBUFSZ);
+        strncpy(entries[i].plrace, plrace, PLRBUFSZ);
+        strncpy(entries[i].plgend, plgend, PLRBUFSZ);
+        strncpy(entries[i].plalign, plalign, PLRBUFSZ);
+        strncpy(entries[i].name, name, PLRBUFSZ);
+        strncpy(entries[i].leveldesc, leveldesc, COLNO);
+        strncpy(entries[i].lastactive, ts, COLNO);
     }
 
     PQclear(res);

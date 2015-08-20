@@ -82,8 +82,8 @@ extern EXPORT nh_bool nhnet_view_replay_step(struct nh_replay_info *info,
                                              int count);
 extern EXPORT void nhnet_view_replay_finish(void);
 extern EXPORT struct nh_cmd_desc *nhnet_get_commands(int *count);
-extern EXPORT struct nh_cmd_desc *nhnet_get_object_commands(int *count,
-                                                            char invlet);
+extern EXPORT struct nh_cmd_desc *nhnet_get_object_commands(
+    int *count, char invlet);
 extern EXPORT struct nh_drawing_info *nhnet_get_drawing_info(void);
 extern EXPORT nh_bool nhnet_set_option(const char *name,
                                        union nh_optvalue value, nh_bool isstr);

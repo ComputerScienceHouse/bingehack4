@@ -996,10 +996,11 @@ nhnet_get_topten(int *out_len, char *statusbuf, const char * volatile player,
 struct nh_board_entry *
 nhnet_get_board_entries(char *entries_since, int *length)
 {
-    struct nh_board_entry *brdlist;
-    json_t *jmsg, *jarr, *jobj;
-    const char *plrole, *plrace, *plgend, *plalign, *name, *leveldesc, *ts;
-    int i;
+    struct nh_board_entry *brdlist = NULL;
+    json_t *jmsg = NULL, *jarr = NULL, *jobj = NULL;
+    const char *plrole = NULL, *plrace = NULL, *plgend = NULL, *plalign = NULL,
+          *name = NULL, *leveldesc = NULL, *ts = NULL;
+    int i = 0;
 
     if (!nhnet_active())
         return NULL;
