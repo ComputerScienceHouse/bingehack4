@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-21 */
 /*      Copyright (c) 1989 Janet Walz, Mike Threepoint */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -6,7 +7,6 @@
 #include "edog.h"
 
 static int domonnoise(struct monst *);
-static int dochat(int, int, int);
 static int mon_in_room(struct monst *, int);
 
 /* this easily could be a macro, but it might overtax dumb compilers */
@@ -25,31 +25,31 @@ dosounds(void)
     int hallu, vx, vy;
     struct monst *mtmp;
 
-    if (!flags.soundok || u.uswallow || Underwater)
+    if (!canhear() || Engulfed || Underwater)
         return;
 
     hallu = Hallucination ? 1 : 0;
 
-    if (level->flags.nfountains && !rn2(400)) {
+    if (has_terrain(level, FOUNTAIN) && !rn2(400)) {
         static const char *const fountain_msg[4] = {
             "bubbling water.",
             "water falling on coins.",
             "the splashing of a naiad.",
             "a soda fountain!",
         };
-        You_hear(fountain_msg[rn2(3) + hallu]);
+        You_hear("%s", fountain_msg[rn2(3) + hallu]);
     }
 
-    if (level->flags.nsinks && !rn2(300)) {
+    if (has_terrain(level, SINK) && !rn2(300)) {
         static const char *const sink_msg[3] = {
             "a slow drip.",
             "a gurgling noise.",
             "dishes being washed!",
         };
-        You_hear(sink_msg[rn2(2) + hallu]);
+        You_hear("%s", sink_msg[rn2(2) + hallu]);
     }
 
-    if (level->flags.has_court && !rn2(200)) {
+    if (search_special(level, COURT) && !rn2(200)) {
         static const char *const throne_msg[4] = {
             "the tones of courtly conversation.",
             "a sceptre pounded in judgment.",
@@ -66,28 +66,23 @@ dosounds(void)
                 int which = rn2(3) + hallu;
 
                 if (which != 2)
-                    You_hear(throne_msg[which]);
+                    You_hear("%s", throne_msg[which]);
                 else
                     pline(throne_msg[2], uhis());
                 return;
             }
         }
     }
-    if (level->flags.has_swamp && !rn2(200)) {
+    if (search_special(level, SWAMP) && !rn2(200)) {
         static const char *const swamp_msg[3] = {
             "You hear mosquitoes!",
             "You smell marsh gas!",     /* so it's a smell... */
             "You hear Donald Duck!",
         };
-        pline(swamp_msg[rn2(2) + hallu]);
+        pline("%s", swamp_msg[rn2(2) + hallu]);
         return;
     }
-    if (level->flags.has_vault && !rn2(200)) {
-        if (!(sroom = search_special(level, VAULT))) {
-            /* strange ... */
-            level->flags.has_vault = 0;
-            return;
-        }
+    if ((sroom = search_special(level, VAULT)) && !rn2(200)) {
         if (gd_sound())
             switch (rn2(2) + hallu) {
             case 1:{
@@ -117,7 +112,7 @@ dosounds(void)
             }
         return;
     }
-    if (level->flags.has_beehive && !rn2(200)) {
+    if (search_special(level, BEEHIVE) && !rn2(200)) {
         for (mtmp = level->monlist; mtmp; mtmp = mtmp->nmon) {
             if (DEADMONSTER(mtmp))
                 continue;
@@ -139,7 +134,7 @@ dosounds(void)
             }
         }
     }
-    if (level->flags.has_morgue && !rn2(200)) {
+    if (search_special(level, MORGUE) && !rn2(200)) {
         for (mtmp = level->monlist; mtmp; mtmp = mtmp->nmon) {
             if (DEADMONSTER(mtmp))
                 continue;
@@ -167,7 +162,7 @@ dosounds(void)
             }
         }
     }
-    if (level->flags.has_barracks && !rn2(200)) {
+    if (search_special(level, BARRACKS) && !rn2(200)) {
         static const char *const barracks_msg[4] = {
             "blades being honed.",
             "loud snoring.",
@@ -182,12 +177,12 @@ dosounds(void)
             if (is_mercenary(mtmp->data) && mon_in_room(mtmp, BARRACKS) &&
                 /* sleeping implies not-yet-disturbed (usually) */
                 (mtmp->msleeping || ++count > 5)) {
-                You_hear(barracks_msg[rn2(3) + hallu]);
+                You_hear("%s", barracks_msg[rn2(3) + hallu]);
                 return;
             }
         }
     }
-    if (level->flags.has_zoo && !rn2(200)) {
+    if (search_special(level, ZOO) && !rn2(200)) {
         static const char *const zoo_msg[3] = {
             "a sound reminiscent of an elephant stepping on a peanut.",
             "a sound reminiscent of a seal barking.",
@@ -198,17 +193,12 @@ dosounds(void)
                 continue;
             if ((mtmp->msleeping || is_animal(mtmp->data)) &&
                 mon_in_room(mtmp, ZOO)) {
-                You_hear(zoo_msg[rn2(2) + hallu]);
+                You_hear("%s", zoo_msg[rn2(2) + hallu]);
                 return;
             }
         }
     }
-    if (level->flags.has_shop && !rn2(200)) {
-        if (!(sroom = search_special(level, ANY_SHOP))) {
-            /* strange... */
-            level->flags.has_shop = 0;
-            return;
-        }
+    if ((sroom = search_special(level, ANY_SHOP)) && !rn2(200)) {
         if (tended_shop(sroom) &&
             !strchr(u.ushops, ROOM_INDEX(sroom) + ROOMOFFSET)) {
             static const char *const shop_msg[3] = {
@@ -216,11 +206,11 @@ dosounds(void)
                 "the chime of a cash register.",
                 "Neiman and Marcus arguing!",
             };
-            You_hear(shop_msg[rn2(2) + hallu]);
+            You_hear("%s", shop_msg[rn2(2) + hallu]);
         }
         return;
     }
-    if (Is_oracle_level(&u.uz) && !rn2(400)) {
+    if (search_special(level, DELPHI) && !rn2(400)) {
         /* make sure the Oracle is still here */
         for (mtmp = level->monlist; mtmp; mtmp = mtmp->nmon)
             if (!DEADMONSTER(mtmp) && mtmp->data == &mons[PM_POTTER])
@@ -234,7 +224,7 @@ dosounds(void)
                 "someone ask you for your punchcards.", /* if(hallucinating) */
                 "loud praise for Netgear devices." /* if(hallucinating) */
             };
-            You_hear(ora_msg[rn2(3) + hallu * 2]);
+            You_hear("%s", ora_msg[rn2(3) + hallu * 2]);
         }
         return;
     }
@@ -293,18 +283,18 @@ growl(struct monst *mtmp)
 {
     const char *growl_verb = 0;
 
-    if (mtmp->msleeping || !mtmp->mcanmove || !mtmp->data->msound)
+    if (mtmp->msleeping || !mtmp->mcanmove || !mtmp->data->msound ||
+        !canhear())
         return;
 
-    /* presumably nearness and soundok checks have already been made */
+    /* presumably nearness checks have already been made */
     if (Hallucination)
         growl_verb = h_sounds[rn2(SIZE(h_sounds))];
     else
         growl_verb = growl_sound(mtmp);
     if (growl_verb) {
         pline("%s %s!", Monnam(mtmp), vtense(NULL, growl_verb));
-        if (flags.run)
-            nomul(0, NULL);
+        action_interrupted();
         wake_nearto(mtmp->mx, mtmp->my, mtmp->data->mlevel * 18);
     }
 }
@@ -315,10 +305,11 @@ yelp(struct monst *mtmp)
 {
     const char *yelp_verb = 0;
 
-    if (mtmp->msleeping || !mtmp->mcanmove || !mtmp->data->msound)
+    if (mtmp->msleeping || !mtmp->mcanmove || !mtmp->data->msound ||
+        !canhear())
         return;
 
-    /* presumably nearness and soundok checks have already been made */
+    /* presumably nearness checks have already been made */
     if (Hallucination)
         yelp_verb = h_sounds[rn2(SIZE(h_sounds))];
     else
@@ -345,8 +336,7 @@ yelp(struct monst *mtmp)
         }
     if (yelp_verb) {
         pline("%s %s!", Monnam(mtmp), vtense(NULL, yelp_verb));
-        if (flags.run)
-            nomul(0, NULL);
+        action_interrupted();
         wake_nearto(mtmp->mx, mtmp->my, mtmp->data->mlevel * 12);
     }
 }
@@ -357,10 +347,11 @@ whimper(struct monst *mtmp)
 {
     const char *whimper_verb = 0;
 
-    if (mtmp->msleeping || !mtmp->mcanmove || !mtmp->data->msound)
+    if (mtmp->msleeping || !mtmp->mcanmove || !mtmp->data->msound ||
+        !canhear())
         return;
 
-    /* presumably nearness and soundok checks have already been made */
+    /* presumably nearness checks have already been made */
     if (Hallucination)
         whimper_verb = h_sounds[rn2(SIZE(h_sounds))];
     else
@@ -378,8 +369,7 @@ whimper(struct monst *mtmp)
         }
     if (whimper_verb) {
         pline("%s %s.", Monnam(mtmp), vtense(NULL, whimper_verb));
-        if (flags.run)
-            nomul(0, NULL);
+        action_interrupted();
         wake_nearto(mtmp->mx, mtmp->my, mtmp->data->mlevel * 6);
     }
 }
@@ -392,7 +382,8 @@ beg(struct monst *mtmp)
         !(carnivorous(mtmp->data) || herbivorous(mtmp->data)))
         return;
 
-    /* presumably nearness and soundok checks have already been made */
+    /* presumably nearness checks have already been made */
+    /* TODO: Check that the player character isn't deaf? */
     if (!is_silent(mtmp->data) && mtmp->data->msound <= MS_ANIMAL)
         domonnoise(mtmp);
     else if (mtmp->data->msound >= MS_HUMANOID) {
@@ -416,7 +407,7 @@ whatthefoxsays()
         return "goes jacha-chacha-chacha-chow!";
     case 4:
         return "goes fraka-kaka-kaka-kaka-kow!";
-    case 5:
+    default:
         return "goes a-hee-ahee ha-hee!";
     }
 }
@@ -427,10 +418,9 @@ domonnoise(struct monst *mtmp)
     const char *pline_msg = 0,  /* Monnam(mtmp) will be prepended */
         *verbl_msg = 0; /* verbalize() */
     const struct permonst *ptr = mtmp->data;
-    char verbuf[BUFSZ];
 
-    /* presumably nearness and sleep checks have already been made */
-    if (!flags.soundok)
+    /* presumably nearness checks have already been made */
+    if (!canhear())
         return 0;
     if (is_silent(ptr))
         return 0;
@@ -473,35 +463,31 @@ domonnoise(struct monst *mtmp)
                                   (u.umonnum == PM_WOLF ||
                                    u.umonnum == PM_WINTER_WOLF ||
                                    u.umonnum == PM_WINTER_WOLF_CUB));
-            const char *racenoun = (flags.female &&
-                                    urace.individual.f) ? urace.individual.
-                f : (urace.individual.m) ? urace.individual.m : urace.noun;
+            const char *racenoun = (u.ufemale &&
+                                    urace.individual.f) ? urace.
+                individual.f : (urace.individual.m) ? urace.individual.
+                m : urace.noun;
 
             if (mtmp->mtame) {
-                if (kindred) {
-                    sprintf(verbuf, "Good %s to you Master%s",
-                            isnight ? "evening" : "day",
-                            isnight ? "!" : ".  Why do we not rest?");
-                    verbl_msg = verbuf;
-                } else {
-                    sprintf(verbuf, "%s%s",
-                            nightchild ? "Child of the night, " : "",
-                            midnight()? "I can stand this craving no longer!" :
-                            isnight ?
-                            "I beg you, help me satisfy this growing craving!" :
-                            "I find myself growing a little weary.");
-                    verbl_msg = verbuf;
-                }
+                if (kindred)
+                    verbl_msg = msgprintf("Good %s to you Master%s",
+                                          isnight ? "evening" : "day",
+                                          isnight ? "!" :
+                                          ".  Why do we not rest?");
+                else
+                    verbl_msg = msgcat(
+                        nightchild ? "Child of the night, " : "",
+                        midnight()? "I can stand this craving no longer!" :
+                        isnight ?
+                        "I beg you, help me satisfy this growing craving!" :
+                        "I find myself growing a little weary.");
             } else if (mtmp->mpeaceful) {
-                if (kindred && isnight) {
-                    sprintf(verbuf, "Good feeding %s!",
-                            flags.female ? "sister" : "brother");
-                    verbl_msg = verbuf;
-                } else if (nightchild && isnight) {
-                    sprintf(verbuf,
-                            "How nice to hear you, child of the night!");
-                    verbl_msg = verbuf;
-                } else
+                if (kindred && isnight)
+                    verbl_msg = msgprintf("Good feeding %s!",
+                                          u.ufemale ? "sister" : "brother");
+                else if (nightchild && isnight)
+                    verbl_msg = "How nice to hear you, child of the night!";
+                else
                     verbl_msg = "I only drink... potions.";
             } else {
                 int vampindex;
@@ -518,21 +504,19 @@ domonnoise(struct monst *mtmp)
                 else if (youmonst.data == &mons[PM_SILVER_DRAGON] ||
                          youmonst.data == &mons[PM_BABY_SILVER_DRAGON]) {
                     /* Silver dragons are silver in color, not made of silver */
-                    sprintf(verbuf,
-                            "%s! Your silver sheen does not frighten me!",
-                            youmonst.data ==
-                            &mons[PM_SILVER_DRAGON] ? "Fool" : "Young Fool");
-                    verbl_msg = verbuf;
+                    verbl_msg = msgprintf(
+                        "%s! Your silver sheen does not frighten me!",
+                        youmonst.data ==
+                        &mons[PM_SILVER_DRAGON] ? "Fool" : "Young Fool");
                 } else {
                     vampindex = rn2(SIZE(vampmsg));
                     if (vampindex == 0) {
-                        sprintf(verbuf, vampmsg[vampindex], body_part(BLOOD));
-                        verbl_msg = verbuf;
+                        verbl_msg = msgprintf(
+                            vampmsg[vampindex], body_part(BLOOD));
                     } else if (vampindex == 1) {
-                        sprintf(verbuf, vampmsg[vampindex],
-                                Upolyd ? an(mons[u.umonnum].
-                                            mname) : an(racenoun));
-                        verbl_msg = verbuf;
+                        verbl_msg = msgprintf(
+                            vampmsg[vampindex],
+                            Upolyd ? an(mons[u.umonnum].mname) : an(racenoun));
                     } else
                         verbl_msg = vampmsg[vampindex];
                 }
@@ -563,7 +547,7 @@ domonnoise(struct monst *mtmp)
                 if (mtmp->data == &mons[PM_FOX])
                     pline_msg = whatthefoxsays();
                 else if (mtmp->data != &mons[PM_DINGO])  /* dingos do not
-                                                       actually bark */
+                                                           actually bark */
                     pline_msg = "barks.";
             }
         } else {
@@ -639,8 +623,7 @@ domonnoise(struct monst *mtmp)
     case MS_BONES:
         pline("%s rattles noisily.", Monnam(mtmp));
         pline("You freeze for a moment.");
-        nomul(-2, "scared by rattling");
-        nomovemsg = 0;  /* default: "You can move again." */
+        helpless(2, hr_afraid, "scared by rattling", NULL);
         break;
     case MS_LAUGH:
         {
@@ -653,7 +636,7 @@ domonnoise(struct monst *mtmp)
     case MS_MUMBLE:
         pline_msg = "mumbles incomprehensibly.";
         break;
-    case MS_DJINNI:
+    case MS_WISHGIVER:
         if (mtmp->mtame) {
             verbl_msg = "Sorry, I'm all out of wishes.";
         } else if (mtmp->mpeaceful) {
@@ -729,10 +712,14 @@ domonnoise(struct monst *mtmp)
                 break;
             case PM_ARCHEOLOGIST:
                 pline_msg =
-                    "describes a recent article in \"Spelunker Today\" magazine.";
+                    "describes a recent article in \"Spelunker Today\" "
+                    "magazine.";
                 break;
             case PM_TOURIST:
                 verbl_msg = "Aloha.";
+                break;
+            case PM_PRISONER:
+                verbl_msg = "Thank you for freeing me!";
                 break;
             default:
                 pline_msg = "discusses dungeon exploration.";
@@ -759,7 +746,7 @@ domonnoise(struct monst *mtmp)
         break;
     case MS_ARREST:
         if (mtmp->mpeaceful)
-            verbalize("Just the facts, %s.", flags.female ? "Ma'am" : "Sir");
+            verbalize("Just the facts, %s.", u.ufemale ? "Ma'am" : "Sir");
         else {
             static const char *const arrest_msg[3] = {
                 "Anything you say can be used against you.",
@@ -786,7 +773,8 @@ domonnoise(struct monst *mtmp)
     case MS_NURSE:
         if (uwep && (uwep->oclass == WEAPON_CLASS || is_weptool(uwep)))
             verbl_msg = "Put that weapon away before you hurt someone!";
-        else if (uarmc || uarm || uarmh || uarms || uarmg || uarmf)
+        else if (uarmc || (uarm && !uskin()) ||
+                 uarmh || uarms || uarmg || uarmf)
             verbl_msg =
                 Role_if(PM_HEALER) ?
                 "Doc, I can't help you unless you cooperate." :
@@ -828,31 +816,24 @@ domonnoise(struct monst *mtmp)
     if (pline_msg)
         pline("%s %s", Monnam(mtmp), pline_msg);
     else if (verbl_msg)
-        verbalize(verbl_msg);
+        verbalize("%s", verbl_msg);
     return 1;
 }
 
 int
-dotalk(int dx, int dy, int dz)
-{
-    int result;
-    boolean save_soundok = flags.soundok;
-
-    flags.soundok = 1;  /* always allow sounds while chatting */
-    result = dochat(dx, dy, dz);
-    flags.soundok = save_soundok;
-    return result;
-}
-
-static int
-dochat(int idx, int idy, int idz)
+dotalk(const struct nh_cmd_arg *arg)
 {
     struct monst *mtmp;
     int tx, ty;
     struct obj *otmp;
-    schar dx = idx;
-    schar dy = idy;
-    schar dz = idz;
+    schar dx;
+    schar dy;
+    schar dz;
+
+    if (!getargdir(arg, NULL, &dx, &dy, &dz)) {
+        /* decided not to chat */
+        return 0;
+    }
 
     if (is_silent(youmonst.data)) {
         pline("As %s, you cannot speak.", an(youmonst.data->mname));
@@ -862,7 +843,7 @@ dochat(int idx, int idy, int idz)
         pline("You can't speak.  You're choking!");
         return 0;
     }
-    if (u.uswallow) {
+    if (Engulfed) {
         pline("They won't hear you out there.");
         return 0;
     }
@@ -882,13 +863,6 @@ dochat(int idx, int idy, int idz)
         return 1;
     }
 
-    if (dx == -2 || dy == -2 || dz == -2) {
-        if (!getdir(NULL, &dx, &dy, &dz)) {
-            /* decided not to chat */
-            return 0;
-        }
-    }
-
     if (u.usteed && dz > 0) {
         if (!u.usteed->mcanmove || u.usteed->msleeping) {
             pline("Your steed remains silent...");
@@ -902,26 +876,41 @@ dochat(int idx, int idy, int idz)
     }
 
     if (dx == 0 && dy == 0) {
-/*
- * Let's not include this.  It raises all sorts of questions: can you wear
- * 2 helmets, 2 amulets, 3 pairs of gloves or 6 rings as a marilith,
- * etc...  --KAA
         if (u.umonnum == PM_ETTIN) {
             pline("You discover that your other head makes boring conversation.");
-            return 1;
+            return 0;
         }
-*/
+
         pline("Talking to yourself is a bad habit for a dungeoneer.");
         return 0;
     }
 
     tx = u.ux + dx;
     ty = u.uy + dy;
+
+    if (!isok(tx, ty)) {
+        pline("You call out into the abyss, but nobody hears you.");
+        return 0;
+    }
+
     mtmp = m_at(level, tx, ty);
 
+    /* Do we try to close a door on the square? We do if a) the square is known
+       by the player to be a doorway, b) there's no invisible-I marker there,
+       c) there's no monster in a chattable state there. */
     if (!mtmp || mtmp->mundetected || mtmp->m_ap_type == M_AP_FURNITURE ||
         mtmp->m_ap_type == M_AP_OBJECT) {
-        return doclose(dx, dy, 0);
+        int membg = level->locations[tx][ty].mem_bg;
+        if (membg == S_vodoor || membg == S_vcdoor || membg == S_ndoor ||
+            membg == S_hodoor || membg == S_hcdoor) {
+            if (!level->locations[tx][ty].mem_invis) {
+                struct nh_cmd_arg newarg;
+                arg_from_delta(dx, dy, dz, &newarg);
+                return doclose(&newarg);
+            }
+        }
+        pline("You start talking, but nobody seems to hear you.");
+        return 0;
     }
 
     /* sleeping monsters won't talk, except priests (who wake up) */
@@ -930,6 +919,8 @@ dochat(int idx, int idy, int idz)
            noticing him and just not existing, so skip the message. */
         if (canspotmon(mtmp))
             pline("%s seems not to notice you.", Monnam(mtmp));
+        else
+            pline("You start talking, but nobody seems to hear you.");
         return 0;
     }
 
@@ -947,3 +938,4 @@ dochat(int idx, int idy, int idz)
 }
 
 /*sounds.c*/
+

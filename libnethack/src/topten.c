@@ -1,6 +1,9 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
+
+#define _GNU_SOURCE
 
 #include "hack.h"
 #include "patchlevel.h"
@@ -9,6 +12,7 @@
 #include "events.h"
 
 #include <fcntl.h>
+#include <inttypes.h>
 
 /* 10000 highscore entries should be enough for _anybody_
  * <500 bytes per entry * 10000 ~= 5MB max file size. Seems reasonable. */
@@ -21,6 +25,7 @@
 #define NAMSZ   15
 #define DTHSZ   99
 
+
 // If you modify this struct, remember to update emit_dead_event
 struct toptenentry {
     int points;
@@ -28,6 +33,7 @@ struct toptenentry {
     int maxlvl, hp, maxhp, deaths;
     int ver_major, ver_minor, patchlevel;
     int deathdate, birthdate;
+    microseconds deathtime;
     int uid;
     int moves;
     int how;
@@ -46,7 +52,8 @@ static void write_topten(int fd, const struct toptenentry *ttlist);
 static void update_log(const struct toptenentry *newtt);
 static boolean readentry(char *line, struct toptenentry *tt);
 static struct toptenentry *read_topten(int fd, int limit);
-static void fill_topten_entry(struct toptenentry *newtt, int how);
+static void fill_topten_entry(struct toptenentry *newtt, int how,
+                              const char *killer);
 static boolean toptenlist_insert(struct toptenentry *ttlist,
                                  struct toptenentry *newtt);
 static int classmon(char *plch, boolean fem);
@@ -56,16 +63,8 @@ static void fill_nh_score_entry(struct toptenentry *in,
                                 boolean highlight);
 
 
-/* must fit with end.c; used in rip.c */
-const char *const killed_by_prefix[] = {
-    "killed by ", "choked on ", "poisoned by ", "died of ", "drowned in ",
-    "burned by ", "dissolved in ", "crushed to death by ", "petrified by ",
-    "turned to slime by ", "killed by ", "", "", "", "", ""
-};
-
 static int end_how;
-
-static time_t deathtime_internal = 0;
+static char end_killer[DTHSZ + 1] = {0};
 
 /* xlogfile writing. Based on the xlogfile patch by Aardvark Joe. */
 
@@ -99,7 +98,7 @@ encode_uevent(void)
         c |= 0x0001UL;  /* any Oracle consultation */
     if (u.uevent.qcalled)
         c |= 0x0002UL;  /* reached quest portal level */
-    if (quest_status.got_quest || quest_status.got_thanks)
+    if (u.quest_status.got_quest || u.quest_status.got_thanks)
         c |= 0x0004UL;  /* was accepted for quest */
     if (u.uevent.qcompleted)
         c |= 0x0008UL;  /* showed quest arti to leader */
@@ -119,7 +118,7 @@ encode_uevent(void)
         c |= 0x0200UL;  /* was crowned */
 
     /* boss kills */
-    if (quest_status.killed_nemesis)
+    if (u.quest_status.killed_nemesis)
         c |= 0x0400UL;  /* defeated quest nemesis */
     if (mvitals[PM_CROESUS].died)
         c |= 0x0800UL;  /* defeated Croesus */
@@ -135,32 +134,75 @@ encode_uevent(void)
     return c;
 }
 
-static unsigned long
+unsigned long
 encode_carried(void)
 {
     unsigned long c = 0UL;
 
-    /* this encodes important items potentially owned by the player at the time 
+    /* this encodes important items potentially owned by the player at the time
        of death */
-    if (u.uhave.amulet)
+    if (Uhave_amulet)
         c |= 0x0001UL;  /* real Amulet of Yendor */
-    if (u.uhave.bell)
+    if (Uhave_bell)
         c |= 0x0002UL;  /* Bell of Opening */
-    if (u.uhave.book)
+    if (Uhave_book)
         c |= 0x0004UL;  /* Book of the Dead */
-    if (u.uhave.menorah)
+    if (Uhave_menorah)
         c |= 0x0008UL;  /* Candelabrum of Invocation */
-    if (u.uhave.questart)
+    if (Uhave_questart)
         c |= 0x0010UL;  /* own quest artifact */
 
     return c;
 }
 
+static unsigned long
+encode_birthoptions(void)
+{
+    /* This function encodes birth options (excluding ones that have their own
+       xlog fields). Compare to the list in options.c. */
+    unsigned long c = 0UL;
+    if (flags.elbereth_enabled)
+        c |= 0x0001UL;
+    if (flags.rogue_enabled)
+        c |= 0x0002UL;
+    if (flags.seduce_enabled)
+        c |= 0x0004UL;
+    if (flags.bones_enabled)
+        c |= 0x0008UL;
+    if (flags.permablind)
+        c |= 0x0010UL;
+    if (flags.permahallu)
+        c |= 0x0020UL;
+    /* leaving bits open here for permaconf and one other impairment */
+    if (flags.polyinit_mnum != -1)
+        c |= 0x0100UL;
+
+    return c;
+}
+
+static_assert(num_conducts <= 32,
+              "Too many conducts for encode_conduct to encode");
+static unsigned long
+encode_conduct(void)
+{
+    enum player_conduct cond = conduct_first;
+    unsigned long c = 0UL;
+
+    for(; cond < num_conducts; cond++) {
+        if(!u.uconduct[cond])
+            c |= 1UL << cond;
+    }
+    return c;
+}
+
 static void
-write_xlentry(FILE * rfile, const struct toptenentry *tt)
+write_xlentry(FILE * rfile, const struct toptenentry *tt,
+              unsigned long carried, const char *dumpname)
 {
     char buf[DTHSZ + 1];
-    char *uname;
+    char rngseedbuf[RNG_SEED_SIZE_BASE64];
+    int i;
+    const char *uname;
 
     /* regular logfile data */
     fprintf(rfile,
@@ -171,6 +213,10 @@ write_xlentry(FILE * rfile, const struct toptenentry *tt)
             tt->deathdnum, tt->deathlev, tt->maxlvl, tt->hp, tt->maxhp,
             tt->deaths, (unsigned long)tt->deathdate,
             (unsigned long)tt->birthdate, tt->uid);
+
+    get_initial_rng_seed(rngseedbuf);
+
+    fprintf(rfile, SEP "rngseed=%.*s", RNG_SEED_SIZE_BASE64, rngseedbuf);
 
     fprintf(rfile, SEP "role=%s" SEP "race=%s" SEP "gender=%s" SEP "align=%s",
             tt->plrole, tt->plrace, tt->plgend, tt->plalign);
@@ -183,23 +229,51 @@ write_xlentry(FILE * rfile, const struct toptenentry *tt)
     munge_xlstring(buf, uname, DTHSZ + 1);
     fprintf(rfile, SEP "name=%s", buf);
 
-    munge_xlstring(buf, plname, DTHSZ + 1);
+    munge_xlstring(buf, u.uplname, DTHSZ + 1);
     fprintf(rfile, SEP "charname=%s", buf);
 
     munge_xlstring(buf, tt->death, DTHSZ + 1);
     fprintf(rfile, SEP "death=%s", buf);
 
+    char buf2[strlen(dumpname) + 2];
+    munge_xlstring(buf2, dumpname, sizeof buf2);
+    fprintf(rfile, SEP "dumplog=%s", buf2);
+
     fprintf(rfile, SEP "conduct=%ld", encode_conduct());
+
+    fprintf(rfile, SEP "birthoption=%ld", encode_birthoptions());
+
+    fprintf(rfile, SEP "extrinsic=0x");
+    i = SIZE(u.ever_extrinsic);
+    while(i--)
+        fprintf(rfile, "%02x", u.ever_extrinsic[i]);
+    fprintf(rfile, SEP "intrinsic=0x");
+    i = SIZE(u.ever_intrinsic);
+    while(i--)
+        fprintf(rfile, "%02x", u.ever_intrinsic[i]);
+    fprintf(rfile, SEP "temporary=0x");
+    i = SIZE(u.ever_temporary);
+    while(i--)
+        fprintf(rfile, "%02x", u.ever_temporary[i]);
 
     fprintf(rfile, SEP "turns=%u", moves);
 
     /* AceHack's equivalent of achieve has rather different semantics from
        vanilla's. So give it a different name. */
     fprintf(rfile, SEP "event=%ld", encode_uevent());
-    fprintf(rfile, SEP "carried=%ld", encode_carried());
+    fprintf(rfile, SEP "carried=%ld", carried);
 
-    fprintf(rfile, SEP "starttime=%ld" SEP "endtime=%ld", (long)u.ubirthday,
-            (long)deathtime_internal);
+    /* This uses the same trick to print long longs portably as in log.c.
+       These are now microsecond-accurate, so we use "starttimeus",
+       "endtimeus". */
+
+    fprintf(rfile, SEP "starttimeus=%" PRIdLEAST64
+                   SEP "endtimeus=%" PRIdLEAST64
+                   SEP "starttime=%" PRIdLEAST64
+                   SEP "endtime=%" PRIdLEAST64,
+            (int_least64_t)u.ubirthday, (int_least64_t)tt->deathtime,
+            (int_least64_t)u.ubirthday / 1000000L,
+            (int_least64_t)tt->deathtime / 1000000L);
 
     fprintf(rfile, SEP "gender0=%s", genders[u.initgend].filecode);
     fprintf(rfile, SEP "align0=%s",
@@ -209,7 +283,9 @@ write_xlentry(FILE * rfile, const struct toptenentry *tt)
     fprintf(rfile, SEP "exp=%d", u.uexp);
 
     fprintf(rfile, SEP "mode=%s",
-            (flags.debug ? "debug" : flags.explore ? "explore" : "normal"));
+            (flags.debug ? "debug" : flags.explore ? "explore" :
+             *flags.setseed ? "setseed" :
+             flags.polyinit_mnum != -1 ? "polyinit" : "normal"));
 
     fprintf(rfile, "\n");
 }
@@ -246,9 +322,11 @@ write_topten(int fd, const struct toptenentry *ttlist)
     int i;
 
     lseek(fd, 0, SEEK_SET);
-    ftruncate(fd, 0);
-    for (i = 0; i < TTLISTLEN && validentry(ttlist[i]); i++)
-        writeentry(fd, &ttlist[i]);
+    if (ftruncate(fd, 0) >= 0)
+        for (i = 0; i < TTLISTLEN && validentry(ttlist[i]); i++)
+            writeentry(fd, &ttlist[i]);
+    else
+        panic("Failed to write topten. Is the record file writable?");
 }
 
 
@@ -258,24 +336,32 @@ update_log(const struct toptenentry *newtt)
     /* used for debugging (who dies of what, where) */
     int fd = open_datafile(LOGFILE, O_CREAT | O_APPEND | O_WRONLY, SCOREPREFIX);
 
-    if (lock_fd(fd, 10)) {
+    if (fd < 0)
+        panic("Failed to write logfile. Is it writable?");
+
+    if (change_fd_lock(fd, FALSE, LT_WRITE, 10)) {
         writeentry(fd, newtt);
-        unlock_fd(fd);
+        change_fd_lock(fd, FALSE, LT_NONE, 0);
         close(fd);
     }
 }
 
 static void
-update_xlog(const struct toptenentry *newtt)
+update_xlog(const struct toptenentry *newtt,
+            unsigned long carried, const char *dumpname)
 {
     /* used for statistical purposes and tournament scoring */
     int fd =
         open_datafile(XLOGFILE, O_CREAT | O_APPEND | O_WRONLY, SCOREPREFIX);
-    if (lock_fd(fd, 10)) {
+
+    if (fd < 0)
+        panic("Failed to write xlogfile. Is it writable?");
+
+    if (change_fd_lock(fd, FALSE, LT_WRITE, 10)) {
         FILE *xlfile = fdopen(fd, "a");
 
-        write_xlentry(xlfile, newtt);
-        unlock_fd(fd);
+        write_xlentry(xlfile, newtt, carried, dumpname);
+        change_fd_lock(fd, FALSE, LT_NONE, 0);
         fclose(xlfile); /* also closes fd */
     }
 }
@@ -283,8 +369,9 @@ update_xlog(const struct toptenentry *newtt)
 static boolean
 readentry(char *line, struct toptenentry *tt)
 {
-    /* 
-     * "3.4.3 77 0 1 1 0 15 1 20110727 20110727 1000 Bar Orc Mal Cha daniel,killed by a newt"
+    /*
+     * "3.4.3 77 0 1 1 0 15 1 20110727 20110727 \
+     * 1000 Bar Orc Mal Cha daniel,killed by a newt"
      */
     static const char fmt[] =
         "%d.%d.%d %d %d %d %d %d %d %d %d"
@@ -331,16 +418,17 @@ read_topten(int fd, int limit)
 
 
 static void
-fill_topten_entry(struct toptenentry *newtt, int how)
+fill_topten_entry(struct toptenentry *newtt, int how, const char *killer)
 {
     int uid = getuid();
 
     memset(newtt, 0, sizeof (struct toptenentry));
 
     /* deepest_lev_reached() is in terms of depth(), and reporting the deepest
-       level reached in the dungeon death occurred in doesn't seem right, so we 
+       level reached in the dungeon death occurred in doesn't seem right, so we
        have to report the death level in depth() terms as well (which also
-       seems reasonable since that's all the player sees on the screen anyway) */
+       seems reasonable since that's all the player sees on the screen anyway)
+       */
     newtt->ver_major = VERSION_MAJOR;
     newtt->ver_minor = VERSION_MINOR;
     newtt->patchlevel = PATCHLEVEL;
@@ -360,31 +448,17 @@ fill_topten_entry(struct toptenentry *newtt, int how)
     newtt->plrole[ROLESZ] = '\0';
     strncpy(newtt->plrace, urace.filecode, ROLESZ);
     newtt->plrace[ROLESZ] = '\0';
-    strncpy(newtt->plgend, genders[flags.female].filecode, ROLESZ);
+    strncpy(newtt->plgend, genders[u.ufemale].filecode, ROLESZ);
     newtt->plgend[ROLESZ] = '\0';
     strncpy(newtt->plalign, aligns[1 - u.ualign.type].filecode, ROLESZ);
     newtt->plalign[ROLESZ] = '\0';
-    strncpy(newtt->name, plname, NAMSZ);
+    strncpy(newtt->name, u.uplname, NAMSZ);
     newtt->name[NAMSZ] = '\0';
-    newtt->death[0] = '\0';
-    switch (killer_format) {
-    default:
-        impossible("bad killer format?");
-    case KILLED_BY_AN:
-        strcat(newtt->death, killed_by_prefix[how]);
-        strncat(newtt->death, an(killer), DTHSZ - strlen(newtt->death));
-        break;
-    case KILLED_BY:
-        strcat(newtt->death, killed_by_prefix[how]);
-        strncat(newtt->death, killer, DTHSZ - strlen(newtt->death));
-        break;
-    case NO_KILLER_PREFIX:
-        strncat(newtt->death, killer, DTHSZ);
-        break;
-    }
+    strncpy(newtt->death, killer, DTHSZ);
+    newtt->death[DTHSZ] = '\0';
+    newtt->deathtime = utc_time();
     newtt->birthdate = yyyymmdd(u.ubirthday);
-    newtt->deathdate = yyyymmdd((time_t) 0L);
-    time(&deathtime_internal);
+    newtt->deathdate = yyyymmdd(newtt->deathtime);
 }
 
 
@@ -453,7 +527,8 @@ emit_dead_event(struct toptenentry *tt)
  * Add the result of the current game to the score list
  */
 void
-update_topten(int how)
+update_topten(int how, const char *killer, unsigned long carried,
+              const char *dumpname)
 {
     struct toptenentry *toptenlist, newtt;
     boolean need_rewrite;
@@ -463,18 +538,24 @@ update_topten(int how)
         return;
 
     end_how = how;      /* save how for nh_get_topten */
+    strncpy(end_killer, killer, DTHSZ);
+    end_killer[DTHSZ] = '\0';
 
-    fill_topten_entry(&newtt, how);
+    fill_topten_entry(&newtt, how, killer);
     update_log(&newtt);
-    update_xlog(&newtt);
+    update_xlog(&newtt, carried, dumpname);
     emit_dead_event(&newtt);
 
     /* nothing more to do for non-scoring games */
-    if (wizard || discover)
+    if (wizard || discover || *flags.setseed || flags.polyinit_mnum != -1)
         return;
 
     fd = open_datafile(RECORD, O_RDWR | O_CREAT, SCOREPREFIX);
-    if (!lock_fd(fd, 30)) {
+
+    if (fd < 0)
+        panic("Failed to write record. Is it writable?");
+
+    if (!change_fd_lock(fd, FALSE, LT_WRITE, 30)) {
         close(fd);
         return;
     }
@@ -486,7 +567,7 @@ update_topten(int how)
     if (need_rewrite)
         write_topten(fd, toptenlist);
 
-    unlock_fd(fd);
+    change_fd_lock(fd, FALSE, LT_NONE, 0);
     close(fd);
     free(toptenlist);
 }
@@ -527,6 +608,9 @@ tt_oname(struct obj *otmp)
         return NULL;
 
     fd = open_datafile(RECORD, O_RDONLY, SCOREPREFIX);
+    if (fd < 0)
+        return NULL;   /* the topten list is missing */
+
     toptenlist = read_topten(fd, 100);  /* load the top 100 scores */
     close(fd);
 
@@ -556,7 +640,7 @@ tt_oname(struct obj *otmp)
 
 
 /* append the level name to outbuf */
-void
+static void
 topten_level_name(int dnum, int dlev, char *outbuf)
 {
     if (dnum == astral_level.dnum) {
@@ -583,11 +667,12 @@ topten_level_name(int dnum, int dlev, char *outbuf)
             arg = "Void";
             break;
         }
-        sprintf(eos(outbuf), fmt, arg);
+        sprintf(outbuf + strlen(outbuf), fmt, arg);
     } else {
-        sprintf(eos(outbuf), "in %s", dungeons[dnum].dname);
+        sprintf(outbuf + strlen(outbuf), "in %s",
+                gamestate.dungeons[dnum].dname);
         if (dnum != knox_level.dnum)
-            sprintf(eos(outbuf), " on level %d", dlev);
+            sprintf(outbuf + strlen(outbuf), " on level %d", dlev);
     }
 }
 
@@ -600,11 +685,12 @@ topten_death_description(struct toptenentry *in, char *outbuf)
 
     outbuf[0] = '\0';
 
-    sprintf(eos(outbuf), "%.16s %s-%s-%s-%s ", in->name, in->plrole, in->plrace,
+    sprintf(outbuf, "%.16s %s-%s-%s-%s ", in->name, in->plrole, in->plrace,
             in->plgend, in->plalign);
 
     if (!strncmp("escaped", in->death, 7)) {
-        sprintf(eos(outbuf), "escaped the dungeon %s[max level %d]",
+        sprintf(outbuf + strlen(outbuf),
+                "escaped the dungeon %s[max level %d]",
                 !strncmp(" (", in->death + 7, 2) ? in->death + 7 + 2 : "",
                 in->maxlvl);
         /* fixup for closing paren in "escaped... with...Amulet)[max..." */
@@ -612,7 +698,7 @@ topten_death_description(struct toptenentry *in, char *outbuf)
             *bp = (in->deathdnum == astral_level.dnum) ? '\0' : ' ';
         second_line = FALSE;
     } else if (!strncmp("ascended", in->death, 8)) {
-        sprintf(eos(outbuf), "ascended to demigod%s-hood",
+        sprintf(outbuf + strlen(outbuf), "ascended to demigod%s-hood",
                 (in->plgend[0] == 'F') ? "dess" : "");
         second_line = FALSE;
     } else {
@@ -623,7 +709,7 @@ topten_death_description(struct toptenentry *in, char *outbuf)
             strcat(outbuf, "starved to death");
             second_line = FALSE;
         } else if (!strncmp(in->death, "choked", 6)) {
-            sprintf(eos(outbuf), "choked on h%s food",
+            sprintf(outbuf + strlen(outbuf), "choked on h%s food",
                     (in->plgend[0] == 'F') ? "er" : "is");
         } else if (!strncmp(in->death, "poisoned", 8)) {
             strcat(outbuf, "was poisoned");
@@ -637,7 +723,7 @@ topten_death_description(struct toptenentry *in, char *outbuf)
         strcat(outbuf, " ");
         topten_level_name(in->deathdnum, in->deathlev, outbuf);
         if (in->deathlev != in->maxlvl)
-            sprintf(eos(outbuf), " [max %d]", in->maxlvl);
+            sprintf(outbuf + strlen(outbuf), " [max %d]", in->maxlvl);
 
         /* kludge for "quit while already on Charon's boat" */
         if (!strncmp(in->death, "quit ", 5))
@@ -647,7 +733,8 @@ topten_death_description(struct toptenentry *in, char *outbuf)
 
     /* Quit, starved, ascended, and escaped contain no second line */
     if (second_line)
-        sprintf(eos(outbuf), "  %c%s.", highc(*(in->death)), in->death + 1);
+        sprintf(outbuf + strlen(outbuf),
+                "  %c%s.", highc(*(in->death)), in->death + 1);
 }
 
 
@@ -695,9 +782,8 @@ fill_nh_score_entry(struct toptenentry *in, struct nh_topten_entry *out,
 
 
 struct nh_topten_entry *
-nh_get_topten(int *out_len, char *statusbuf,
-              const char * volatile player, int top,
-              int around, boolean own)
+nh_get_topten(int *out_len, char *statusbuf, const char *volatile player,
+              int top, int around, boolean own)
 {
     struct toptenentry *ttlist, newtt;
     struct nh_topten_entry *score_list;
@@ -705,13 +791,15 @@ nh_get_topten(int *out_len, char *statusbuf,
     boolean game_complete = game_inited && moves && program_state.gameover;
     int rank = -1;      /* index of the completed game in the topten list */
     int fd, i, j, sel_count;
-    boolean *selected, off_list = FALSE;
+    boolean *selected;
+    volatile boolean off_list = FALSE;
 
     statusbuf[0] = '\0';
     *out_len = 0;
 
-    if (!api_entry_checkpoint())
-        return NULL;
+    API_ENTRY_CHECKPOINT_RETURN_ON_ERROR(NULL);
+
+    xmalloc_cleanup(&api_blocklist);
 
     if (!game_inited) {
         /* If nh_get_topten() isn't called after a game, we never went through
@@ -722,36 +810,47 @@ nh_get_topten(int *out_len, char *statusbuf,
 
     if (!player) {
         if (game_complete)
-            player = plname;
+            player = u.uplname;
         else
             player = "";
     }
 
     fd = open_datafile(RECORD, O_RDONLY, SCOREPREFIX);
-    ttlist = read_topten(fd, TTLISTLEN);
-    close(fd);
+    if (fd >= 0) {
+        ttlist = read_topten(fd, TTLISTLEN);
+        close(fd);
+    } else
+        ttlist = NULL;
+
     if (!ttlist) {
         strcpy(statusbuf, "Cannot open record file!");
-        api_exit();
+
+        API_EXIT();
         return NULL;
     }
 
     /* find the rank of a completed game in the score list */
-    if (game_complete && !strcmp(player, plname)) {
-        fill_topten_entry(&newtt, end_how);
+    if (game_complete && !strcmp(player, u.uplname)) {
+        fill_topten_entry(&newtt, end_how, end_killer);
 
         /* find this entry in the list */
         for (i = 0; i < TTLISTLEN && validentry(ttlist[i]); i++)
             if (!memcmp(&ttlist[i], &newtt, sizeof (struct toptenentry)))
                 rank = i;
 
-        if (wizard || discover)
+        /* TODO: Perhaps we could have a different top ten list for play on a
+           particular set seed (seed of the week, as it were). But there's too
+           much scope for cheating involved in that, so it's probably best that
+           people make their leaderboards "unofficially". */
+        if (wizard || discover || *flags.setseed || flags.polyinit_mnum != -1)
             sprintf(statusbuf,
                     "Since you were in %s mode, your game was not "
-                    "added to the score list.", wizard ? "wizard" : "discover");
+                    "added to the score list.",
+                    wizard ? "debug" : discover ? "explore" :
+                    *flags.setseed ? "set seed" : "polyinit");
         else if (rank >= 0 && rank < 10)
             sprintf(statusbuf, "You made the top ten list!");
-        else if (rank)
+        else if (rank >= 0)
             sprintf(statusbuf, "You reached the %d%s place on the score list.",
                     rank + 1, ordin(rank + 1));
     }
@@ -783,7 +882,8 @@ nh_get_topten(int *out_len, char *statusbuf,
     }
 
 
-    score_list = xmalloc(sel_count * sizeof (struct nh_topten_entry));
+    score_list = xmalloc(&api_blocklist,
+                         sel_count * sizeof (struct nh_topten_entry));
     memset(score_list, 0, sel_count * sizeof (struct nh_topten_entry));
     *out_len = sel_count;
     j = 0;
@@ -805,39 +905,10 @@ nh_get_topten(int *out_len, char *statusbuf,
     free(selected);
     free(ttlist);
 
-    api_exit();
+    API_EXIT();
     return score_list;
 }
 
 
-/* append the topten entry for the completed game to that game's logfile */
-void
-write_log_toptenentry(int fd, int how)
-{
-    struct toptenentry tt;
-
-    if (fd == -1)
-        return;
-
-    fill_topten_entry(&tt, how);
-    writeentry(fd, &tt);
-}
-
-
-/* read the toptenentry appended to the end of a game log */
-void
-read_log_toptenentry(int fd, struct nh_topten_entry *entry)
-{
-    struct toptenentry tt;
-    int size;
-    char *line = loadfile(fd, &size);
-
-    if (!line)
-        return;
-
-    readentry(line, &tt);
-    fill_nh_score_entry(&tt, entry, -1, FALSE);
-    free(line);
-}
-
 /* topten.c */
+

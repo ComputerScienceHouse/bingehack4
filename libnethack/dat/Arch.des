@@ -1,3 +1,4 @@
+# Last modified by Alex Smith, 2013-09-21
 #	Copyright (c) 1989 by Jean-Christophe Collet
 #	Copyright (c) 1991 by M. Stephenson
 # NetHack may be freely redistributed.  See license for details.
@@ -52,7 +53,7 @@ REGION: (32,14,48,14),unlit,"ordinary"
 # Stairs
 STAIR:(55,07),down
 # Portal arrival point
-BRANCH:(63,06,63,06),(0,0,0,0)
+BRANCH:(63,06,63,06),levregion()
 # Doors
 DOOR:closed,(22,07)
 DOOR:closed,(38,07)

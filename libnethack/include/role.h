@@ -1,8 +1,11 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-04-05 */
 #ifndef ROLE_H
 # define ROLE_H
 
+# include "global.h"
 # include "attrib.h"
+# include "align.h"
 
 /* Flags to control pick_[race,role,gend,align] routines in role.c */
 # define PICK_RANDOM    0
@@ -74,7 +77,7 @@ struct Role {
     int spelbase;       /* base spellcasting penalty */
     int spelheal;       /* penalty (-bonus) for healing spells */
     int spelshld;       /* penalty for wearing any shield */
-    int spelarmr;       /* penalty for wearing metal armour */
+    int spelarmr;       /* penalty for wearing metal armor */
     int spelstat;       /* which stat (A_) is used */
     int spelspec;       /* spell (SPE_) the class excels at */
     int spelsbon;       /* penalty (-bonus) for that spell */
@@ -154,9 +157,9 @@ struct Gender {
 
 extern const struct Gender genders[];   /* table of available genders */
 
-# define uhe()          (genders[flags.female ? 1 : 0].he)
-# define uhim()         (genders[flags.female ? 1 : 0].him)
-# define uhis()         (genders[flags.female ? 1 : 0].his)
+# define uhe()          (genders[u.ufemale ? 1 : 0].he)
+# define uhim()         (genders[u.ufemale ? 1 : 0].him)
+# define uhis()         (genders[u.ufemale ? 1 : 0].his)
 # define mhe(mtmp)      (genders[pronoun_gender(mtmp)].he)
 # define mhim(mtmp)     (genders[pronoun_gender(mtmp)].him)
 # define mhis(mtmp)     (genders[pronoun_gender(mtmp)].his)
@@ -176,3 +179,4 @@ extern const struct Align aligns[];     /* table of available alignments */
 
 
 #endif
+

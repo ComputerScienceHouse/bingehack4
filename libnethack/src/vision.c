@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) Dean Luick, with acknowledgements to Dave Cohrs, 1990. */
 /* NetHack may be freely redistributed.  See license for details.       */
 
@@ -72,7 +73,7 @@ const char circle_start[] = {
 
 /*------ global variables ------*/
 
-char *viz_rmin, *viz_rmax;      /* current vision cs bounds */
+static char *viz_rmin, *viz_rmax;      /* current vision cs bounds */
 
 
 /*------ local variables ------*/
@@ -126,7 +127,6 @@ vision_init(void)
     viz_rmin = cs_rmin0;
     viz_rmax = cs_rmax0;
 
-    vision_full_recalc = 0;
     memset(could_see, 0, sizeof (could_see));
 }
 
@@ -169,8 +169,8 @@ does_block(struct level *lev, int x, int y)
 /*
  * vision_reset()
  *
- * This must be called *after* the level->locations[][] structure is set with the new
- * level and the level monsters and objects are in place.
+ * This must be called *after* the level->locations[][] structure is set with
+ * the new level and the level monsters and objects are in place.
  */
 void
 vision_reset(void)
@@ -192,9 +192,9 @@ vision_reset(void)
     /* Dig the level */
     for (y = 0; y < ROWNO; y++) {
         dig_left = 0;
-        block = TRUE;   /* location (0,y) is always stone; it's !isok() */
-        loc = &level->locations[1][y];
-        for (x = 1; x < COLNO; x++, loc += ROWNO)
+        block = TRUE;   /* the left edge blocks always stone; it's !isok() */
+        loc = &level->locations[0][y];
+        for (x = 0; x < COLNO; x++, loc += ROWNO)
             if (block != (IS_ROCK(loc->typ) || does_block(level, x, y))) {
                 if (block) {
                     for (i = dig_left; i < x; i++) {
@@ -225,8 +225,7 @@ vision_reset(void)
         }
     }
 
-    iflags.vision_inited = 1;   /* vision is ready */
-    vision_full_recalc = 1;     /* we want to run vision_recalc() */
+    turnstate.vision_full_recalc = TRUE;    /* we want to run vision_recalc() */
 }
 
 
@@ -281,6 +280,7 @@ rogue_vision(char **next,       /* could_see array pointers */
              char *rmin, char *rmax)
 {
     int rnum = level->locations[u.ux][u.uy].roomno - ROOMOFFSET;
+
     /* no SHARED... */
 
     int start, stop, in_door, xhi, xlo, yhi, ylo;
@@ -309,7 +309,7 @@ rogue_vision(char **next,       /* could_see array pointers */
     /* Can always see adjacent. */
     ylo = max(u.uy - 1, 0);
     yhi = min(u.uy + 1, ROWNO - 1);
-    xlo = max(u.ux - 1, 1);
+    xlo = max(u.ux - 1, 0);
     xhi = min(u.ux + 1, COLNO - 1);
     for (zy = ylo; zy <= yhi; zy++) {
         if (xlo < rmin[zy])
@@ -457,7 +457,7 @@ new_angle(struct rm *loc, unsigned char *sv, int row, int col)
  *     + At end of moveloop. [moveloop() ??? not sure why this is here]
  *     + Right before something is printed. [pline()]
  *     + Right before we do a vision based operation. [do_clear_area()]
- *     + screen redraw, so we can renew all positions in sight. [doredraw()]
+ *     + Screen redraw, so we can renew all positions in sight. [doredraw()]
  *
  * Control flag = 1.  An adjacent vision recalculation.  The hero has moved
  * one square.  Knowing this, it might be possible to optimize the vision
@@ -494,13 +494,12 @@ vision_recalc(int control)
     int col;    /* inner loop counter */
     struct rm *loc;     /* pointer to current pos */
     struct rm *flev;    /* pointer to position in "front" of current pos */
-    extern unsigned char seenv_matrix[3][3];    /* from display.c */
     static unsigned char colbump[COLNO + 1];    /* cols to bump sv */
-    unsigned char *sv;  /* ptr to seen angle bits */
+    const unsigned char *sv;  /* ptr to seen angle bits */
     int oldseenv;       /* previous seenv value */
 
-    vision_full_recalc = 0;     /* reset flag */
-    if (in_mklev || !iflags.vision_inited)
+    turnstate.vision_full_recalc = FALSE;     /* reset flag */
+    if (in_mklev)
         return;
 
     /* 
@@ -512,7 +511,7 @@ vision_recalc(int control)
     get_unused_cs(&next_array, &next_rmin, &next_rmax);
 
     /* You see nothing, nothing can see you --- if swallowed or refreshing. */
-    if (u.uswallow || control == 2) {
+    if (Engulfed || control == 2) {
         /* do nothing -- get_unused_cs() nulls out the new work area */
 
     } else if (Blind) {
@@ -597,46 +596,38 @@ vision_recalc(int control)
         /* 
          * Set the IN_SIGHT bit for xray and night vision.
          */
-        if (u.xray_range >= 0) {
-            if (u.xray_range) {
-                ranges = circle_ptr(u.xray_range);
-
-                for (row = u.uy - u.xray_range; row <= u.uy + u.xray_range;
-                     row++) {
-                    if (row < 0)
-                        continue;
-                    if (row >= ROWNO)
-                        break;
-                    dy = v_abs(u.uy - row);
-                    next_row = next_array[row];
-
-                    start = max(0, u.ux - ranges[dy]);
-                    stop = min(COLNO - 1, u.ux + ranges[dy]);
-
-                    for (col = start; col <= stop; col++) {
-                        char old_row_val = next_row[col];
-
-                        next_row[col] |= IN_SIGHT;
-                        oldseenv = level->locations[col][row].seenv;
-                        level->locations[col][row].seenv = SVALL; /* see all! */
-                        /* Update if previously not in sight or new angle. */
-                        if (!(old_row_val & IN_SIGHT) || oldseenv != SVALL)
-                            newsym(col, row);
-                    }
-
-                    next_rmin[row] = min(start, next_rmin[row]);
-                    next_rmax[row] = max(stop, next_rmax[row]);
+        if (Xray_vision) {
+            ranges = circle_ptr(XRAY_RANGE);
+                
+            for (row = u.uy - XRAY_RANGE; row <= u.uy + XRAY_RANGE;
+                 row++) {
+                if (row < 0)
+                    continue;
+                if (row >= ROWNO)
+                    break;
+                dy = v_abs(u.uy - row);
+                next_row = next_array[row];
+                    
+                start = max(0, u.ux - ranges[dy]);
+                stop = min(COLNO - 1, u.ux + ranges[dy]);
+                    
+                for (col = start; col <= stop; col++) {
+                    char old_row_val = next_row[col];
+                        
+                    next_row[col] |= IN_SIGHT;
+                    oldseenv = level->locations[col][row].seenv;
+                    level->locations[col][row].seenv = SVALL; /* see all! */
+                    /* Update if previously not in sight or new angle. */
+                    if (!(old_row_val & IN_SIGHT) || oldseenv != SVALL)
+                        newsym(col, row);
                 }
-
-            } else {    /* range is 0 */
-                next_array[u.uy][u.ux] |= IN_SIGHT;
-                level->locations[u.ux][u.uy].seenv = SVALL;
-                next_rmin[u.uy] = min(u.ux, next_rmin[u.uy]);
-                next_rmax[u.uy] = max(u.ux, next_rmax[u.uy]);
+                    
+                next_rmin[row] = min(start, next_rmin[row]);
+                next_rmax[row] = max(stop, next_rmax[row]);
             }
         }
 
-        if (has_night_vision && u.xray_range < u.nv_range) {
+        if (has_night_vision && (!Xray_vision || XRAY_RANGE < u.nv_range)) {
             if (!u.nv_range) {  /* range is 0 */
                 next_array[u.uy][u.ux] |= IN_SIGHT;
                 level->locations[u.ux][u.uy].seenv = SVALL;
@@ -707,18 +698,15 @@ vision_recalc(int control)
 
         sv = &seenv_matrix[dy + 1][start < u.ux ? 0 : (start > u.ux ? 2 : 1)];
 
-        for (col = start; col <= stop; loc += ROWNO, sv += (int)colbump[++col]) {
+        for (col = start; col <= stop;
+             loc += ROWNO, sv += (int)colbump[++col]) {
+            oldseenv = loc->seenv;
             if (next_row[col] & IN_SIGHT) {
                 /* 
                  * We see this position because of night- or xray-vision.
                  */
-                oldseenv = loc->seenv;
                 /* update seen angle */
                 loc->seenv |= new_angle(loc, sv, row, col);
-
-                /* Update pos if previously not in sight or new angle. */
-                if (!(old_row[col] & IN_SIGHT) || oldseenv != loc->seenv)
-                    newsym(col, row);
             }
 
             else if ((next_row[col] & COULD_SEE)
@@ -737,28 +725,16 @@ vision_recalc(int control)
                     dx = u.ux - col;
                     dx = sign(dx);
                     flev = &(level->locations[col + dx][row + dy]);
-                    if (flev->lit || next_array[row + dy][col + dx] & TEMP_LIT) {
+                    if (flev->lit ||
+                        next_array[row + dy][col + dx] & TEMP_LIT) {
                         next_row[col] |= IN_SIGHT;      /* we see it */
 
-                        oldseenv = loc->seenv;
                         loc->seenv |= new_angle(loc, sv, row, col);
-
-                        /* Update pos if previously not in sight or new angle. */
-                        if (!(old_row[col] & IN_SIGHT) ||
-                            oldseenv != loc->seenv)
-                            newsym(col, row);
-                    } else
-                        goto not_in_sight;      /* we don't see it */
-
+                    }
                 } else {
                     next_row[col] |= IN_SIGHT;  /* we see it */
 
-                    oldseenv = loc->seenv;
                     loc->seenv |= new_angle(loc, sv, row, col);
-
-                    /* Update pos if previously not in sight or new angle. */
-                    if (!(old_row[col] & IN_SIGHT) || oldseenv != loc->seenv)
-                        newsym(col, row);
                 }
             } else if ((next_row[col] & COULD_SEE) && loc->waslit) {
                 /* 
@@ -771,36 +747,23 @@ vision_recalc(int control)
                 loc->waslit = 0;        /* remember lit condition */
                 newsym(col, row);
             }
-            /* 
-             * At this point we know that the row position is *not* in normal
-             * sight.  That is, the position is could be seen, but is dark
-             * or LOS is just plain blocked.
-             *
-             * Update the position if:
-             * o If the old one *was* in sight.  We may need to clean up
-             *   the glyph -- E.g. darken room spot, etc.
-             * o If we now could see the location (yet the location is not
-             *   lit), but previously we couldn't see the location, or vice
-             *   versa.  Update the spot because there there may be an infared
-             *   monster there.
-             */
-            else {
-            not_in_sight:
-                if ((old_row[col] & IN_SIGHT)
-                    || ((next_row[col] & COULD_SEE)
-                        ^ (old_row[col] & COULD_SEE)))
-                    newsym(col, row);
-            }
 
+            /* Update if anything changed. */
+            if (oldseenv != loc->seenv || old_row[col] != next_row[col])
+                newsym(col, row);
         }       /* end for col . . */
     }   /* end for row . .  */
     colbump[u.ux] = colbump[u.ux + 1] = 0;
 
 skip:
     /* This newsym() caused a crash delivering msg about failure to open
-       dungeon file init_dungeons() -> panic() -> done(11) -> vision_recalc(2)
-       -> newsym() -> crash! u.ux and u.uy are 0 and program_state.panicking == 
-       1 under those circumstances */
+       dungeon file:
+
+       init_dungeons() -> panic() -> done(11) -> vision_recalc(2) -> newsym() ->
+       crash!
+
+       u.ux and u.uy are 0 and program_state.panicking == 1 under those
+       circumstances. */
     if (!program_state.panicking)
         newsym(u.ux, u.uy);     /* Make sure the hero shows up! */
 
@@ -830,7 +793,7 @@ block_point(int x, int y)
      * see the lit room.
      */
     if (viz_array[y][x])
-        vision_full_recalc = 1;
+        turnstate.vision_full_recalc = TRUE;
 }
 
 /*
@@ -846,7 +809,7 @@ unblock_point(int x, int y)
     /* recalc light sources here? */
 
     if (viz_array[y][x])
-        vision_full_recalc = 1;
+        turnstate.vision_full_recalc = TRUE;
 }
 
 
@@ -1318,13 +1281,37 @@ q3_path(int srow, int scol, int y2, int x2)
  * Use vision tables to determine if there is a clear path from
  * (col1,row1) to (col2,row2).  This is used by:
  *     m_cansee()
- *     m_canseeu()
+ *     msensem()
  *     do_light_sources()
+ *     mmspell_would_be_useless()
+ *
+ * Because this might be called from inside the vision code, and thus couldsee()
+ * might not have a valid viz_array to look at, the caller passes in a vision
+ * array (either viz_array or a vision array it's currently working on). As
+ * another exception, if couldsee_data is NULL, checks square-to-square
+ * visibility strictly, rather than square-to-centre-of-square; this makes a
+ * difference when determining whether there's a path to/from a monster that's
+ * currently engulfing the player.
+ *
+ * In order to make this function more usable to callers, it can be given
+ * invalid coordinates as input, in which case it will simply return FALSE.
  */
 boolean
-clear_path(int col1, int row1, int col2, int row2)
+clear_path(int col1, int row1, int col2, int row2, char **couldsee_data)
 {
     int result;
+
+    if (!isok(col1, row1))
+        return FALSE;
+    if (!isok(col2, row2))
+        return FALSE;
+
+    /* couldsee() gives better results than the simple algorithm below, so
+       preferentially use that when checking the player's location. */
+    if (col1 == u.ux && row1 == u.uy && couldsee_data)
+        return !!(couldsee_data[row2][col2] & COULD_SEE);
+    else if (col2 == u.ux && row2 == u.uy && couldsee_data)
+        return !!(couldsee_data[row1][col1] & COULD_SEE);
 
     if (col1 < col2) {
         if (row1 > row2) {
@@ -1683,10 +1670,10 @@ left_side(int row, int left_mark, int right, const char *limits)
  * array provided.
  */
 static void
-view_from(int srow, int scol,   /* starting row and column */
-          char **loc_cs_rows,   /* pointers to the rows of the could_see array */
-          char *left_most,      /* min mark on each row */
-          char *right_most,     /* max mark on each row */
+view_from(int srow, int scol,  /* starting row and column */
+          char **loc_cs_rows,  /* pointers to the rows of the could_see array */
+          char *left_most,     /* min mark on each row */
+          char *right_most,    /* max mark on each row */
           int range,    /* 0 if unlimited */
           void (*func) (int, int, void *), void *arg)
 {
@@ -1797,7 +1784,7 @@ do_clear_area(int scol, int srow, int range, void (*func) (int, int, void *),
 
         if (range > MAX_RADIUS || range < 1)
             panic("do_clear_area:  illegal range %d", range);
-        if (vision_full_recalc)
+        if (turnstate.vision_full_recalc)
             vision_recalc(0);   /* recalc vision if dirty */
         limits = circle_ptr(range);
         if ((max_y = (srow + range)) >= ROWNO)
@@ -1818,3 +1805,4 @@ do_clear_area(int scol, int srow, int range, void (*func) (int, int, void *),
 }
 
 /*vision.c*/
+

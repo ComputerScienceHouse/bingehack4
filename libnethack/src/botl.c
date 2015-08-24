@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -37,7 +38,6 @@ static int mrank_sz = 0;        /* loaded by max_rank_sz (from u_init) */
 static const char *rank(void);
 static int xlev_to_rank(int);
 static long botl_score(void);
-static int describe_level(char *);
 
 
 /* convert experience level (1..30) to rank index (0..8) */
@@ -50,7 +50,7 @@ xlev_to_rank(int xlev)
 const char *
 rank_of(int lev, short monnum, boolean female)
 {
-    struct Role *role;
+    const struct Role *role;
     int i;
 
 
@@ -59,7 +59,7 @@ rank_of(int lev, short monnum, boolean female)
         return u.title;
 
     /* Find the role */
-    for (role = (struct Role *)roles; role->name.m; role++)
+    for (role = roles; role->name.m; role++)
         if (monnum == role->malenum || monnum == role->femalenum)
             break;
     if (!role->name.m)
@@ -85,7 +85,7 @@ rank_of(int lev, short monnum, boolean female)
 static const char *
 rank(void)
 {
-    return rank_of(u.ulevel, Role_switch, flags.female);
+    return rank_of(u.ulevel, Role_switch, u.ufemale);
 }
 
 int
@@ -146,14 +146,14 @@ botl_score(void)
 }
 
 
-/* provide the name of the current level for display by various ports */
-static int
+/* provide the name of the current level */
+int
 describe_level(char *buf)
 {
     int ret = 1;
 
     if (Is_knox(&u.uz))
-        sprintf(buf, "%s", dungeons[u.uz.dnum].dname);
+        sprintf(buf, "%s", find_dungeon(&u.uz).dname);
     else if (In_quest(&u.uz))
         sprintf(buf, "Home:%d", dunlev(&u.uz));
     else if (In_endgame(&u.uz))
@@ -181,34 +181,34 @@ make_player_info(struct nh_player_info *pi)
     memset(pi, 0, sizeof (struct nh_player_info));
 
     pi->moves = moves;
-    strncpy(pi->plname, plname, sizeof (pi->plname));
+    strncpy(pi->plname, u.uplname, sizeof (pi->plname));
     pi->align = u.ualign.type;
 
     /* This function could be called before the game is fully inited. Test
        youmonst.data as it is required for near_capacity().
        program_state.game_running is no good, as we need this data before
-       game_running is set */
-    if (!youmonst.data || !api_entry_checkpoint())
+       game_running is set.
+
+       TODO: Wow this is hacky. */
+    if (!youmonst.data)
         return;
+    API_ENTRY_CHECKPOINT_RETURN_VOID_ON_ERROR();
 
     pi->x = u.ux;
     pi->y = u.uy;
     pi->z = u.uz.dlevel;
 
     if (Upolyd) {
-        char mbot[BUFSZ];
-        int k = 0;
-
-        strcpy(mbot, mons[u.umonnum].mname);
-        while (mbot[k] != 0) {
-            if ((k == 0 || (k > 0 && mbot[k - 1] == ' ')) && 'a' <= mbot[k] &&
-                mbot[k] <= 'z')
-                mbot[k] += 'A' - 'a';
-            k++;
-        }
-        strncpy(pi->rank, mbot, sizeof (pi->rank));
+        strncpy(pi->rank, msgtitlecase(mons[u.umonnum].mname),
+                sizeof (pi->rank));
     } else
         strncpy(pi->rank, rank(), sizeof (pi->rank));
+
+    strncpy(pi->rolename, (u.ufemale && urole.name.f) ?
+            urole.name.f : urole.name.m, sizeof (pi->rolename));
+    strncpy(pi->racename, urace.noun, sizeof (pi->racename));
+    strncpy(pi->gendername, genders[u.ufemale].adj,
+            sizeof(pi->gendername));
 
     pi->max_rank_sz = mrank_sz;
 
@@ -239,7 +239,7 @@ make_player_info(struct nh_player_info *pi)
 
     pi->en = u.uen;
     pi->enmax = u.uenmax;
-    pi->ac = u.uac;
+    pi->ac = get_player_ac();
 
     pi->gold = money_cnt(invent);
     pi->coinsym = def_oc_syms[COIN_CLASS];
@@ -297,7 +297,7 @@ make_player_info(struct nh_player_info *pi)
         strncpy(pi->statusitems[pi->nr_items++], "Slime", ITEMLEN);
     if (Stoned) /* 11 */
         strncpy(pi->statusitems[pi->nr_items++], "Petrify", ITEMLEN);
-    if (u.ustuck && !u.uswallow && !sticks(youmonst.data))  /* 12 */
+    if (u.ustuck && !Engulfed && !sticks(youmonst.data))      /* 12 */
         strncpy(pi->statusitems[pi->nr_items++], "Held", ITEMLEN);
     if (enc_stat[cap])  /* 13 */
         strncpy(pi->statusitems[pi->nr_items++], enc_stat[cap], ITEMLEN);
@@ -305,13 +305,26 @@ make_player_info(struct nh_player_info *pi)
         strncpy(pi->statusitems[pi->nr_items++], "Lev", ITEMLEN);
     else if (Flying)
         strncpy(pi->statusitems[pi->nr_items++], "Fly", ITEMLEN);
-    if (unweapon)       /* 15 */
+    if (uwep && is_pick(uwep)) /* 15 (first case) */
+        strncpy(pi->statusitems[pi->nr_items++], "Dig", ITEMLEN);
+    else if (uwep && is_launcher(uwep))
+        strncpy(pi->statusitems[pi->nr_items++], "Ranged", ITEMLEN);
+    else if (uwep && (uwep->otyp == CORPSE) && (touch_petrifies(&mons[uwep->corpsenm])))
+        strncpy(pi->statusitems[pi->nr_items++], "cWielded", ITEMLEN);
+    else if (!uwep)
         strncpy(pi->statusitems[pi->nr_items++], "Unarmed", ITEMLEN);
+    else if (!is_wep(uwep))
+        strncpy(pi->statusitems[pi->nr_items++], "NonWeap", ITEMLEN);
+    else {
+        /* strncpy(pi->statusitems[pi->nr_items++], "Melee", ITEMLEN); */
+        /* Don't show the default Melee status light, as that's the most common case. */
+        /* 15 (last case) */
+    }
     if (u.utrap)        /* 16 */
         strncpy(pi->statusitems[pi->nr_items++], trap_stat[u.utraptype],
                 ITEMLEN);
 
-    api_exit();
+    API_EXIT();
 }
 
 
@@ -322,7 +335,7 @@ bot(void)
 
     make_player_info(&pi);
     update_status(&pi);
-    iflags.botl = 0;
 }
 
 /*botl.c*/
+

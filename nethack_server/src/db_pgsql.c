@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-06-21 */
 /* Copyright (c) Daniel Thaler, 2011. */
 /* The NetHack server may be freely redistributed under the terms of either:
  *  - the NetHack license
@@ -35,11 +36,6 @@ static const char SQL_init_games_table[] =
     "owner integer NOT NULL REFERENCES users (uid), " "ts timestamp NOT NULL, "
     "start_ts timestamp NOT NULL" ");";
 
-static const char SQL_init_options_table[] =
-    "CREATE TABLE options(" "uid integer NOT NULL REFERENCES users (uid), "
-    "optname text NOT NULL, " "opttype integer NOT NULL, "
-    "optvalue text NOT NULL, " "PRIMARY KEY(uid, optname)" ");";
-
 static const char SQL_init_topten_table[] =
     "CREATE TABLE topten(" "gid integer PRIMARY KEY REFERENCES games (gid), "
     "points integer NOT NULL, " "hp integer NOT NULL, "
@@ -57,7 +53,8 @@ static const char SQL_check_pgcrypto[] =
 
 static const char SQL_register_user[] =
     "INSERT INTO users (name, pwhash, email, ts, reg_ts) "
-    "VALUES ($1::varchar(50), crypt($2::text, gen_salt('bf', 8)), $3::text, 'now', 'now');";
+    "VALUES ($1::varchar(50), crypt($2::text, gen_salt('bf', 8)), $3::text, "
+    "'now', 'now');";
 
 static const char SQL_last_reg_id[] = "SELECT currval('users_uid_seq');";
 
@@ -91,12 +88,8 @@ static const char SQL_last_game_id[] = "SELECT currval('games_gid_seq');";
 
 static const char SQL_update_game[] =
     "UPDATE games "
-    "SET ts = 'now', moves = $2::integer, depth = $3::integer, level_desc = $4::text "
-    "WHERE gid = $1::integer;";
-
-static const char SQL_get_game_filename[] =
-    "SELECT filename " "FROM games "
-    "WHERE (owner = $1::integer OR $1::integer = 0) AND gid = $2::integer;";
+    "SET ts = 'now', moves = $2::integer, depth = $3::integer, level_desc = "
+    "$4::text WHERE gid = $1::integer;";
 
 static const char SQL_set_game_done[] =
     "UPDATE games " "SET done = TRUE " "WHERE gid = $1::integer;";
@@ -104,23 +97,15 @@ static const char SQL_set_game_done[] =
 static const char SQL_list_games[] =
     "SELECT g.gid, g.filename, u.name "
     "FROM games AS g JOIN users AS u ON g.owner = u.uid "
-    "WHERE (u.uid = $1::integer OR $1::integer = 0) AND g.done = $2::boolean "
-    "ORDER BY g.ts DESC " "LIMIT $3::integer;";
-
-static const char SQL_update_option[] =
-    "UPDATE options " "SET optvalue = $1::text "
-    "WHERE uid = $2::integer AND optname = $3::text;";
-
-static const char SQL_insert_option[] =
-    "INSERT INTO options (optvalue, uid, optname, opttype) "
-    "VALUES ($1::text, $2::integer, $3::text, $4::integer);";
-
-static const char SQL_get_options[] =
-    "SELECT optname, optvalue " "FROM options " "WHERE uid = $1::integer;";
+    "WHERE (u.uid = $1::integer OR $1::integer = 0 OR"
+    "       ($1::integer < 0 AND u.uid <> -($1::integer))) "
+    "      AND (g.done = $2::boolean) "
+    "      AND (g.gid = $3::integer OR $3::integer = 0) "
+    "ORDER BY g.ts DESC LIMIT $4::integer;";
 
 static const char SQL_add_topten_entry[] =
-    "INSERT INTO topten (gid, points, hp, maxhp, deaths, end_how, death, entrytxt) "
-    "VALUES ($1::integer, $2::integer, $3::integer, $4::integer, "
+    "INSERT INTO topten (gid, points, hp, maxhp, deaths, end_how, death, "
+    "entrytxt) VALUES ($1::integer, $2::integer, $3::integer, $4::integer, "
     "$5::integer, $6::integer, $7::text, $8::text);";
 
 
@@ -223,8 +208,7 @@ check_database(void)
      */
     if (!check_create_table("users", SQL_init_user_table) ||
         !check_create_table("games", SQL_init_games_table) ||
-        !check_create_table("topten", SQL_init_topten_table) ||
-        !check_create_table("options", SQL_init_options_table))
+        !check_create_table("topten", SQL_init_topten_table))
         goto err;
 
     /* 
@@ -331,7 +315,7 @@ db_get_user_info(int uid, struct user_info *info)
     const int paramFormats[] = { 0 };   /* text format */
     int col;
 
-    sprintf(uidstr, "%d", uid);
+    snprintf(uidstr, sizeof(uidstr), "%d", uid);
 
     res =
         PQexecParams(conn, SQL_get_user_info, 1, NULL, params, NULL,
@@ -363,7 +347,7 @@ db_update_user_ts(int uid)
     const char *const params[] = { uidstr };
     const int paramFormats[] = { 0 };   /* text format */
 
-    sprintf(uidstr, "%d", uid);
+    snprintf(uidstr, sizeof(uidstr), "%d", uid);
     res =
         PQexecParams(conn, SQL_update_user_ts, 1, NULL, params, NULL,
                      paramFormats, 0);
@@ -382,7 +366,7 @@ db_set_user_email(int uid, const char *email)
     const int paramFormats[] = { 0, 0 };
     const char *numrows;
 
-    sprintf(uidstr, "%d", uid);
+    snprintf(uidstr, sizeof(uidstr), "%d", uid);
 
     res =
         PQexecParams(conn, SQL_set_user_email, 2, NULL, params, NULL,
@@ -406,7 +390,7 @@ db_set_user_password(int uid, const char *password)
     const int paramFormats[] = { 0, 0 };
     const char *numrows;
 
-    sprintf(uidstr, "%d", uid);
+    snprintf(uidstr, sizeof(uidstr), "%d", uid);
 
     res =
         PQexecParams(conn, SQL_set_user_password, 2, NULL, params, NULL,
@@ -436,8 +420,8 @@ db_add_new_game(int uid, const char *filename, const char *role,
     const char *gameid_str;
     int gid;
 
-    sprintf(uidstr, "%d", uid);
-    sprintf(modestr, "%d", mode);
+    snprintf(uidstr, sizeof(uidstr), "%d", uid);
+    snprintf(modestr, sizeof(modestr), "%d", mode);
 
     res =
         PQexecParams(conn, SQL_add_game, 9, NULL, params, NULL, paramFormats,
@@ -471,9 +455,9 @@ db_update_game(int game, int moves, int depth, const char *levdesc)
     const char *const params[] = { gidstr, movesstr, depthstr, levdesc };
     const int paramFormats[] = { 0, 0, 0, 0 };
 
-    sprintf(gidstr, "%d", game);
-    sprintf(movesstr, "%d", moves);
-    sprintf(depthstr, "%d", depth);
+    snprintf(gidstr, sizeof(gidstr), "%d", game);
+    snprintf(movesstr, sizeof(movesstr), "%d", moves);
+    snprintf(depthstr, sizeof(depthstr), "%d", depth);
 
     res =
         PQexecParams(conn, SQL_update_game, 4, NULL, params, NULL, paramFormats,
@@ -483,33 +467,6 @@ db_update_game(int game, int moves, int depth, const char *levdesc)
     PQclear(res);
 }
 
-
-int
-db_get_game_filename(int uid, int gid, char *namebuf, int buflen)
-{
-    PGresult *res;
-    char uidstr[16], gidstr[16];
-    const char *const params[] = { uidstr, gidstr };
-    const int paramFormats[] = { 0, 0 };
-
-    sprintf(uidstr, "%d", uid);
-    sprintf(gidstr, "%d", gid);
-
-    res =
-        PQexecParams(conn, SQL_get_game_filename, 2, NULL, params, NULL,
-                     paramFormats, 0);
-    if (PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0) {
-        log_msg("get_game_filename error: %s", PQerrorMessage(conn));
-        PQclear(res);
-        return FALSE;
-    }
-
-    strncpy(namebuf, PQgetvalue(res, 0, 0), buflen);
-    PQclear(res);
-    return TRUE;
-}
-
-
 void
 db_delete_game(int uid, int gid)
 {
@@ -518,8 +475,8 @@ db_delete_game(int uid, int gid)
     const char *const params[] = { uidstr, gidstr };
     const int paramFormats[] = { 0, 0 };
 
-    sprintf(uidstr, "%d", uid);
-    sprintf(gidstr, "%d", gid);
+    snprintf(uidstr, sizeof(uidstr), "%d", uid);
+    snprintf(gidstr, sizeof(gidstr), "%d", gid);
 
     res =
         PQexecParams(conn, SQL_delete_game, 2, NULL, params, NULL, paramFormats,
@@ -531,25 +488,28 @@ db_delete_game(int uid, int gid)
 }
 
 
-struct gamefile_info *
-db_list_games(int completed, int uid, int limit, int *count)
+static struct gamefile_info *
+db_game_name_core(int completed, int uid, int gid, int limit, int *count)
 {
     PGresult *res;
     int i, gidcol, fncol, ucol;
     struct gamefile_info *files;
-    char uidstr[16], complstr[16], limitstr[16];
-    const char *const params[] = { uidstr, complstr, limitstr };
-    const int paramFormats[] = { 0, 0, 0 };
+    char uidstr[16], gidstr[16], complstr[16], limitstr[16];
+    const char *const params[] = { uidstr, complstr, gidstr, limitstr };
+    const int paramFormats[] = { 0, 0, 0, 0 };
+    const char *const fmtstr = completed ? "%s/completed/%s/%s" :
+        "%s/save/%s/%s";
 
     if (limit <= 0 || limit > 100)
         limit = 100;
 
-    sprintf(uidstr, "%d", uid);
-    sprintf(complstr, "%d", ! !completed);
-    sprintf(limitstr, "%d", limit);
+    snprintf(uidstr, sizeof(uidstr), "%d", uid);
+    snprintf(gidstr, sizeof(gidstr), "%d", gid);
+    snprintf(complstr, sizeof(complstr), "%d", !!completed);
+    snprintf(limitstr, sizeof(limitstr), "%d", limit);
 
     res =
-        PQexecParams(conn, SQL_list_games, 3, NULL, params, NULL, paramFormats,
+        PQexecParams(conn, SQL_list_games, 4, NULL, params, NULL, paramFormats,
                      0);
     if (PQresultStatus(res) != PGRES_TUPLES_OK) {
         log_msg("list_games error: %s", PQerrorMessage(conn));
@@ -566,8 +526,12 @@ db_list_games(int completed, int uid, int limit, int *count)
     files = malloc(sizeof (struct gamefile_info) * (*count));
     for (i = 0; i < *count; i++) {
         files[i].gid = atoi(PQgetvalue(res, i, gidcol));
-        files[i].filename = strdup(PQgetvalue(res, i, fncol));
-        files[i].username = strdup(PQgetvalue(res, i, ucol));
+        files[i].filename = malloc(strlen(fmtstr) +
+                                   strlen(settings.workdir) +
+                                   strlen(PQgetvalue(res, i, fncol)) +
+                                   strlen(PQgetvalue(res, i, ucol)) + 1);
+        sprintf(files[i].filename, fmtstr, settings.workdir,
+                PQgetvalue(res, i, ucol), PQgetvalue(res, i, fncol));
     }
 
     PQclear(res);
@@ -575,79 +539,32 @@ db_list_games(int completed, int uid, int limit, int *count)
 }
 
 
-void
-db_set_option(int uid, const char *optname, int type, const char *optval)
+enum getgame_result
+db_get_game_filename(int gid, char *filenamebuf, int buflen)
 {
-    PGresult *res;
-    char uidstr[16], typestr[16];
-    const char *const params[] = { optval, uidstr, optname, typestr };
-    const int paramFormats[] = { 0, 0, 0, 0 };
-    const char *numrows;
+    struct gamefile_info *gfi;
+    int completed, count;
+    
+    for (completed = 0; completed <= 1; completed++) {
+        gfi = db_game_name_core(completed, 0, gid, 1, &count);
 
-    sprintf(uidstr, "%d", uid);
-    sprintf(typestr, "%d", type);
-
-    /* try to update first */
-    res =
-        PQexecParams(conn, SQL_update_option, 3, NULL, params, NULL,
-                     paramFormats, 0);
-    numrows = PQcmdTuples(res);
-    if (PQresultStatus(res) == PGRES_COMMAND_OK && atoi(numrows) == 1) {
-        PQclear(res);
-        return;
+        if (count) {
+            strncpy(filenamebuf, gfi[0].filename, buflen);
+            filenamebuf[buflen-1] = '\0';
+            free(gfi[0].filename);
+            free(gfi);
+            return completed ? GGR_COMPLETED : GGR_INCOMPLETE;
+        }
     }
-    PQclear(res);
 
-    /* update failed, try to insert */
-    res =
-        PQexecParams(conn, SQL_insert_option, 4, NULL, params, NULL,
-                     paramFormats, 0);
-    numrows = PQcmdTuples(res);
-    if (PQresultStatus(res) == PGRES_COMMAND_OK && atoi(numrows) == 1) {
-        PQclear(res);
-        return;
-    }
-    PQclear(res);
-
-    /* insert failed too */
-    log_msg("Failed to store an option. '%s = %s': %s", optname, optval,
-            PQerrorMessage(conn));
+    return GGR_NOT_FOUND;
 }
 
-
-void
-db_restore_options(int uid)
+struct gamefile_info *
+db_list_games(int completed, int uid, int limit, int *count)
 {
-    PGresult *res;
-    char uidstr[16];
-    const char *const params[] = { uidstr };
-    const char *optname;
-    const int paramFormats[] = { 0 };
-    int i, count, ncol, vcol;
-    union nh_optvalue value;
-
-    sprintf(uidstr, "%d", uid);
-
-    res =
-        PQexecParams(conn, SQL_get_options, 1, NULL, params, NULL, paramFormats,
-                     0);
-    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-        log_msg("get_options error: %s", PQerrorMessage(conn));
-        PQclear(res);
-        return;
-    }
-
-    count = PQntuples(res);
-    ncol = PQfnumber(res, "optname");
-    vcol = PQfnumber(res, "optvalue");
-    for (i = 0; i < count; i++) {
-        optname = PQgetvalue(res, i, ncol);
-        value.s = PQgetvalue(res, i, vcol);
-        nh_set_option(optname, value, 1);
-    }
-    PQclear(res);
+    return db_game_name_core(completed, uid, 0, limit, count);
 }
-
 
 void
 db_add_topten_entry(int gid, int points, int hp, int maxhp, int deaths,
@@ -661,12 +578,12 @@ db_add_topten_entry(int gid, int points, int hp, int maxhp, int deaths,
     };
     const int paramFormats[] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-    sprintf(gidstr, "%d", gid);
-    sprintf(pointstr, "%d", points);
-    sprintf(hpstr, "%d", hp);
-    sprintf(maxhpstr, "%d", maxhp);
-    sprintf(dcountstr, "%d", deaths);
-    sprintf(endstr, "%d", end_how);
+    snprintf(gidstr, sizeof(gidstr), "%d", gid);
+    snprintf(pointstr, sizeof(pointstr), "%d", points);
+    snprintf(hpstr, sizeof(hpstr), "%d", hp);
+    snprintf(maxhpstr, sizeof(maxhpstr), "%d", maxhp);
+    snprintf(dcountstr, sizeof(dcountstr), "%d", deaths);
+    snprintf(endstr, sizeof(endstr), "%d", end_how);
 
     res =
         PQexecParams(conn, SQL_add_topten_entry, 8, NULL, params, NULL,

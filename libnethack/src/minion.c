@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-05-19 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -6,26 +7,31 @@
 #include "emin.h"
 #include "epri.h"
 
-/* mon summons a monster */
+/* mon summons a monster
+
+   TODO: It'd be nice to have custom RNGs for this, but it's unclear exactly
+   what we'd be trying to keep consistent between games. */
 void
-msummon(struct monst *mon)
+msummon(struct monst *mon, const d_level *dlev)
 {
     const struct permonst *ptr;
     int dtype = NON_PM, cnt = 0;
     aligntyp atyp;
     struct monst *mtmp;
-    struct d_level *dlev;
 
     if (mon) {
         ptr = mon->data;
-        dlev = &mon->dlevel->z;
+        if (dlev->dnum != mon->dlevel->z.dnum ||
+            dlev->dlevel != mon->dlevel->z.dlevel)
+            impossible("dlev mismatch for monster in msummon");
         atyp = (ptr->maligntyp == A_NONE) ? A_NONE : sgn(ptr->maligntyp);
         if (mon->ispriest || roamer_type(mon->data))
-            atyp = EPRI(mon)->shralign;
+            atyp = CONST_EPRI(mon)->shralign;
     } else {
         ptr = &mons[PM_WIZARD_OF_YENDOR];
         atyp = (ptr->maligntyp == A_NONE) ? A_NONE : sgn(ptr->maligntyp);
-        dlev = &u.uz;
+        if (dlev->dnum != u.uz.dnum || dlev->dlevel != u.uz.dlevel)
+            impossible("dlev mismatch for player in msummon");
     }
 
     if (is_dprince(ptr) || (ptr == &mons[PM_WIZARD_OF_YENDOR])) {
@@ -79,7 +85,8 @@ msummon(struct monst *mon)
     }
 
     while (cnt > 0) {
-        mtmp = makemon(&mons[dtype], level, u.ux, u.uy, NO_MM_FLAGS);
+        mtmp = makemon(&mons[dtype], level, u.ux, u.uy,
+                       MM_CREATEMONSTER | MM_CMONSTER_M);
         if (mtmp && roamer_type(&mons[dtype])) {
             /* alignment should match the summoner */
             EPRI(mtmp)->shralign = atyp;
@@ -135,10 +142,44 @@ summon_minion(aligntyp alignment, boolean talk)
             if (!Blind)
                 pline("%s appears before you.", Amonnam(mon));
         }
-        mon->mpeaceful = FALSE;
+        msethostility(mon, TRUE, FALSE);
         /* don't call set_malign(); player was naughty */
     }
 }
+
+/* Returns "mortal", "creature" (if allow_creature), or a more specific term.
+   This is mostly used by immortal/unalive entities when talking to other
+   entities. If they're talking /down/, "creature" is normally inappropriate
+   (e.g. "laughing at cowardly creatures"). If they're merely addressing the
+   permonst in question, "creature" is typically fine (e.g. "Hark, creature!").
+   Undead can be addressed as "creature"; constructs and demons won't be. */
+const char *
+mortal_or_creature(const struct permonst *data, boolean allow_creature)
+{
+    if (data->mlet == S_HUMAN)
+        return "mortal";
+    else if (allow_creature && (!nonliving(data) || is_undead(data)) &&
+             !is_demon(data))
+        return "creature";
+    else if (!nonliving(data) && !is_demon(data))
+        return "mortal";
+    else if (is_demon(data) || monsndx(data) == PM_MANES)
+        return "demon";
+    else if (nonliving(data) && !is_undead(data))
+        return "construct"; /* golems and vortices */
+    else if (data->mlet == S_LICH)
+        return "lich";
+    else if (data->mlet == S_MUMMY)
+        return "mummy";
+    else if (data->mlet == S_VAMPIRE)
+        return "vampire";
+    else if (data->mlet == S_ZOMBIE &&
+             monsndx(data) != PM_GHOUL && monsndx(data) != PM_SKELETON)
+        return "zombie";
+    else
+        return data->mname;
+}
+
 
 #define Athome (Inhell && !mtmp->cham)
 
@@ -150,9 +191,7 @@ demon_talk(struct monst *mtmp)
 
     if (uwep && uwep->oartifact == ART_EXCALIBUR) {
         pline("%s looks very angry.", Amonnam(mtmp));
-        mtmp->mpeaceful = mtmp->mtame = 0;
-        set_malign(mtmp);
-        newsym(mtmp->mx, mtmp->my);
+        msethostility(mtmp, TRUE, TRUE);
         return 0;
     }
 
@@ -165,21 +204,19 @@ demon_talk(struct monst *mtmp)
     }
     if (youmonst.data->mlet == S_DEMON) {       /* Won't blackmail their own. */
         pline("%s says, \"Good hunting, %s.\"", Amonnam(mtmp),
-              flags.female ? "Sister" : "Brother");
+              u.ufemale ? "Sister" : "Brother");
         if (!tele_restrict(mtmp))
-            rloc(mtmp, FALSE);
+            rloc(mtmp, TRUE);
         return 1;
     }
     cash = money_cnt(invent);
-    demand =
-        (cash * (rnd(80) + 20 * Athome)) / (100 *
-                                            (1 +
-                                             (sgn(u.ualign.type) ==
-                                              sgn(mtmp->data->maligntyp))));
+    /* don't bother with a custom RNG here, too much unpredictability is
+       involved */
+    demand = (cash * (rnd(80) + 20 * Athome)) /
+        (100 * (1 + (sgn(u.ualign.type) == sgn(mtmp->data->maligntyp))));
 
     if (!demand) {      /* you have no gold */
-        mtmp->mpeaceful = 0;
-        set_malign(mtmp);
+        msethostility(mtmp, TRUE, TRUE);
         return 0;
     } else {
         /* make sure that the demand is unmeetable if the monster has the
@@ -192,14 +229,13 @@ demon_talk(struct monst *mtmp)
               currency(demand));
 
         if ((offer = bribe(mtmp)) >= demand) {
-            pline("%s vanishes, laughing about cowardly mortals.",
-                  Amonnam(mtmp));
+            pline("%s vanishes, laughing about cowardly %s.", Amonnam(mtmp),
+                  makeplural(mortal_or_creature(youmonst.data, FALSE)));
         } else if (offer > 0L && (long)rnd(40) > (demand - offer)) {
             pline("%s scowls at you menacingly, then vanishes.", Amonnam(mtmp));
         } else {
             pline("%s gets angry...", Amonnam(mtmp));
-            mtmp->mpeaceful = 0;
-            set_malign(mtmp);
+            msethostility(mtmp, TRUE, TRUE);
             return 0;
         }
     }
@@ -211,11 +247,11 @@ demon_talk(struct monst *mtmp)
 long
 bribe(struct monst *mtmp)
 {
-    char buf[BUFSZ];
+    const char *buf;
     long offer;
     long umoney = money_cnt(invent);
 
-    getlin("How much will you offer?", buf);
+    buf = getlin("How much will you offer?", FALSE);
     if (sscanf(buf, "%ld", &offer) != 1)
         offer = 0L;
 
@@ -227,6 +263,9 @@ bribe(struct monst *mtmp)
     } else if (offer == 0L) {
         pline("You refuse.");
         return 0L;
+    } else if (umoney == 0L) {
+        pline("You open your purse, but realize you have no gold.");
+        return 0L;
     } else if (offer >= umoney) {
         pline("You give %s all your gold.", mon_nam(mtmp));
         offer = umoney;
@@ -235,7 +274,6 @@ bribe(struct monst *mtmp)
     }
     money2mon(mtmp, offer);
 
-    iflags.botl = 1;
     return offer;
 }
 
@@ -285,7 +323,7 @@ lminion(void)
     const struct permonst *ptr;
 
     for (tryct = 0; tryct < 20; tryct++) {
-        ptr = mkclass(&u.uz, S_ANGEL, 0);
+        ptr = mkclass(&u.uz, S_ANGEL, G_HELL | G_NOHELL, rng_main);
         if (ptr && !is_lord(ptr))
             return monsndx(ptr);
     }
@@ -300,7 +338,7 @@ ndemon(const d_level * dlev, aligntyp atyp)
     const struct permonst *ptr;
 
     for (tryct = 0; tryct < 20; tryct++) {
-        ptr = mkclass(dlev, S_DEMON, 0);
+        ptr = mkclass(dlev, S_DEMON, G_HELL | G_NOHELL, rng_main);
         if (ptr && is_ndemon(ptr) &&
             (atyp == A_NONE || sgn(ptr->maligntyp) == sgn(atyp)))
             return monsndx(ptr);
@@ -310,3 +348,4 @@ ndemon(const d_level * dlev, aligntyp atyp)
 }
 
 /*minion.c*/
+

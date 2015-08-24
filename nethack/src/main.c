@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-21 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -9,7 +10,13 @@
 #include <signal.h>
 #include <ctype.h>
 #include <signal.h>
+#include <time.h>
 
+#ifdef UNIX
+# include <unistd.h>
+#endif
+
+#define DEFAULT_NETHACKDIR "/usr/share/NetHack4/"
 
 static void process_args(int, char **);
 void append_slash(char *name);
@@ -18,8 +25,9 @@ struct settings settings;
 struct interface_flags ui_flags;
 nh_bool interrupt_multi = FALSE;
 nh_bool game_is_running = FALSE;
-int initrole = ROLE_NONE, initrace = ROLE_NONE;
-int initgend = ROLE_NONE, initalign = ROLE_NONE;
+int cmdline_role = ROLE_NONE, cmdline_race = ROLE_NONE;
+int cmdline_gend = ROLE_NONE, cmdline_align = ROLE_NONE;
+char cmdline_name[BUFSZ] = {0};
 nh_bool random_player = FALSE;
 
 char *override_hackdir, *override_userdir;
@@ -92,56 +100,17 @@ const char *nhlogo_large[17] = {
     "  CCCCCCCCCCCCCCCCCCCCC             https://github.com/ComputerScienceHouse/bingehack4/"
 };
 
-#ifdef UNIX
-
-/* the terminal went away - do not pass go, etc. */
-static void
-sighup_handler(int signum)
-{
-    if (!ui_flags.done_hup++)
-        nh_exit_game(EXIT_FORCE_SAVE);
-    nh_lib_exit();
-    exit(0);
-}
-
-static void
-sigint_handler(int signum)
-{
-    if (!game_is_running)
-        return;
-
-    nh_exit_game(EXIT_REQUEST_SAVE);
-}
-
-static void
-setup_signals(void)
-{
-    signal(SIGHUP, sighup_handler);
-    signal(SIGTERM, sighup_handler);
-# ifdef SIGXCPU
-    signal(SIGXCPU, sighup_handler);
-# endif
-    signal(SIGQUIT, SIG_IGN);
-
-
-    signal(SIGINT, sigint_handler);
-}
-
-#else
-static void
-setup_signals(void)
-{
-}
-#endif
 
 static char **
 init_game_paths(const char *argv0)
 {
 #ifdef WIN32
-    char dirbuf[1024], docpath[MAX_PATH], *pos;
+    char dirbuf[1024], *pos;
 #endif
-    char **pathlist = malloc(sizeof (char *) * PREFIX_COUNT);
-    char *dir = NULL;
+    const char *pathlist[PREFIX_COUNT];
+    char **pathlist_copy = malloc(sizeof (char *) * PREFIX_COUNT);
+    const char *dir = NULL;
+    char *tmp = 0;
     int i;
 
 #if defined(UNIX)
@@ -152,36 +121,26 @@ init_game_paths(const char *argv0)
     } else
         dir = NULL;
 
-    if (!dir)
-        dir = NETHACKDIR;
+    if (!dir || !*dir)
+        dir = aimake_get_option("gamesdatadir");
+
+    if (!dir || !*dir)
+        dir = DEFAULT_NETHACKDIR;
 
     for (i = 0; i < PREFIX_COUNT; i++)
         pathlist[i] = dir;
 
-# ifndef STRINGIFY_OPTION
-#  define STRINGIFY_OPTION(x) STRINGIFY_OPTION_1(x)
-#  define STRINGIFY_OPTION_1(x) #x
-# endif
-# ifdef AIMAKE_OPTION_statedir
-    pathlist[BONESPREFIX] = STRINGIFY_OPTION(AIMAKE_OPTION_statedir);
-    pathlist[SCOREPREFIX] = STRINGIFY_OPTION(AIMAKE_OPTION_statedir);
-    pathlist[TROUBLEPREFIX] = STRINGIFY_OPTION(AIMAKE_OPTION_statedir);
-# endif
-# ifdef AIMAKE_OPTION_specificlockdir
-    pathlist[LOCKPREFIX] = STRINGIFY_OPTION(AIMAKE_OPTION_specificlockdir);
-# endif
-    /* and leave HACKDIR to provide the data */
-
-    pathlist[DUMPPREFIX] = malloc(BUFSZ);
-    if (!get_gamedir(DUMP_DIR, pathlist[DUMPPREFIX])) {
-        free(pathlist[DUMPPREFIX]);
+    pathlist[DUMPPREFIX] = tmp = malloc(BUFSZ);
+    if (!get_gamedir(DUMP_DIR, tmp)) {
         pathlist[DUMPPREFIX] = getenv("HOME");
         if (!pathlist[DUMPPREFIX])
             pathlist[DUMPPREFIX] = "./";
     }
 #elif defined(WIN32)
     dir = getenv("NETHACKDIR");
-    if (!dir) {
+    if (!dir || !*dir)
+        dir = aimake_get_option("gamesdatadir");
+    if (!dir || !*dir) {
         strncpy(dirbuf, argv0, 1023);
         pos = strrchr(dirbuf, '\\');
         if (!pos)
@@ -197,17 +156,45 @@ init_game_paths(const char *argv0)
 
     for (i = 0; i < PREFIX_COUNT; i++)
         pathlist[i] = dir;
-    /* get the actual, localized path to the Documents folder */
-    if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_PERSONAL, NULL, 0, docpath)))
-        pathlist[DUMPPREFIX] = docpath;
-    else
-        pathlist[DUMPPREFIX] = ".\\";
+
+
+    pathlist[DUMPPREFIX] = tmp = malloc(MAX_PATH);
+    if (!get_gamedirA(DUMP_DIR, tmp)) {
+        /* get the actual, localized path to the Documents folder */
+        if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_PERSONAL, NULL, 0, tmp)))
+            pathlist[DUMPPREFIX] = tmp;
+        else
+            pathlist[DUMPPREFIX] = ".\\";
+    }
+
 #else
-    /* avoid a trap for people trying to port this */
-# error You must run NetHack 4 under Win32 or Linux.
+    /* WIN32 / UNIX is set by the header files, /but/ those aren't included
+       during dependency calculation. We want to error out if neither is set,
+       but not in a way that will confuse dependencies. Thus, we want something
+       here that the preprocessor is OK with but the compiler will reject. A
+       negative-size array is the standard "portable" way to do a static assert,
+       like is needed here (it works in practice, albeit possibly not in
+       theory). */
+
+    int please_define_UNIX_or_WIN32[-1];
 #endif
 
-    /* if given an override directory, use it (unless we're running setgid */
+    /* If the build system gave us more specific directories, use them. */
+    const char *temp_path;
+
+    temp_path = aimake_get_option("gamesstatedir");
+    if (temp_path) {
+        pathlist[BONESPREFIX] = temp_path;
+        pathlist[SCOREPREFIX] = temp_path;
+        pathlist[TROUBLEPREFIX] = temp_path;
+    }
+
+    temp_path = aimake_get_option("specificlockdir");
+    if (temp_path)
+        pathlist[LOCKPREFIX] = temp_path;
+    /* and leave NETHACKDIR to provide the data */
+
+    /* if given an override directory, use it (unless we're running setgid) */
 #ifdef UNIX
     if (getgid() == getegid()) {
 #endif
@@ -232,14 +219,14 @@ init_game_paths(const char *argv0)
 
     /* alloc memory for the paths and append slashes as required */
     for (i = 0; i < PREFIX_COUNT; i++) {
-        char *tmp = pathlist[i];
-
-        pathlist[i] = malloc(strlen(tmp) + 2);
-        strcpy(pathlist[i], tmp);
-        append_slash(pathlist[i]);
+        pathlist_copy[i] = malloc(strlen(pathlist[i]) + 2);
+        strcpy(pathlist_copy[i], pathlist[i]);
+        append_slash(pathlist_copy[i]);
     }
 
-    return pathlist;
+    free(tmp);
+
+    return pathlist_copy;
 }
 
 #define str_macro(val) #val
@@ -251,8 +238,9 @@ mainmenu(void)
     const char *const *copybanner = nh_get_copyright_banner();
     const char **nhlogo;
     char verstr[32];
+    nh_bool first = TRUE;
 
-    sprintf(verstr, "Version %d.%d.%d", VERSION_MAJOR, VERSION_MINOR,
+    snprintf(verstr, ARRAY_SIZE(verstr), "Version %d.%d.%d", VERSION_MAJOR, VERSION_MINOR,
             PATCHLEVEL);
 
 #if defined(NETCLIENT)
@@ -262,7 +250,9 @@ mainmenu(void)
     }
 #endif
 
-    while (n > 0) {
+    load_keymap(); /* netgame() assumes the keymap isn't loaded */
+
+    while (n >= 0) {
         if (COLS >= 100) {
             nhlogo = nhlogo_large;
             logoheight = sizeof (nhlogo_large) / sizeof (nhlogo_large[0]);
@@ -274,31 +264,39 @@ mainmenu(void)
         wattron(basewin, A_BOLD | COLOR_PAIR(4));
         for (i = 0; i < logoheight; i++) {
             wmove(basewin, i, (COLS - strlen(nhlogo[0])) / 2);
-            waddstr(basewin, nhlogo[i]);
+            if (nhlogo[i])
+                waddstr(basewin, nhlogo[i]);
         }
         wattroff(basewin, A_BOLD | COLOR_PAIR(4));
         mvwaddstr(basewin, LINES - 3, 0, copybanner[0]);
         mvwaddstr(basewin, LINES - 2, 0, copybanner[1]);
         mvwaddstr(basewin, LINES - 1, 0, copybanner[2]);
         mvwaddstr(basewin, LINES - 4, COLS - strlen(verstr), verstr);
-        wrefresh(basewin);
+        wnoutrefresh(basewin);
+
+        if (first) {
+            network_motd();
+            first = FALSE;
+        }
 
         menuresult[0] = EXITGAME;       /* default action */
         if (!override_hackdir)
-            n = curses_display_menu_core(mainmenu_items,
-                                         ARRAY_SIZE(mainmenu_items), NULL,
-                                         PICK_ONE, menuresult, 0,
-                                         logoheight - 1, COLS, LINES - 3, NULL);
+            curses_display_menu_core(
+                STATIC_MENULIST(mainmenu_items), NULL, PICK_ONE,
+                menuresult, curses_menu_callback,
+                0, logoheight - 1, COLS, LINES - 3, FALSE, NULL, FALSE);
         else
-            n = curses_display_menu_core(mainmenu_items_noclient,
-                                         ARRAY_SIZE(mainmenu_items_noclient),
-                                         NULL, PICK_ONE, menuresult, 0,
-                                         logoheight - 1, COLS, LINES - 3, NULL);
+            curses_display_menu_core(
+                STATIC_MENULIST(mainmenu_items_noclient), NULL, PICK_ONE,
+                menuresult, curses_menu_callback,
+                0, logoheight - 1, COLS, LINES - 3, FALSE, NULL, FALSE);
 
+        if (*menuresult == CURSES_MENU_CANCELLED && !ui_flags.done_hup)
+            continue;
 
         switch (menuresult[0]) {
         case NEWGAME:
-            rungame();
+            rungame(FALSE);
             break;
 
         case LOAD:
@@ -315,7 +313,9 @@ mainmenu(void)
 
 #if defined(NETCLIENT)
         case NETWORK:
+            free_keymap(); /* don't use the local keymap for server play */
             netgame();
+            load_keymap();
             break;
 #endif
 
@@ -324,38 +324,49 @@ mainmenu(void)
             break;
 
         case EXITGAME:
-            return;
+        case CURSES_MENU_CANCELLED: /* in case of hangup */
+            n = -1;     /* simulate menu cancel */
+            break;
         }
     }
+
+    free_keymap();
 }
 
 
 int
 main(int argc, char *argv[])
 {
+    srand(time(NULL));
+
     char **gamepaths;
     int i;
+    nh_bool init_ok;
 
     umask(0777 & ~FCMASK);
 
-    process_args(argc, argv);   /* grab -U, -H, -k early */
+    /* this can change argc and *argv, so must come first */
+    initialize_uncursed(&argc, argv);
 
+    process_args(argc, argv);   /* grab -U, -H, -k, --help early */
     init_options();
-
     gamepaths = init_game_paths(argv[0]);
-    nh_lib_init(&curses_windowprocs, gamepaths);
+
+    nh_lib_init(&curses_windowprocs, (const char * const*)gamepaths);
+    init_curses_ui(gamepaths[DATAPREFIX]);
+    init_ok = read_nh_config();
     for (i = 0; i < PREFIX_COUNT; i++)
         free(gamepaths[i]);
     free(gamepaths);
 
-    setup_signals();
-    init_curses_ui();
-    read_nh_config();
 
     process_args(argc, argv);   /* other command line options */
     init_displaychars();
 
-    mainmenu();
+    if (init_ok)
+        mainmenu();
+    else
+        curses_msgwin("Could not initialize game options!", krc_notification);
 
     exit_curses_ui();
     nh_lib_exit();
@@ -400,13 +411,38 @@ process_args(int argc, char *argv[])
     int i;
     const struct nh_roles_info *ri = nh_get_roles();
 
-    /* 
+    /*
      * Process options.
      */
     while (argc > 1 && argv[1][0] == '-') {
         argv++;
         argc--;
         switch (argv[0][1]) {
+        case '-':
+            if (!strcmp(argv[0], "--help")) {
+                puts("Usage: nethack4 [--interface PLUGIN] [OPTIONS]");
+                puts("");
+                puts("-k          connection-only mode");
+                puts("-D          start games in wizard mode");
+                puts("-X          start games in explore mode");
+                puts("-u name     specify player name");
+                puts("-p role     specify role");
+                puts("-r race     specify race");
+                puts("-@          specify a random character");
+                puts("-H dir      override the playfield location");
+                puts("-U dir      override the user directory");
+                puts("-Z          disable suspending the process");
+                puts("");
+                puts("PLUGIN can be any libuncursed plugin that is installed");
+                puts("on your system; examples may include 'tty' and 'sdl'.");
+                exit(0);
+            } else if (!strcmp(argv[0], "--version")) {
+                printf("NetHack 4 version %d.%d.%d\n",
+                       VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL);
+                exit(0);
+            }
+            break;
+
         case 'k':
             ui_flags.connection_only = 1;
             break;
@@ -421,12 +457,12 @@ process_args(int argc, char *argv[])
 
         case 'u':
             if (argv[0][2])
-                strncpy(settings.plname, argv[0] + 2,
-                        sizeof (settings.plname) - 1);
+                strncpy(cmdline_name, argv[0] + 2,
+                        sizeof (cmdline_name) - 1);
             else if (argc > 1) {
                 argc--;
                 argv++;
-                strncpy(settings.plname, argv[0], sizeof (settings.plname) - 1);
+                strncpy(cmdline_name, argv[0], sizeof (cmdline_name) - 1);
             } else
                 printf("Player name expected after -u");
             break;
@@ -435,13 +471,13 @@ process_args(int argc, char *argv[])
             if (argv[0][2]) {
                 i = str2role(ri, &argv[0][2]);
                 if (i >= 0)
-                    initrole = i;
+                    cmdline_role = i;
             } else if (argc > 1) {
                 argc--;
                 argv++;
                 i = str2role(ri, argv[0]);
                 if (i >= 0)
-                    initrole = i;
+                    cmdline_role = i;
             }
             break;
 
@@ -449,13 +485,13 @@ process_args(int argc, char *argv[])
             if (argv[0][2]) {
                 i = str2race(ri, &argv[0][2]);
                 if (i >= 0)
-                    initrace = i;
+                    cmdline_race = i;
             } else if (argc > 1) {
                 argc--;
                 argv++;
                 i = str2race(ri, argv[0]);
                 if (i >= 0)
-                    initrace = i;
+                    cmdline_race = i;
             }
             break;
 
@@ -464,6 +500,10 @@ process_args(int argc, char *argv[])
             break;
 
         case 'H':
+#ifdef UNIX
+            if (setregid(getgid(), getgid()) < 0)
+                exit(14);
+#endif
             if (argv[0][2]) {
                 override_hackdir = argv[0] + 2;
             } else if (argc > 1) {
@@ -474,6 +514,10 @@ process_args(int argc, char *argv[])
             break;
 
         case 'U':
+#ifdef UNIX
+            if (setregid(getgid(), getgid()) < 0)
+                exit(14);
+#endif
             if (argv[0][2]) {
                 override_userdir = argv[0] + 2;
             } else if (argc > 1) {
@@ -484,13 +528,13 @@ process_args(int argc, char *argv[])
             break;
 
         case 'Z':
-            ui_flags.no_stop = true;
+            ui_flags.no_stop = 1;
             break;
 
         default:
             i = str2role(ri, argv[0]);
             if (i >= 0)
-                initrole = i;
+                cmdline_role = i;
         }
     }
 }
@@ -518,6 +562,16 @@ append_slash(char *name)
         *++ptr = '\0';
     }
     return;
+}
+
+
+void
+curses_impossible(const char *msg)
+{
+    curses_msgwin("Impossible state detected in the client.", krc_notification);
+    curses_msgwin(msg, krc_notification);
+    curses_msgwin("You may wish to save and restart the client.",
+                  krc_notification);
 }
 
 /* main.c */

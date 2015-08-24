@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) Daniel Thaler, 2011.                             */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -6,13 +7,14 @@
 
 
 int
-dohistory(void)
+dohistory(const struct nh_cmd_arg *arg)
 {
-    struct menulist menu;
+    struct nh_menulist menu;
     boolean over = program_state.gameover;
     boolean showall = over || wizard;
-    char buf[BUFSZ];
     int i;
+
+    (void) arg;
 
     if (histcount < 2) {
         /* you get an automatic entry on turn 1 for being born. If it's the
@@ -23,17 +25,16 @@ dohistory(void)
     }
 
     init_menulist(&menu);
+
     for (i = 0; i < histcount; i++) {
         if (histevents[i].hidden && !showall)
             continue;
-        snprintf(buf, BUFSZ, "On T:%u you %s", histevents[i].when,
-                 histevents[i].what);
-        add_menutext(&menu, buf);
+        add_menutext(&menu, msgprintf("On T:%u you %s", histevents[i].when,
+                                      histevents[i].what));
     }
 
-    display_menu(menu.items, menu.icount, "History has recorded:", PICK_NONE,
+    display_menu(&menu, "History has recorded:", PICK_NONE,
                  PLHINT_ANYWHERE, NULL);
-    free(menu.items);
 
     return 0;
 }
@@ -42,11 +43,11 @@ dohistory(void)
 void
 historic_event(boolean hidden, const char *fmt, ...)
 {
-    char hbuf[BUFSZ];
+    const char *hbuf;
     va_list vargs;
 
     va_start(vargs, fmt);
-    vsnprintf(hbuf, BUFSZ, fmt, vargs);
+    hbuf = msgvprintf(fmt, vargs, TRUE);
     va_end(vargs);
 
     histevents =
@@ -64,8 +65,8 @@ save_history(struct memfile *mf)
 {
     int i, len;
 
-    mtag(mf, 0, MTAG_HISTORY);
     mfmagic_set(mf, HISTORY_MAGIC);
+    mtag(mf, 0, MTAG_HISTORY);
     mwrite32(mf, histcount);
     /* don't need tags for individual history events, because they're always
        added at the end of the list */
@@ -118,31 +119,33 @@ free_history(void)
 const char *
 hist_lev_name(const d_level * l, boolean in_or_on)
 {
-    static char hlnbuf[BUFSZ];
-    char *bufptr;
+    const char *hlnbuf;
 
     if (Is_astralevel(l))
-        strcpy(hlnbuf, "on the Astral Plane");
+        hlnbuf = "on the Astral Plane";
     else if (Is_waterlevel(l))
-        strcpy(hlnbuf, "on the Plane of Water");
+        hlnbuf = "on the Plane of Water";
     else if (Is_firelevel(l))
-        strcpy(hlnbuf, "on the Plane of Fire");
+        hlnbuf = "on the Plane of Fire";
     else if (Is_airlevel(l))
-        strcpy(hlnbuf, "on the Plane of Air");
+        hlnbuf = "on the Plane of Air";
     else if (Is_earthlevel(l))
-        strcpy(hlnbuf, "on the Plane of Earth");
+        hlnbuf = "on the Plane of Earth";
     else if (Is_knox(l))
-        strcpy(hlnbuf, "in Fort Knox");
+        hlnbuf = "in Fort Ludios";
     else if (Is_stronghold(l))
-        strcpy(hlnbuf, "in The Castle");
+        hlnbuf = "in The Castle";
     else if (Is_valley(l))
-        strcpy(hlnbuf, "in The Valley of the Dead");
+        hlnbuf = "in The Valley of the Dead";
     else
-        sprintf(hlnbuf, "on level %d of %s", l->dlevel,
-                dungeons[l->dnum].dname);
+        hlnbuf = msgprintf("on level %d of %s", l->dlevel,
+                           find_dungeon(l).dname);
 
-    bufptr = in_or_on ? hlnbuf : (hlnbuf + 3);
-    return bufptr;
+    if (!in_or_on)
+        hlnbuf += 3;
+
+    return hlnbuf;
 }
 
 /* history.c */
+

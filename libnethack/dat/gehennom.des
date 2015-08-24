@@ -1,3 +1,4 @@
+# Last modified by Sean Hunt, 2014-02-16
 #	Copyright (c) 1989 by Jean-Christophe Collet
 #	Copyright (c) 1992 by M. Stephenson and Izchak Miller
 # NetHack may be freely redistributed.  See license for details.
@@ -38,8 +39,8 @@ REGION:(37,09,43,14),unlit,"morgue",filled,true
 # Stairs
 STAIR:(01,01),down
 # Branch location
-BRANCH:(66,17,66,17),(0,0,0,0)
-TELEPORT_REGION:(58,09,72,18),(0,0,0,0),down
+BRANCH:(66,17,66,17),levregion()
+TELEPORT_REGION:(58,09,72,18),levregion(),down
 
 # Secret Doors
 DOOR:locked,(04,01)
@@ -205,11 +206,11 @@ RANDOM_PLACES:(04,02),(46,02),(04,15),(46,15)
 REGION:(00,00,50,17),unlit,"swamp"
 MAZEWALK:(00,09),west
 MAZEWALK:(50,08),east
-STAIR:levregion(01,00,11,20),(0,0,50,17),down
-STAIR:levregion(69,00,79,20),(0,0,50,17),up
-BRANCH:levregion(01,00,11,20),(0,0,50,17)
-TELEPORT_REGION:levregion(01,00,11,20),(0,0,50,17),up
-TELEPORT_REGION:levregion(69,00,79,20),(0,0,50,17),down
+STAIR:levregion(00,00,10,20),(0,0,50,17),down
+STAIR:levregion(68,00,78,20),(0,0,50,17),up
+BRANCH:levregion(00,00,10,20),(0,0,50,17)
+TELEPORT_REGION:levregion(00,00,10,20),(0,0,50,17),up
+TELEPORT_REGION:levregion(68,00,78,20),(0,0,50,17),down
 FOUNTAIN:place[0]
 MONSTER:'m',"giant mimic",place[1],m_feature "fountain"
 MONSTER:'m',"giant mimic",place[2],m_feature "fountain"
@@ -298,9 +299,9 @@ MAZEWALK:(00,06),west
 # Entire main area
 REGION:(01,00,44,16),unlit,"ordinary"
 STAIR:(33,15),down
-STAIR:levregion(01,00,12,20),levregion(20,01,70,20),up
-BRANCH:levregion(01,00,12,20),levregion(20,01,70,20)
-TELEPORT_REGION:levregion(01,00,12,20),levregion(20,01,70,20)
+STAIR:levregion(00,00,11,20),levregion(19,01,69,20),up
+BRANCH:levregion(00,00,11,20),levregion(19,01,69,20)
+TELEPORT_REGION:levregion(00,00,11,20),levregion(19,01,69,20)
 # Wall "ruins"
 OBJECT:'`',"boulder",(19,02)
 OBJECT:'`',"boulder",(20,02)
@@ -429,9 +430,9 @@ MAP
 |..S..........|.....|
 ---------------------
 ENDMAP
-STAIR:levregion(01,00,6,20),levregion(6,1,70,16),up
-BRANCH:levregion(01,00,6,20),levregion(6,1,70,16)
-TELEPORT_REGION:levregion(01,00,6,20),levregion(6,1,70,16)
+STAIR:levregion(00,00,5,20),levregion(5,1,69,16),up
+BRANCH:levregion(00,00,5,20),levregion(5,1,69,16)
+TELEPORT_REGION:levregion(00,00,5,20),levregion(5,1,69,16)
 
 # Doors
 DOOR:closed,(04,03)
@@ -513,9 +514,9 @@ MAP
 |                   ---                ----      
 -------------------------------------------------
 ENDMAP
-STAIR:levregion(01,00,15,20),levregion(15,1,70,16),up
-BRANCH:levregion(01,00,15,20),levregion(15,1,70,16)
-TELEPORT_REGION:levregion(01,00,15,20),levregion(15,1,70,16)
+STAIR:levregion(00,00,14,20),levregion(14,1,69,16),up
+BRANCH:levregion(00,00,14,20),levregion(14,1,69,16)
+TELEPORT_REGION:levregion(00,00,14,20),levregion(14,1,69,16)
 NON_DIGGABLE:(00,00,46,12)
 MAZEWALK:(00,06),west
 STAIR:(44,06),down
@@ -575,9 +576,9 @@ MAP
 .......-----+-----.......
 .........................
 ENDMAP
-STAIR:levregion(01,00,79,20),(0,0,24,16),up
-BRANCH:levregion(01,00,79,20),(0,0,24,16)
-TELEPORT_REGION:levregion(01,00,79,20),(0,0,24,16)
+STAIR:levregion(01,00,78,20),(0,0,24,16),up
+BRANCH:levregion(01,00,78,20),(0,0,24,16)
+TELEPORT_REGION:levregion(01,00,78,20),(0,0,24,16)
 MAZEWALK:(00,00),west
 MAZEWALK:(00,16),west
 MAZEWALK:(24,00),east
@@ -695,9 +696,9 @@ MAP
 +.......................+
 -------------------------
 ENDMAP
-STAIR:levregion(01,00,79,20),(0,0,24,19),up
-BRANCH:levregion(01,00,79,20),(0,0,24,19)
-TELEPORT_REGION:levregion(01,00,79,20),(0,0,24,19)
+STAIR:levregion(01,00,78,20),(0,0,24,19),up
+BRANCH:levregion(01,00,78,20),(0,0,24,19)
+TELEPORT_REGION:levregion(01,00,78,20),(0,0,24,19)
 MAZEWALK:(00,02),west
 MAZEWALK:(24,02),east
 MAZEWALK:(00,18),west
@@ -840,10 +841,10 @@ REGION:(00,00,50,17),unlit,"swamp"
 MAZEWALK:(00,09),west
 MAZEWALK:(50,08),east
 STAIR:levregion(01,00,11,20),(0,0,50,17),down
-STAIR:levregion(69,00,79,20),(0,0,50,17),up
+STAIR:levregion(69,00,78,20),(0,0,50,17),up
 BRANCH:levregion(01,00,11,20),(0,0,50,17)
 TELEPORT_REGION:levregion(01,00,11,20),(0,0,50,17),up
-TELEPORT_REGION:levregion(69,00,79,20),(0,0,50,17),down
+TELEPORT_REGION:levregion(69,00,78,20),(0,0,50,17),down
 # The demon of the sea
 MONSTER:'&',"Cthulhu",(25,08)
 # And a couple demons
@@ -933,7 +934,7 @@ MAP
 ENDMAP
 STAIR:(01,15),up
 STAIR:(64,18),down
-BRANCH:levregion(01,00,79,20),(0,0,0,0)
+BRANCH:levregion(02,00,78,20),(0,0,0,0)
 TELEPORT_REGION:(55,00,75,19),(0,0,0,0),up
 TELEPORT_REGION:(00,00,20,19),(0,0,0,0),down
 # Non diggable walls
@@ -1049,11 +1050,11 @@ MAP
 |     --.................--     |
 |    --..---------------..--    |
 ENDMAP
-STAIR:levregion(01,00,79,20),(00,00,32,18),up
+STAIR:levregion(01,00,78,20),(00,00,32,18),up
 STAIR:(16,09),down
-BRANCH:levregion(01,00,79,20),(00,00,32,18)
-TELEPORT_REGION:levregion(01,00,79,20),(00,00,00,00),up
-TELEPORT_REGION:levregion(01,00,79,20),(00,00,00,00),down
+BRANCH:levregion(01,00,78,20),(00,00,32,18)
+TELEPORT_REGION:levregion(01,00,78,20),(00,00,00,00),up
+TELEPORT_REGION:levregion(01,00,78,20),(00,00,00,00),down
 MAZEWALK:(00,09),west
 MAZEWALK:(32,09),east
 # Non diggable walls

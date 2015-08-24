@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-21 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -8,7 +9,7 @@
 static void toss_wsegs(struct level *lev, struct wseg *curr,
                        boolean display_update);
 static void shrink_worm(int);
-static void random_dir(xchar, xchar, xchar *, xchar *);
+static void random_dir(xchar, xchar, xchar *, xchar *, enum rng);
 static struct wseg *create_worm_tail(int);
 
 /*  Description of long worm implementation.
@@ -108,7 +109,8 @@ initworm(struct monst *worm, int wseg_count)
 
     if (new_tail) {
         worm->dlevel->wtails[wnum] = new_tail;
-        for (seg = new_tail; seg->nseg; seg = seg->nseg) ;
+        for (seg = new_tail; seg->nseg; seg = seg->nseg)
+            ;
         worm->dlevel->wheads[wnum] = seg;
     } else {
         worm->dlevel->wtails[wnum] = worm->dlevel->wheads[wnum] = seg =
@@ -142,7 +144,7 @@ toss_wsegs(struct level *lev, struct wseg *curr, boolean display_update)
             lev->monsters[curr->wx][curr->wy] = NULL;
 
             /* update screen before deallocation */
-            if (display_update)
+            if (display_update && lev == level)
                 newsym(curr->wx, curr->wy);
         }
 
@@ -285,8 +287,9 @@ wormhitu(struct monst *worm)
  *  before we decide to do this.
  */
     for (seg = level->wtails[wnum]; seg; seg = seg->nseg)
-        if (distu(seg->wx, seg->wy) < 3)
-            mattacku(worm);
+        if (distu(seg->wx, seg->wy) < 3 && aware_of_u(worm) &&
+            !engulfing_u(worm))
+            mattackq(worm, worm->mux, worm->muy);
 }
 
 /*  cutoff()
@@ -471,7 +474,7 @@ save_worm(struct memfile *mf, struct level *lev)
             count++;
         mtag(mf, (int)ledger_no(&lev->z) * MAX_NUM_WORMS + i, MTAG_WORMS);
         /* Save number of segments */
-        mwrite(mf, &count, sizeof (int));
+        mwrite32(mf, count);
         /* Save segment locations of the monster. */
         if (count) {
             for (curr = lev->wtails[i]; curr; curr = curr->nseg) {
@@ -587,7 +590,7 @@ remove_worm(struct monst *worm)
  *  be, if somehow the head is disjoint from the tail.
  */
 void
-place_worm_tail_randomly(struct monst *worm, xchar x, xchar y)
+place_worm_tail_randomly(struct monst *worm, xchar x, xchar y, enum rng rng)
 {
     int wnum = worm->wormno;
     struct level *lev = worm->dlevel;
@@ -615,7 +618,7 @@ place_worm_tail_randomly(struct monst *worm, xchar x, xchar y)
         /* pick a random direction from x, y and search for goodpos() */
 
         do {
-            random_dir(ox, oy, &nx, &ny);
+            random_dir(ox, oy, &nx, &ny, rng);
         } while (!goodpos(lev, nx, ny, worm, 0) && (tryct++ < 50));
 
         if (tryct < 50) {
@@ -626,9 +629,10 @@ place_worm_tail_randomly(struct monst *worm, xchar x, xchar y)
             curr = curr->nseg;
             lev->wtails[wnum]->nseg = new_tail;
             new_tail = lev->wtails[wnum];
-            newsym(nx, ny);
+            if (lev == level)
+                newsym(nx, ny);
         } else {        /* Oops.  Truncate because there was */
-            toss_wsegs(lev, curr, FALSE);       /* no place for the rest of it */
+            toss_wsegs(lev, curr, FALSE);      /* no place for the rest of it */
             curr = NULL;
         }
     }
@@ -642,24 +646,24 @@ place_worm_tail_randomly(struct monst *worm, xchar x, xchar y)
  * enexto() with a search radius.
  */
 static void
-random_dir(xchar x, xchar y, xchar * nx, xchar * ny)
+random_dir(xchar x, xchar y, xchar * nx, xchar * ny, enum rng rng)
 {
     *nx = x;
     *ny = y;
 
-    *nx += (x > 1 ?     /* extreme left ? */
-            (x < COLNO ?        /* extreme right ? */
-             (rn2(3) - 1)       /* neither so +1, 0, or -1 */
-             : -rn2(2)) /* 0, or -1 */
-            : rn2(2));  /* 0, or 1 */
+    *nx += (x > 0 ?                     /* extreme left ? */
+            (x < COLNO - 1 ?            /* extreme right ? */
+             (rn2_on_rng(3, rng) - 1)   /* neither so +1, 0, or -1 */
+             : -rn2_on_rng(2, rng))     /* 0, or -1 */
+            : rn2_on_rng(2, rng));      /* 0, or 1 */
 
     *ny += (*nx == x ?  /* same kind of thing with y */
-            (y > 1 ? (y < ROWNO ? (rn2(2) ? 1 : -1)
+            (y > 0 ? (y < ROWNO - 1 ? (rn2_on_rng(2, rng) ? 1 : -1)
                       : -1)
              : 1)
-            : (y > 1 ? (y < ROWNO ? (rn2(3) - 1)
-                        : -rn2(2))
-               : rn2(2)));
+            : (y > 0 ? (y < ROWNO - 1 ? (rn2_on_rng(3, rng) - 1)
+                        : -rn2_on_rng(2, rng))
+               : rn2_on_rng(2, rng)));
 }
 
 /*  count_wsegs()
@@ -714,26 +718,5 @@ create_worm_tail(int num_segs)
     return new_tail;
 }
 
-/*  worm_known()
- *
- *  Is any segment of this worm in viewing range?  Note: caller must check
- *  invisibility and telepathy (which should only show the head anyway).
- *  Mostly used in the canseemon() macro.
- */
-boolean
-worm_known(const struct monst * worm)
-{
-    struct wseg *curr = worm->dlevel->wtails[worm->wormno];
-
-    if (worm->dlevel != level)
-        return FALSE;
-
-    while (curr) {
-        if (cansee(curr->wx, curr->wy))
-            return TRUE;
-        curr = curr->nseg;
-    }
-    return FALSE;
-}
-
 /*worm.c*/
+

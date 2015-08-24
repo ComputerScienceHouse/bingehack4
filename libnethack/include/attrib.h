@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-04-05 */
 /* Copyright 1988, Mike Stephenson                                */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -6,6 +7,8 @@
 
 #ifndef ATTRIB_H
 # define ATTRIB_H
+
+# include "global.h"
 
 /* attribute IDs */
 # define A_STR      0
@@ -32,14 +35,17 @@
 # define ATIME(x)   (u.atime.a[x])
 
 /* KMH -- Conveniences when dealing with strength constants */
-# define STR18(x)   (18+(x))        /* 18/xx */
-# define STR19(x)   (100+(x))       /* For 19 and above */
+# define STR18(x)   (18+(x))    /* 18/xx */
+# define STR19(x)   (100+(x))   /* For 19 and above */
 
 struct attribs {
     schar a[A_MAX];
 };
 
-# define ATTRMAX(x) ((x == A_STR && Upolyd && strongmonst(youmonst.data)) ? STR18(100) : urace.attrmax[x])
+# define ATTRMAX(x) \
+    ((x == A_STR && Upolyd && strongmonst(youmonst.data)) ? STR18(100) \
+                                                          : urace.attrmax[x])
 # define ATTRMIN(x) (urace.attrmin[x])
 
 #endif /* ATTRIB_H */
+

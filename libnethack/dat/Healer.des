@@ -1,3 +1,4 @@
+# Last modified by Alex Smith, 2013-09-21
 #	Copyright (c) 1989 by Jean-Christophe Collet
 #	Copyright (c) 1991, 1993 by M. Stephenson, P. Winner
 # NetHack may be freely redistributed.  See license for details.
@@ -37,7 +38,7 @@ REGION:(00,00,75,19),lit,"ordinary"
 # Stairs
 STAIR:(37,9),down
 # Portal arrival point
-BRANCH:(04,12,04,12),(0,0,0,0)
+BRANCH:(04,12,04,12),levregion()
 # altar for the Temple
 ALTAR:(32,09),neutral,altar
 # Doors

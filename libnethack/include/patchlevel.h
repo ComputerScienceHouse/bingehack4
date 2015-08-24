@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-02-03 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -9,13 +10,14 @@
 #define EDITLEVEL 0
 
 #define COPYRIGHT_BANNER_A \
-"NetHack 4, Copyright (C) 2009-2012; based on NetHack, Copyright (C) 1985-2003"
+"NetHack 4, Copyright (C) 2009-2015; based on NetHack, Copyright (C) 1985-2006"
 
 #define COPYRIGHT_BANNER_B \
 "  NetHack 4 by Alex Smith, Daniel Thaler and many other contributors."
 
 #define COPYRIGHT_BANNER_C \
-"  NetHack by Stichting Mathematisch Centrum and M. Stephenson. See dat/licence."
+"  NetHack by Stichting Mathematisch Centrum and M. Stephenson. See " \
+    "dat/licence."
 
 /*
  * If two or more successive releases have compatible data files, define
@@ -27,7 +29,8 @@
  * with all four numbers specified as two hexadecimal digits.
  * Keep this consistent with nethack.h.
  */
-#define VERSION_COMPATIBILITY 0x04020000L       /* 4.2.0-1 */
+#define VERSION_COMPATIBILITY 0x04030000L       /* 4.3.0-0 */
 
 
 /*patchlevel.h*/
+

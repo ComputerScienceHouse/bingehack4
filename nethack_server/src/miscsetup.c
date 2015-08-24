@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-07-07 */
 /* Copyright (c) Daniel Thaler, 2011. */
 /* The NetHack server may be freely redistributed under the terms of either:
  *  - the NetHack license
@@ -26,18 +27,11 @@ signal_usr2(int ignored)
     struct stat statbuf;
     int ret, fd;
 
-    sprintf(filename, "%s/message", settings.workdir);
+    snprintf(filename, sizeof(filename), "%s/message", settings.workdir);
     ret = stat(filename, &statbuf);
     if (ret == -1) {
-        if (!user_info.uid)     /* only show the error once from the main
-                                   process */
-            log_msg("Failed to read the message file %s: %s", filename,
-                    strerror(errno));
-        return;
-    }
-
-    if (!user_info.uid) {
-        log_msg("Message sent.");
+        log_msg("Failed to read the message file %s: %s", filename,
+                strerror(errno));
         return;
     }
 
@@ -52,6 +46,7 @@ signal_usr2(int ignored)
         log_msg("Large message file found. Only the first 8kb will be sent.");
     databuf[ret] = '\0';
 
+    log_msg("Message sent.");
     srv_display_buffer(databuf, FALSE);
 }
 
@@ -62,9 +57,12 @@ signal_segv(int ignored)
     sigsegv_flag++;
     log_msg("BUG: caught SIGSEGV! Exit.");
     if (user_info.uid)
-        exit_client
-            ("Fatal: Programming error on the server. Sorry about that.");
-    exit(1);
+        exit_client("Fatal: Programming error on the server. Sorry about that.",
+                    SIGSEGV);
+
+    /* Die via recursive SIGSEGV, so as to leave a useful core dump. */
+    signal(SIGSEGV, SIG_DFL);
+    raise(SIGSEGV);
 }
 
 
@@ -130,39 +128,15 @@ init_workdir(void)
     if (!create_dir(settings.workdir))
         return FALSE;
 
-    sprintf(dirbuf, "%s/completed/", settings.workdir);
+    snprintf(dirbuf, sizeof(dirbuf), "%s/completed/", settings.workdir);
     if (!create_dir(dirbuf))
         return FALSE;
 
-    sprintf(dirbuf, "%s/save/", settings.workdir);
+    snprintf(dirbuf, sizeof(dirbuf), "%s/save/", settings.workdir);
     if (!create_dir(dirbuf))
         return FALSE;
 
     return TRUE;
-}
-
-
-int
-remove_unix_socket(void)
-{
-    struct stat statbuf;
-    int ret;
-
-    if (!settings.bind_addr_unix.sun_family)
-        return TRUE;
-
-    ret = stat(settings.bind_addr_unix.sun_path, &statbuf);
-    if (ret == -1)
-        /* file doesn't exist */
-        return TRUE;
-
-    if (!S_ISSOCK(statbuf.st_mode)) {
-        log_msg("Error: %s already exists and is not a socket",
-                settings.bind_addr_unix.sun_path);
-        return FALSE;
-    }
-
-    return unlink(settings.bind_addr_unix.sun_path) == 0;
 }
 
 /* miscsetup.c */

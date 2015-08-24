@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) 1989 by Jean-Christophe Collet */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -9,12 +10,7 @@
 #define SPEC_LEV        /* for MPW */
 /* although, why don't we move those special defines here.. and in dgn_main? */
 
-#include "hack.h"
-#include "verinfo.h"
-#include "sp_lev.h"
-#ifdef STRICT_REF_DEF
-# include "tcap.h"
-#endif
+#include "lev_compiler.h"
 
 #ifndef O_WRONLY
 # include <fcntl.h>
@@ -38,34 +34,10 @@
 
 #define NewTab(type, size)    malloc(sizeof(type *) * size)
 #define Free(ptr)             if (ptr) free((ptr))
-#define Write(fd, item, size) if (write(fd, (item), size) != (intmax_t) size) return FALSE;
+#define Write(fd, item, size) \
+    if (write(fd, (item), size) != (intmax_t) size) return FALSE;
 
 #define MAX_ERRORS            25
-
-extern int yyparse(void);
-extern void init_yyin(FILE *);
-extern void init_yyout(FILE *);
-
-int main(int, char **);
-void yyerror(const char *);
-void yywarning(const char *);
-int yywrap(void);
-int get_floor_type(char);
-int get_room_type(char *);
-int get_trap_type(char *);
-int get_monster_id(char *, char);
-int get_object_id(char *, char);
-boolean check_monster_char(char);
-boolean check_object_char(char);
-char what_map_char(char);
-void scan_map(char *);
-void wallify_map(void);
-boolean check_subrooms(void);
-void check_coord(int, int, const char *);
-void store_part(void);
-void store_room(void);
-boolean write_level_file(char *, splev *, specialmaze *);
-void free_rooms(splev *);
 
 static boolean write_common_data(int, int, lev_init *, long);
 static boolean write_monsters(int, char *, monster ***);
@@ -73,7 +45,6 @@ static boolean write_objects(int, char *, object ***);
 static boolean write_engravings(int, char *, engraving ***);
 static boolean write_maze(int, specialmaze *);
 static boolean write_rooms(int, splev *);
-static void init_obj_classes(void);
 
 static struct {
     const char *name;
@@ -140,46 +111,11 @@ static struct {
     0, 0}
 };
 
+static const char *outprefix = "";
+
 const char *fname = "(stdin)";
-static char *outprefix = "";
 int fatal_error = 0;
 int want_warnings = 0;
-
-extern char tmpmessage[];
-extern char tmphallumsg[];
-extern altar *tmpaltar[];
-extern lad *tmplad[];
-extern stair *tmpstair[];
-extern digpos *tmpdig[];
-extern digpos *tmppass[];
-extern char *tmpmap[];
-extern region *tmpreg[];
-extern lev_region *tmplreg[];
-extern door *tmpdoor[];
-extern room_door *tmprdoor[];
-extern trap *tmptrap[];
-extern monster *tmpmonst[];
-extern object *tmpobj[];
-extern drawbridge *tmpdb[];
-extern walk *tmpwalk[];
-extern gold *tmpgold[];
-extern fountain *tmpfountain[];
-extern sink *tmpsink[];
-extern pool *tmppool[];
-extern engraving *tmpengraving[];
-extern mazepart *tmppart[];
-extern room *tmproom[];
-
-extern int n_olist, n_mlist, n_plist;
-
-extern unsigned int nlreg, nreg, ndoor, ntrap, nmons, nobj;
-extern unsigned int ndb, nwalk, npart, ndig, npass, nlad, nstair;
-extern unsigned int naltar, ncorridor, nrooms, ngold, nengraving;
-extern unsigned int nfountain, npool, nsink;
-
-extern unsigned int max_x_map, max_y_map;
-
-extern int line_number, colon_line_number;
 
 int
 main(int argc, char **argv)
@@ -189,7 +125,6 @@ main(int argc, char **argv)
     boolean errors_encountered = FALSE;
 
     init_objlist();
-    init_obj_classes();
 
     init_yyout(stdout);
     if (argc == 1) {    /* Read standard input */
@@ -349,29 +284,23 @@ get_object_id(char *s, char c)
     if (class == MAXOCLASSES)
         return ERR;
 
-    for (i = class ? bases[class] : 0; i < NUM_OBJECTS; i++) {
-        if (class && objects[i].oc_class != class)
+    for (i = (class ? bases[class] : 0); i < NUM_OBJECTS; i++) {
+        if (class && objects[i].oc_class != class) {
+            if (i == bases[class]) {
+                /* Sanity check: ensure we're using a current copy of
+                   readonly.c */
+                char msg[256];
+                snprintf(msg, SIZE(msg), "Object class %d has base %d with class %d",
+                        class, i, objects[i].oc_class);
+                yyerror(msg);
+            }
             break;
+        }
         objname = obj_descr[i].oc_name;
         if (objname && !strcmp(s, objname))
             return i;
     }
     return ERR;
-}
-
-static void
-init_obj_classes(void)
-{
-    int i, class, prev_class;
-
-    prev_class = -1;
-    for (i = 0; i < NUM_OBJECTS; i++) {
-        class = objects[i].oc_class;
-        if (class != prev_class) {
-            bases[class] = i;
-            prev_class = class;
-        }
-    }
 }
 
 /*
@@ -492,7 +421,7 @@ scan_map(char *map)
         }
         for (i = 0; i < len; i++)
             if ((tmpmap[max_hig][i] = what_map_char(map[i])) == INVALID_TYPE) {
-                sprintf(msg,
+                snprintf(msg, SIZE(msg),
                         "Invalid character @ (%d, %d) - replacing with stone",
                         max_hig, i);
                 yywarning(msg);
@@ -512,7 +441,7 @@ scan_map(char *map)
     /* Store the map into the mazepart structure */
 
     if (max_len > MAP_X_LIM || max_hig > MAP_Y_LIM) {
-        sprintf(msg, "Map too large! (max %d x %d)", MAP_X_LIM, MAP_Y_LIM);
+        snprintf(msg, SIZE(msg), "Map too large! (max %d x %d)", MAP_X_LIM, MAP_Y_LIM);
         yyerror(msg);
     }
 
@@ -574,7 +503,7 @@ check_subrooms(void)
                     break;
                 }
             if (!found) {
-                sprintf(msg, "Subroom error : parent room '%s' not found!",
+                snprintf(msg, SIZE(msg), "Subroom error : parent room '%s' not found!",
                         tmproom[i]->parent);
                 yyerror(msg);
                 ok = FALSE;
@@ -600,8 +529,8 @@ check_subrooms(void)
                     n_subrooms++;
                     if (n_subrooms > MAX_SUBROOMS) {
 
-                        sprintf(msg,
-                                "Subroom error: too many subrooms attached to parent room '%s'!",
+                        snprintf(msg, SIZE(msg), "Subroom error: too many subrooms "
+                                "attached to parent room '%s'!",
                                 tmproom[i]->parent);
                         yyerror(msg);
                         last_parent = tmproom[i]->parent;
@@ -625,7 +554,7 @@ check_coord(int x, int y, const char *str)
 
     if (x >= 0 && y >= 0 && x <= (int)max_x_map && y <= (int)max_y_map &&
         (IS_ROCK(tmpmap[y][x]) || IS_DOOR(tmpmap[y][x]))) {
-        sprintf(ebuf, "%s placed in wall at (%02d,%02d)?!", str, x, y);
+        snprintf(ebuf, SIZE(ebuf), "%s placed in wall at (%02d,%02d)?!", str, x, y);
         yywarning(ebuf);
     }
 }
@@ -1042,10 +971,12 @@ boolean
 write_level_file(char *filename, splev * room_level, specialmaze * maze_level)
 {
     int fout;
-    char lbuf[60];
+    char lbuf[1024];
 
     lbuf[0] = '\0';
     strcat(lbuf, outprefix);
+    if ((lbuf + strlen(lbuf))[-1] == ' ')
+        (lbuf + strlen(lbuf))[-1] = '\0';
     strcat(lbuf, filename);
     strcat(lbuf, LEV_EXT);
 
@@ -1059,10 +990,14 @@ write_level_file(char *filename, splev * room_level, specialmaze * maze_level)
     } else if (maze_level) {
         if (!write_maze(fout, maze_level))
             return FALSE;
-    } else
-        panic("write_level_file");
+    } else {
+        fputs("Error: cannot write level file", stderr);
+        fflush(stderr);
+        exit(EXIT_FAILURE);
+    }
 
     close(fout);
+    fprintf(stdout, "Wrote '%s'.\n", lbuf);
     return TRUE;
 }
 
@@ -1092,7 +1027,8 @@ write_maze(int fd, specialmaze * maze)
         Write(fd, &(pt->xsize), sizeof (pt->xsize));
         Write(fd, &(pt->ysize), sizeof (pt->ysize));
         for (j = 0; j < pt->ysize; j++) {
-            if (!maze->init_lev.init_present || pt->xsize > 1 || pt->ysize > 1) {
+            if (!maze->init_lev.init_present || pt->xsize > 1 ||
+                pt->ysize > 1) {
 #if !defined(_MSC_VER)
                 Write(fd, pt->map[j], pt->xsize * sizeof *pt->map[j]);
 #else
@@ -1477,7 +1413,6 @@ free_rooms(splev * lev)
 struct attribs attrmax, attrmin;
 
 /* files.c */
-const char *configfile;
 char lock[ARBITRARY_SIZE];
 char SAVEF[ARBITRARY_SIZE];
 
@@ -1488,9 +1423,6 @@ char *hilites[CLR_MAX];
 /* trap.c */
 const char *traps[TRAPNUM];
 
-/* window.c */
-struct window_procs windowprocs;
-
 /* xxxtty.c */
 # ifdef DEFINE_OSPEED
 short ospeed;
@@ -1498,3 +1430,4 @@ short ospeed;
 #endif /* STRICT_REF_DEF */
 
 /*lev_main.c*/
+

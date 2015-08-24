@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) 1989 by Jean-Christophe Collet */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -34,7 +35,7 @@ static void charm_snakes(int);
 static void calm_nymphs(int);
 static void charm_monsters(int);
 static void do_earthquake(int);
-static int do_improvisation(struct obj *);
+static int do_improvisation(struct obj *, const struct nh_cmd_arg *);
 
 /*
  * Wake every monster in range...
@@ -95,11 +96,10 @@ charm_snakes(int distance)
         if (!DEADMONSTER(mtmp) && mtmp->data->mlet == S_SNAKE && mtmp->mcanmove
             && distu(mtmp->mx, mtmp->my) < distance) {
             was_peaceful = mtmp->mpeaceful;
-            mtmp->mpeaceful = 1;
             mtmp->mavenge = 0;
-            could_see_mon = canseemon(mtmp);
+            could_see_mon = canspotmon(mtmp);
             mtmp->mundetected = 0;
-            newsym(mtmp->mx, mtmp->my);
+            msethostility(mtmp, FALSE, FALSE); /* does a newsym() */
             if (canseemon(mtmp)) {
                 if (!could_see_mon)
                     pline("You notice %s, swaying with the music.",
@@ -126,7 +126,7 @@ calm_nymphs(int distance)
         if (!DEADMONSTER(mtmp) && mtmp->data->mlet == S_NYMPH && mtmp->mcanmove
             && distu(mtmp->mx, mtmp->my) < distance) {
             mtmp->msleeping = 0;
-            mtmp->mpeaceful = 1;
+            msethostility(mtmp, FALSE, FALSE);
             mtmp->mavenge = 0;
             if (canseemon(mtmp))
                 pline("%s listens cheerfully to the music, then seems quieter.",
@@ -145,12 +145,13 @@ awaken_soldiers(void)
     while (mtmp) {
         if (!DEADMONSTER(mtmp) && is_mercenary(mtmp->data) &&
             mtmp->data != &mons[PM_GUARD]) {
-            mtmp->mpeaceful = mtmp->msleeping = mtmp->mfrozen = 0;
+            mtmp->mfrozen = 0;
+            msethostility(mtmp, TRUE, FALSE);
             mtmp->mcanmove = 1;
             if (canseemon(mtmp))
                 pline("%s is now ready for battle!", Monnam(mtmp));
             else
-                Norep("You hear the rattle of battle gear being readied.");
+                pline_once("You hear the rattle of battle gear being readied.");
         }
         mtmp = mtmp->nmon;
     }
@@ -164,7 +165,7 @@ charm_monsters(int distance)
 {
     struct monst *mtmp, *mtmp2;
 
-    if (u.uswallow) {
+    if (Engulfed) {
         if (!resist(u.ustuck, TOOL_CLASS, 0, NOTELL))
             tamedog(u.ustuck, NULL);
     } else {
@@ -198,10 +199,10 @@ do_earthquake(int force)
     start_y = u.uy - (force * 2);
     end_x = u.ux + (force * 2);
     end_y = u.uy + (force * 2);
-    if (start_x < 1)
-        start_x = 1;
-    if (start_y < 1)
-        start_y = 1;
+    if (start_x < 0)
+        start_x = 0;
+    if (start_y < 0)
+        start_y = 0;
     if (end_x >= COLNO)
         end_x = COLNO - 1;
     if (end_y >= ROWNO)
@@ -209,7 +210,7 @@ do_earthquake(int force)
     for (x = start_x; x <= end_x; x++)
         for (y = start_y; y <= end_y; y++) {
             if ((mtmp = m_at(level, x, y)) != 0) {
-                wakeup(mtmp);   /* peaceful monster will become hostile */
+                wakeup(mtmp, FALSE);  /* peaceful monster will become hostile */
                 if (mtmp->mundetected && is_hider(mtmp->data)) {
                     mtmp->mundetected = 0;
                     if (cansee(x, y))
@@ -237,7 +238,7 @@ do_earthquake(int force)
                         pline("The kitchen sink falls into a chasm.");
                     goto do_pit;
                 case ALTAR:
-                    if (Is_astralevel(&u.uz) || Is_sanctum(&u.uz))
+                    if (level->locations[x][y].altarmask & AM_SANCTUM)
                         break;
 
                     if (cansee(x, y))
@@ -273,7 +274,8 @@ do_earthquake(int force)
                         }
                     }
 
-                do_pit:chasm = maketrap(level, x, y, PIT);
+                do_pit:
+                    chasm = maketrap(level, x, y, PIT, rng_main);
                     if (!chasm)
                         break;  /* no pit if portal at that location */
                     chasm->tseen = 1;
@@ -302,7 +304,7 @@ do_earthquake(int force)
                             mtmp->mtrapped = 1;
                             if (cansee(x, y))
                                 pline("%s falls into a chasm!", Monnam(mtmp));
-                            else if (flags.soundok && humanoid(mtmp->data))
+                            else if (humanoid(mtmp->data))
                                 You_hear("a scream!");
                             mselftouch(mtmp, "Falling, ", TRUE);
                             if (mtmp->mhp > 0)
@@ -328,8 +330,8 @@ do_earthquake(int force)
                             pline("You fall into a chasm!");
                             u.utrap = rn1(6, 2);
                             u.utraptype = TT_PIT;
-                            losehp(rnd(6), "fell into a chasm",
-                                   NO_KILLER_PREFIX);
+                            turnstate.vision_full_recalc = TRUE;
+                            losehp(rnd(6), "fell into a chasm");
                             selftouch("Falling, you",
                                       "falling into a chasm while wielding");
                         }
@@ -355,7 +357,7 @@ do_earthquake(int force)
  * The player is trying to extract something from his/her instrument.
  */
 static int
-do_improvisation(struct obj *instr)
+do_improvisation(struct obj *instr, const struct nh_cmd_arg *arg)
 {
     int damage, do_spec = !Confusion;
 
@@ -388,15 +390,16 @@ do_improvisation(struct obj *instr)
 
             consume_obj_charge(instr, TRUE);
 
-            if (!getdir(NULL, &dx, &dy, &dz)) {
+            if (!getargdir(arg, NULL, &dx, &dy, &dz)) {
                 pline("%s.", Tobjnam(instr, "vibrate"));
                 break;
             } else if (!dx && !dy && !dz) {
                 if ((damage = zapyourself(instr, TRUE)) != 0) {
-                    char buf[BUFSZ];
-
-                    sprintf(buf, "using a magical horn on %sself", uhim());
-                    losehp(damage, buf, KILLED_BY);
+                    losehp(damage, 
+                           killer_msg(DIED,
+                                      msgprintf(
+                                          "using a magical horn on %sself",
+                                          uhim())));
                 }
             } else {
                 buzz((instr->otyp == FROST_HORN) ? AD_COLD - 1 : AD_FIRE - 1,
@@ -456,14 +459,21 @@ do_improvisation(struct obj *instr)
     return 2;   /* That takes time */
 }
 
+static char
+highc_htob(char c)
+{
+    c = highc(c);
+    return c == 'H' ? 'B' : c;
+}
+
 /*
  * So you want music...
  */
 int
-do_play_instrument(struct obj *instr)
+do_play_instrument(struct obj *instr, const struct nh_cmd_arg *arg)
 {
-    char buf[BUFSZ], c = 'y';
-    char *s;
+    char c = 'y';
+    const char *buf;
     int x, y;
     boolean ok;
 
@@ -484,16 +494,16 @@ do_play_instrument(struct obj *instr)
     }
     if (c == 'n') {
         if (u.uevent.uheard_tune == 2 && yn("Play the passtune?") == 'y') {
-            strcpy(buf, tune);
+            buf = msg_from_string(gamestate.castle_tune);
         } else {
-            getlin("What tune are you playing? [5 notes, A-G]", buf);
-            mungspaces(buf);
+            /* Note: This is explicitly not getarglin(); we don't want
+               command repeat to repeat the tune. */
+            buf = getlin("What tune are you playing? [5 notes, A-G]", FALSE);
+            if (*buf == '\033')
+                buf = "";
+            buf = msgmungspaces(buf);
             /* convert to uppercase and change any "H" to the expected "B" */
-            for (s = buf; *s; s++) {
-                *s = highc(*s);
-                if (*s == 'H')
-                    *s = 'B';
-            }
+            buf = msgcaseconv(buf, highc_htob, highc_htob, highc_htob);
         }
         pline("You extract a strange sound from %s!", the(xname(instr)));
 
@@ -501,14 +511,14 @@ do_play_instrument(struct obj *instr)
            conforms to what we're waiting for. */
         if (Is_stronghold(&u.uz)) {
             exercise(A_WIS, TRUE);      /* just for trying */
-            if (!strcmp(buf, tune)) {
+            if (!strcmp(buf, gamestate.castle_tune)) {
                 /* Search for the drawbridge */
                 for (y = u.uy - 1; y <= u.uy + 1; y++)
                     for (x = u.ux - 1; x <= u.ux + 1; x++)
                         if (isok(x, y))
                             if (find_drawbridge(&x, &y)) {
-                                u.uevent.uheard_tune = 2; /* tune now
-                                                             fully known */
+                                /* tune now fully known */
+                                u.uevent.uheard_tune = 2;
                                 if (level->locations[x][y].typ ==
                                     DRAWBRIDGE_DOWN)
                                     close_drawbridge(x, y);
@@ -516,7 +526,7 @@ do_play_instrument(struct obj *instr)
                                     open_drawbridge(x, y);
                                 return 1;
                             }
-            } else if (flags.soundok) {
+            } else if (canhear()) {
                 if (u.uevent.uheard_tune < 1)
                     u.uevent.uheard_tune = 1;
                 /* Okay, it wasn't the right tune, but perhaps we can give the
@@ -538,13 +548,14 @@ do_play_instrument(struct obj *instr)
 
                     for (x = 0; x < (int)strlen(buf); x++)
                         if (x < 5) {
-                            if (buf[x] == tune[x]) {
+                            if (buf[x] == gamestate.castle_tune[x]) {
                                 gears++;
                                 matched[x] = TRUE;
                             } else
                                 for (y = 0; y < 5; y++)
-                                    if (!matched[y] && buf[x] == tune[y] &&
-                                        buf[y] != tune[y]) {
+                                    if (!matched[y] &&
+                                        buf[x] == gamestate.castle_tune[y] &&
+                                        buf[y] != gamestate.castle_tune[y]) {
                                         tumblers++;
                                         matched[y] = TRUE;
                                         break;
@@ -571,7 +582,8 @@ do_play_instrument(struct obj *instr)
         }
         return 1;
     } else
-        return do_improvisation(instr);
+        return do_improvisation(instr, arg);
 }
 
 /*music.c*/
+

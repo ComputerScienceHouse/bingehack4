@@ -1,13 +1,19 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-02-03 */
 /* Copyright (c) Daniel Thaler, 2011.                             */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "nhcurses.h"
 #include <ctype.h>
-#include <time.h>
 
 
 #define LISTSZ 32
+
+/* Like nh_listitem, except mutable. */
+struct plselect_listitem {
+    int id;
+    char *caption;
+};
 
 static int
 is_valid_character(const struct nh_roles_info *ri, int rolenum, int racenum,
@@ -45,7 +51,7 @@ is_valid_character(const struct nh_roles_info *ri, int rolenum, int racenum,
 
 static int
 get_valid_roles(const struct nh_roles_info *ri, int racenum, int gendnum,
-                int alignnum, struct nh_listitem *list, int listlen)
+                int alignnum, struct plselect_listitem *list, int listlen)
 {
     int i;
     int count = 0;
@@ -80,7 +86,7 @@ get_valid_roles(const struct nh_roles_info *ri, int racenum, int gendnum,
 
 static int
 get_valid_races(const struct nh_roles_info *ri, int rolenum, int gendnum,
-                int alignnum, struct nh_listitem *list, int listlen)
+                int alignnum, struct plselect_listitem *list, int listlen)
 {
     int i;
     int count = 0;
@@ -101,7 +107,7 @@ get_valid_races(const struct nh_roles_info *ri, int rolenum, int gendnum,
 
 static int
 get_valid_genders(const struct nh_roles_info *ri, int rolenum, int racenum,
-                  int alignnum, struct nh_listitem *list, int listlen)
+                  int alignnum, struct plselect_listitem *list, int listlen)
 {
     int i;
     int count = 0;
@@ -122,7 +128,7 @@ get_valid_genders(const struct nh_roles_info *ri, int rolenum, int racenum,
 
 static int
 get_valid_aligns(const struct nh_roles_info *ri, int rolenum, int racenum,
-                 int gendnum, struct nh_listitem *list, int listlen)
+                 int gendnum, struct plselect_listitem *list, int listlen)
 {
     int i;
     int count = 0;
@@ -145,7 +151,7 @@ static void
 validate_character_presets(const struct nh_roles_info *ri, int *role, int *race,
                            int *gend, int *align)
 {
-    struct nh_listitem list[1];
+    struct plselect_listitem list[1];
     char listbuffer[256];
 
     list[0].caption = listbuffer;
@@ -164,16 +170,17 @@ validate_character_presets(const struct nh_roles_info *ri, int *role, int *race,
     if (!is_valid_character(ri, *role, *race, *gend, *align)) {
         /* always keep the role */
         if (is_valid_character(ri, *role, *race, *gend, ROLE_NONE)) {
-            curses_msgwin("Incompatible alignment!");
+            curses_msgwin("Incompatible alignment!", krc_notification);
             *align = ROLE_NONE;
         } else if (is_valid_character(ri, *role, *race, ROLE_NONE, *align)) {
-            curses_msgwin("Incompatible gender!");
+            curses_msgwin("Incompatible gender!", krc_notification);
             *gend = ROLE_NONE;
         } else if (is_valid_character(ri, *role, ROLE_NONE, *gend, *align)) {
-            curses_msgwin("Incompatible race!");
+            curses_msgwin("Incompatible race!", krc_notification);
             *race = ROLE_NONE;
         } else {
-            curses_msgwin("Incompatible character presets!");
+            curses_msgwin("Incompatible character presets!",
+                          krc_notification);
             *race = ROLE_NONE;
             *gend = ROLE_NONE;
             *align = ROLE_NONE;
@@ -198,35 +205,102 @@ validate_character_presets(const struct nh_roles_info *ri, int *role, int *race,
         *align = list[0].id;
 }
 
+static int
+strlennull(const char *s) {
+    if (!s) return 0;
+    return strlen(s) + 1;
+}
+
+static char *
+fill_strcpy(char *base, int *pos, const char *s) {
+    if (!s) return 0;
+    char *target = base + *pos;
+    *pos += strlen(s) + 1;
+    strcpy(target, s);
+    return target;
+}
 
 nh_bool
 player_selection(int *out_role, int *out_race, int *out_gend, int *out_align,
                  int randomall)
 {
-    struct nh_menuitem *items;
-    int icount, size;
-    int i, k, n, listlen, id;
+    struct nh_menulist menu;
+    int i, k, listlen, id;
     char pick4u = 'n', thisch, lastch = 0;
     char pbuf[QBUFSZ], plbuf[QBUFSZ];
-    struct nh_listitem list[LISTSZ];    /* need enough space for lists of roles 
-                                           or races */
+    struct plselect_listitem list[LISTSZ];    /* need enough space for lists of roles
+                                                 or races */
     char listbuffers[LISTSZ][256];
-    int pick_list[2];
+    int pick_list[1];
     int role, race, gend, align;
     const struct nh_roles_info *ri = nh_get_roles();
+
+    if (!ri)
+        return FALSE; /* the server crashed */
+
+    /* Copy ri, so that it persists through future API calls; otherwise it has
+       a tendency to be deallocated early. */
+    struct nh_roles_info ri_copy;
+    const char *nameptrs[ri->num_roles * 2 + ri->num_races +
+                         ri->num_genders + ri->num_aligns];
+    i = 0;
+    ri_copy.rolenames_m = nameptrs + i;
+    i += ri->num_roles;
+    ri_copy.rolenames_f = nameptrs + i;
+    i += ri->num_roles;
+    ri_copy.racenames = nameptrs + i;
+    i += ri->num_races;
+    ri_copy.gendnames = nameptrs + i;
+    i += ri->num_genders;
+    ri_copy.alignnames = nameptrs + i;
+    i += ri->num_aligns;
+
+    int total_len = 0;
+    for (i = 0; i < ri->num_roles; i++) {
+        total_len += strlennull(ri->rolenames_m[i]);
+        total_len += strlennull(ri->rolenames_f[i]);
+    }
+    for (i = 0; i < ri->num_races; i++)
+        total_len += strlennull(ri->racenames[i]);
+    for (i = 0; i < ri->num_genders; i++)
+        total_len += strlennull(ri->gendnames[i]);
+    for (i = 0; i < ri->num_aligns; i++)
+        total_len += strlennull(ri->alignnames[i]);
+
+    if (total_len == 0) {
+        /* malicious role definition from the server */
+        return FALSE;
+    }
+
+    char names[total_len];
+    int n = 0;
+    for (i = 0; i < ri->num_roles; i++) {
+        ri_copy.rolenames_m[i] = fill_strcpy(names, &n, ri->rolenames_m[i]);
+        ri_copy.rolenames_f[i] = fill_strcpy(names, &n, ri->rolenames_f[i]);
+    }
+    for (i = 0; i < ri->num_races; i++)
+        ri_copy.racenames[i] = fill_strcpy(names, &n, ri->racenames[i]);
+    for (i = 0; i < ri->num_genders; i++)
+        ri_copy.gendnames[i] = fill_strcpy(names, &n, ri->gendnames[i]);
+    for (i = 0; i < ri->num_aligns; i++)
+        ri_copy.alignnames[i] = fill_strcpy(names, &n, ri->alignnames[i]);
+
+    ri_copy.num_roles   = ri->num_roles;
+    ri_copy.num_races   = ri->num_races;
+    ri_copy.num_genders = ri->num_genders;
+    ri_copy.num_aligns  = ri->num_aligns;
+
+    nh_bool matrix[ri->num_roles * ri->num_races *
+                   ri->num_genders * ri->num_aligns];
+    ri_copy.matrix = matrix;
+    memcpy(matrix, ri->matrix, sizeof matrix);
+
+    ri = &ri_copy;
 
     role = *out_role;
     race = *out_race;
     align = *out_align;
     gend = *out_gend;
-    if (role == ROLE_NONE)
-        role = ri->def_role;
-    if (race == ROLE_NONE)
-        race = ri->def_race;
-    if (gend == ROLE_NONE)
-        gend = ri->def_gend;
-    if (align == ROLE_NONE)
-        align = ri->def_align;
 
     validate_character_presets(ri, &role, &race, &gend, &align);
 
@@ -235,8 +309,6 @@ player_selection(int *out_role, int *out_race, int *out_gend, int *out_align,
         list[i].caption = listbuffers[i];
     }
 
-    srand(time(NULL));
-
     /* Should we randomly pick for the player? */
     if (!randomall &&
         (role == ROLE_NONE || race == ROLE_NONE || gend == ROLE_NONE ||
@@ -244,15 +316,12 @@ player_selection(int *out_role, int *out_race, int *out_gend, int *out_align,
         char *prompt = nh_build_plselection_prompt(pbuf, QBUFSZ, role,
                                                    race, gend, align);
 
-        pick4u = curses_yn_function(prompt, "ynq", 'y');
+        pick4u = curses_yn_function_internal(prompt, "ynq", 'y');
         if (pick4u != 'y' && pick4u != 'n')
             return FALSE;
     }
 
     nh_root_plselection_prompt(plbuf, QBUFSZ - 1, role, race, gend, align);
-    icount = 0;
-    size = 10;
-    items = malloc(sizeof (struct nh_menuitem) * size);
 
     /* Select a role, if necessary */
     /* if pre-selected race/gender/alignment are still set after
@@ -263,32 +332,34 @@ player_selection(int *out_role, int *out_race, int *out_gend, int *out_align,
         /* Process the choice */
         if (pick4u == 'y' || role == ROLE_RANDOM || randomall) {
             /* Pick a random role */
-            role = list[random() % listlen].id;
+            role = list[rand() % listlen].id;
         } else {
             /* Prompt for a role */
+
+            init_menulist(&menu);
+
             for (i = 0; i < listlen; i++) {
                 id = list[i].id + 1;    /* list[i].id starts at 0 */
                 thisch = tolower(*list[i].caption);
                 if (thisch == lastch)
                     thisch = toupper(thisch);
-                add_menu_item(items, size, icount, id, list[i].caption, thisch,
+                add_menu_item(&menu, id, list[i].caption, thisch,
                               0);
                 lastch = thisch;
             }
-            pick_list[0] = id = list[random() % listlen].id + 1;
-            add_menu_item(items, size, icount, id, "Random", '*', 0);
-            add_menu_item(items, size, icount, -1, "Quit", 'q', 0);
+            pick_list[0] = id = list[rand() % listlen].id + 1;
+            add_menu_item(&menu, id, "Random", '*', 0);
+            add_menu_item(&menu, -1, "Quit", 'q', 0);
 
-            sprintf(pbuf, "Pick a role for your %s", plbuf);
-            n = curses_display_menu(items, icount, pbuf, PICK_ONE,
-                                    PLHINT_ANYWHERE, pick_list);
+            snprintf(pbuf, ARRAY_SIZE(pbuf), "Pick a role for your %s", plbuf);
+            curses_display_menu(&menu, pbuf, PICK_ONE, PLHINT_ANYWHERE,
+                                pick_list, curses_menu_callback);
 
             /* Process the choice */
-            if (n == -1 || pick_list[0] == -1)
-                goto give_up;   /* Selected quit */
+            if (pick_list[0] == CURSES_MENU_CANCELLED || pick_list[0] == -1)
+                return FALSE;
 
             role = pick_list[0] - 1;
-            icount = 0;
         }
         nh_root_plselection_prompt(plbuf, QBUFSZ - 1, role, race, gend, align);
     }
@@ -298,31 +369,33 @@ player_selection(int *out_role, int *out_race, int *out_gend, int *out_align,
         listlen = get_valid_races(ri, role, gend, align, list, LISTSZ);
 
         if (pick4u == 'y' || race == ROLE_RANDOM || randomall) {
-            race = list[random() % listlen].id;
+            race = list[rand() % listlen].id;
         } else {        /* pick4u == 'n' */
             /* Count the number of valid races */
             k = list[0].id;     /* valid race */
 
             /* Permit the user to pick, if there is more than one */
             if (listlen > 1) {
+
+                init_menulist(&menu);
+
                 for (i = 0; i < listlen; i++) {
                     id = list[i].id + 1;
-                    add_menu_item(items, size, icount, id, list[i].caption,
+                    add_menu_item(&menu, id, list[i].caption,
                                   list[i].caption[0], 0);
                 }
-                pick_list[0] = id = list[random() % listlen].id + 1;
-                add_menu_item(items, size, icount, id, "Random", '*', 0);
-                add_menu_item(items, size, icount, -1, "Quit", 'q', 0);
+                pick_list[0] = id = list[rand() % listlen].id + 1;
+                add_menu_item(&menu, id, "Random", '*', 0);
+                add_menu_item(&menu, -1, "Quit", 'q', 0);
 
-                sprintf(pbuf, "Pick the race of your %s", plbuf);
-                n = curses_display_menu(items, icount, pbuf, PICK_ONE,
-                                        PLHINT_ANYWHERE, pick_list);
+                snprintf(pbuf, ARRAY_SIZE(pbuf), "Pick the race of your %s", plbuf);
+                curses_display_menu(&menu, pbuf, PICK_ONE, PLHINT_ANYWHERE,
+                                    pick_list, curses_menu_callback);
 
-                if (n == -1 || pick_list[0] == -1)
-                    goto give_up;       /* Selected quit */
+                if (pick_list[0] == CURSES_MENU_CANCELLED || pick_list[0] == -1)
+                    return FALSE;
 
                 k = pick_list[0] - 1;
-                icount = 0;
             }
             race = k;
         }
@@ -334,31 +407,33 @@ player_selection(int *out_role, int *out_race, int *out_gend, int *out_align,
         listlen = get_valid_genders(ri, role, race, align, list, LISTSZ);
 
         if (pick4u == 'y' || gend == ROLE_RANDOM || randomall) {
-            gend = list[random() % listlen].id;
+            gend = list[rand() % listlen].id;
         } else {        /* pick4u == 'n' */
             /* Count the number of valid genders */
             k = list[0].id;     /* valid gender */
 
             /* Permit the user to pick, if there is more than one */
             if (listlen > 1) {
+
+                init_menulist(&menu);
+
                 for (i = 0; i < listlen; i++) {
                     id = list[i].id + 1;
-                    add_menu_item(items, size, icount, id, list[i].caption,
+                    add_menu_item(&menu, id, list[i].caption,
                                   list[i].caption[0], 0);
                 }
-                pick_list[0] = id = list[random() % listlen].id + 1;
-                add_menu_item(items, size, icount, id, "Random", '*', 0);
-                add_menu_item(items, size, icount, -1, "Quit", 'q', 0);
+                pick_list[0] = id = list[rand() % listlen].id + 1;
+                add_menu_item(&menu, id, "Random", '*', 0);
+                add_menu_item(&menu, -1, "Quit", 'q', 0);
 
-                sprintf(pbuf, "Pick the gender of your %s", plbuf);
-                n = curses_display_menu(items, icount, pbuf, PICK_ONE,
-                                        PLHINT_ANYWHERE, pick_list);
+                snprintf(pbuf, ARRAY_SIZE(pbuf), "Pick the gender of your %s", plbuf);
+                curses_display_menu(&menu, pbuf, PICK_ONE, PLHINT_ANYWHERE,
+                                    pick_list, curses_menu_callback);
 
-                if (n == -1 || pick_list[0] == -1)
-                    goto give_up;       /* Selected quit */
+                if (pick_list[0] == CURSES_MENU_CANCELLED || pick_list[0] == -1)
+                    return FALSE;
 
                 k = pick_list[0] - 1;
-                icount = 0;
             }
             gend = k;
         }
@@ -370,28 +445,31 @@ player_selection(int *out_role, int *out_race, int *out_gend, int *out_align,
         listlen = get_valid_aligns(ri, role, race, gend, list, LISTSZ);
 
         if (pick4u == 'y' || align == ROLE_RANDOM || randomall) {
-            align = list[random() % listlen].id;
+            align = list[rand() % listlen].id;
         } else {        /* pick4u == 'n' */
             /* Count the number of valid alignments */
             k = list[0].id;     /* valid alignment */
 
             /* Permit the user to pick, if there is more than one */
             if (listlen > 1) {
+
+                init_menulist(&menu);
+
                 for (i = 0; i < listlen; i++) {
                     id = list[i].id + 1;
-                    add_menu_item(items, size, icount, id, list[i].caption,
+                    add_menu_item(&menu, id, list[i].caption,
                                   list[i].caption[0], 0);
                 }
-                pick_list[0] = id = list[random() % listlen].id + 1;
-                add_menu_item(items, size, icount, id, "Random", '*', 0);
-                add_menu_item(items, size, icount, -1, "Quit", 'q', 0);
+                pick_list[0] = id = list[rand() % listlen].id + 1;
+                add_menu_item(&menu, id, "Random", '*', 0);
+                add_menu_item(&menu, -1, "Quit", 'q', 0);
 
-                sprintf(pbuf, "Pick the alignment of your %s", plbuf);
-                n = curses_display_menu(items, icount, pbuf, PICK_ONE,
-                                        PLHINT_ANYWHERE, pick_list);
+                snprintf(pbuf, ARRAY_SIZE(pbuf), "Pick the alignment of your %s", plbuf);
+                curses_display_menu(&menu, pbuf, PICK_ONE, PLHINT_ANYWHERE,
+                                    pick_list, curses_menu_callback);
 
-                if (n == -1 || pick_list[0] == -1)
-                    goto give_up;       /* Selected quit */
+                if (pick_list[0] == CURSES_MENU_CANCELLED || pick_list[0] == -1)
+                    return FALSE;
 
                 k = pick_list[0] - 1;
             }
@@ -404,10 +482,5 @@ player_selection(int *out_role, int *out_race, int *out_gend, int *out_align,
     *out_gend = gend;
     *out_align = align;
 
-    free(items);
     return TRUE;
-
-give_up:
-    free(items);
-    return FALSE;
 }

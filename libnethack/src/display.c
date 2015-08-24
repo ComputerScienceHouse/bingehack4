@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-12 */
 /* Copyright (c) Dean Luick, with acknowledgements to Kevin Darcy */
 /* and Dave Cohrs, 1990.                                          */
 /* NetHack may be freely redistributed.  See license for details. */
@@ -39,6 +40,9 @@
  * of-sight rules.  **Most of the code should use this routine.**  This
  * routine updates the map and displays monsters.
  *
+ * Be very careful not to call this for a location that's actually on another
+ * level, such as during the level creation code. In such situations, the
+ * level isn't being displayed, so can't be updated.
  *
  * map_background
  * map_object
@@ -56,7 +60,7 @@
  * use these for things that only temporarily change the screen.  These
  * routines are also used directly by newsym().  unmap_object is used to
  * clear a remembered object when/if detection reveals it isn't there.
- *
+ * (See also reveal_monster_at for a commonly usable wrapper.)
  *
  * dbuf_set
  * dbuf_set_<foo>
@@ -109,7 +113,7 @@
 #include "hack.h"
 #include "region.h"
 
-static void display_monster(xchar, xchar, struct monst *, int, xchar);
+static void display_monster(xchar, xchar, struct monst *, int, boolean, xchar);
 static int swallow_to_effect(int, int);
 static void display_warning(struct monst *);
 
@@ -122,9 +126,6 @@ static void set_seenv(struct rm *, int, int, int, int);
 static void t_warn(struct rm *);
 static int wall_angle(struct rm *);
 static void dbuf_set_object(int x, int y, int oid, int omn);
-static void dbuf_set_loc(int x, int y);
-
-static boolean delay_flushing;
 
 #ifdef INVISIBLE_OBJECTS
 /*
@@ -172,13 +173,6 @@ magic_map_background(xchar x, xchar y, int show)
      * Correct for out of sight lit corridors and rooms that the hero
      * doesn't remember as lit.
      */
-    if (!cansee(x, y) && !loc->waslit) {
-        /* Floor spaces are dark if unlit.  Corridors are dark if unlit. */
-        if (loc->typ == ROOM && cmap == S_room)
-            cmap = S_darkroom;
-        else if (loc->typ == CORR && cmap == S_litcorr)
-            cmap = S_corr;
-    }
     loc->mem_bg = cmap;
     if (cmap == S_vodoor || cmap == S_hodoor || cmap == S_vcdoor ||
         cmap == S_hcdoor) {
@@ -191,7 +185,7 @@ magic_map_background(xchar x, xchar y, int show)
     }
 
     if (show)
-        dbuf_set(x, y, cmap, 0, 0, 0, 0, 0, 0, 0, dbuf_branding(loc));
+        dbuf_set(x, y, cmap, 0, 0, 0, 0, 0, 0, 0, dbuf_branding(level, x, y));
 }
 
 /* FIXME: some of these use xchars for x and y, and some use ints.  Make
@@ -227,7 +221,7 @@ map_background(xchar x, xchar y, int show)
     }
 
     if (show)
-        dbuf_set(x, y, cmap, 0, 0, 0, 0, 0, 0, 0, dbuf_branding(loc));
+        dbuf_set(x, y, cmap, 0, 0, 0, 0, 0, 0, 0, dbuf_branding(level, x, y));
 
 }
 
@@ -238,10 +232,10 @@ map_background(xchar x, xchar y, int show)
  * hero can physically see the location.
  */
 void
-map_trap(struct trap *trap, int show)
+map_trap(struct trap *trap, int show, boolean reroll_hallu)
 {
     int x = trap->tx, y = trap->ty;
-    int trapid = what_trap(trap->ttyp);
+    int trapid = what_trap(trap->ttyp, (reroll_hallu ? -1 : x), y, newsym_rng);
     struct rm *loc = &level->locations[x][y];
     struct rm tmp_location;
 
@@ -253,7 +247,7 @@ map_trap(struct trap *trap, int show)
     loc->mem_trap = trapid;
     if (show)
         dbuf_set(x, y, loc->mem_bg, loc->mem_trap, 0, 0, 0, 0, 0, 0,
-                 dbuf_branding(loc));
+                 dbuf_branding(level, x, y));
 }
 
 /*
@@ -263,10 +257,10 @@ map_trap(struct trap *trap, int show)
  * see the location of the object.  Update the screen if directed.
  */
 void
-map_object(struct obj *obj, int show)
+map_object(struct obj *obj, int show, boolean reroll_hallu)
 {
     int x = obj->ox, y = obj->oy;
-    int objtyp = what_obj(obj->otyp);
+    int objtyp = what_obj(obj->otyp, (reroll_hallu ? -1 : x), y, newsym_rng);
     int monnum = 0;
     struct rm *loc = &level->locations[x][y];
     struct rm tmp_location;
@@ -288,7 +282,7 @@ map_object(struct obj *obj, int show)
 
     if (show)
         dbuf_set(x, y, loc->mem_bg, loc->mem_trap, loc->mem_obj,
-                 loc->mem_obj_mn, 0, 0, 0, 0, dbuf_branding(loc));
+                 loc->mem_obj_mn, 0, 0, 0, 0, dbuf_branding(level, x, y));
 }
 
 /*
@@ -298,7 +292,7 @@ map_object(struct obj *obj, int show)
  * This is a special case in that the square will continue to be displayed
  * this way even when the hero is close enough to see it.  To get rid of
  * this and display the square's actual contents, use unmap_object() followed
- * by newsym() if necessary.
+ * by newsym() if necessary, or use reveal_monster_at().
  */
 void
 map_invisible(xchar x, xchar y)
@@ -310,7 +304,7 @@ map_invisible(xchar x, xchar y)
                  level->locations[x][y].mem_trap,
                  level->locations[x][y].mem_obj,
                  level->locations[x][y].mem_obj_mn, 1, 0, 0, 0,
-                 dbuf_branding(&level->locations[x][y]));
+                 dbuf_branding(level, x, y));
     }
 }
 
@@ -343,30 +337,30 @@ unmap_object(int x, int y)
  * Trapped doors and chests are not covered either
  */
 void
-map_location(int x, int y, int show)
+map_location(int x, int y, int show, boolean reroll_hallucinated_appearances)
 {
     struct obj *obj;
     struct trap *trap;
 
     if (level->flags.hero_memory) {
         if ((obj = vobj_at(x, y)) && !covers_objects(level, x, y))
-            map_object(obj, FALSE);
+            map_object(obj, FALSE, reroll_hallucinated_appearances);
         else
-            level->locations[x][y].mem_obj_mn = level->locations[x][y].mem_obj =
-                0;
+            level->locations[x][y].mem_obj_mn =
+                level->locations[x][y].mem_obj = 0;
         if ((trap = t_at(level, x, y)) && trap->tseen &&
             !covers_traps(level, x, y))
-            map_trap(trap, FALSE);
+            map_trap(trap, FALSE, reroll_hallucinated_appearances);
         else
             level->locations[x][y].mem_trap = 0;
         map_background(x, y, FALSE);
         if (show)
-            dbuf_set_loc(x, y);
+            dbuf_set_memory(level, x, y);
     } else if ((obj = vobj_at(x, y)) && !covers_objects(level, x, y))
-        map_object(obj, show);
+        map_object(obj, show, reroll_hallucinated_appearances);
     else if ((trap = t_at(level, x, y)) && trap->tseen &&
              !covers_traps(level, x, y))
-        map_trap(trap, show);
+        map_trap(trap, show, reroll_hallucinated_appearances);
     else
         map_background(x, y, show);
 }
@@ -402,8 +396,9 @@ display_monster(xchar x, xchar y,       /* display position */
                 struct monst *mon,      /* monster to display */
                 int sightflags, /* 1 if the monster is physically seen */
                 /* 2 if detected using Detect_monsters */
-                xchar worm_tail)
-{       /* mon is actually a worm tail */
+                boolean reroll_hallu,   /* do we redraw if hallucinating? */
+                xchar worm_tail)        /* mon is actually a worm tail */
+{
     boolean mon_mimic = (mon->m_ap_type != M_AP_NOTHING);
     int sensed = mon_mimic && (Protection_from_shape_changers || sensemon(mon));
 
@@ -433,7 +428,7 @@ display_monster(xchar x, xchar y,       /* display position */
                 level->locations[x][y].mem_door_l = 0;
                 level->locations[x][y].mem_door_t = 0;
                 if (!sensed)
-                    dbuf_set_loc(x, y);
+                    dbuf_set_memory(level, x, y);
                 break;
             }
 
@@ -445,18 +440,21 @@ display_monster(xchar x, xchar y,       /* display position */
                 obj.oy = y;
                 obj.otyp = mon->mappearance;
                 obj.corpsenm = PM_TENGU;        /* if mimicing a corpse */
-                map_object(&obj, !sensed);
+                map_object(&obj, !sensed, reroll_hallu);
                 break;
             }
 
         case M_AP_MONSTER:
+            /* Visible monsters always clear 'I' symbols. */
+            level->locations[x][y].mem_invis = 0;
             dbuf_set(x, y, level->locations[x][y].mem_bg,
                      level->locations[x][y].mem_trap,
                      level->locations[x][y].mem_obj,
                      level->locations[x][y].mem_obj_mn, 0,
-                     what_mon((int)mon->mappearance) + 1,
+                     what_mon((int)mon->mappearance,
+                              (reroll_hallu ? -1 : x), y, newsym_rng) + 1,
                      mon->mtame ? MON_TAME : mon->mpeaceful ? MON_PEACEFUL : 0,
-                     0, dbuf_branding(&level->locations[x][y]));
+                     0, dbuf_branding(level, x, y));
             break;
         }
 
@@ -484,11 +482,15 @@ display_monster(xchar x, xchar y,       /* display position */
            remember the 'invisible' state. */
         level->locations[x][y].mem_invis = 0;
 
+        /* Visible monsters always clear 'I' symbols. */
+        level->locations[x][y].mem_invis = 0;
+
         dbuf_set(x, y, level->locations[x][y].mem_bg,
                  level->locations[x][y].mem_trap,
                  level->locations[x][y].mem_obj,
-                 level->locations[x][y].mem_obj_mn, 0, what_mon(monnum) + 1,
-                 mflag, 0, dbuf_branding(&level->locations[x][y]));
+                 level->locations[x][y].mem_obj_mn, 0,
+                 what_mon(monnum, x, y, newsym_rng) + 1,
+                 mflag, 0, dbuf_branding(level, x, y));
     }
 }
 
@@ -499,7 +501,8 @@ display_monster(xchar x, xchar y,       /* display position */
  * above everything just like monsters do, but only if the monster
  * is not showing.
  *
- * Do not call for worm tails.
+ * Do not call for worm tails. Caller must check that the monster
+ * actually shows up via warning (e.g. using msensem).
  */
 static void
 display_warning(struct monst *mon)
@@ -508,27 +511,24 @@ display_warning(struct monst *mon)
     int wl = (int)(mon->m_lev / 4);
     int monnum, mflag;
 
-    if (mon_warning(mon)) {
+    if (MATCH_WARN_OF_MON(mon)) {
+        monnum = dbuf_monid(mon, x, y, newsym_rng);
+        mflag = 0;
+    } else {
         if (wl > WARNCOUNT - 1)
             wl = WARNCOUNT - 1;
         /* 3.4.1: this really ought to be rn2(WARNCOUNT), but value "0" isn't
            handled correctly by the what_is routine so avoid it */
         if (Hallucination)
-            wl = rn1(WARNCOUNT - 1, 1);
+            wl = newsym_rng(WARNCOUNT - 1) + 1;
         monnum = 1 + NUMMONS + wl;
         mflag = MON_WARNING;
-    } else if (MATCH_WARN_OF_MON(mon)) {
-        monnum = dbuf_monid(mon);
-        mflag = 0;
-    } else {
-        impossible("display_warning did not match warning type?");
-        return;
     }
 
     dbuf_set(x, y, level->locations[x][y].mem_bg,
              level->locations[x][y].mem_trap, level->locations[x][y].mem_obj,
              level->locations[x][y].mem_obj_mn, 0, monnum, mflag, 0,
-             dbuf_branding(&level->locations[x][y]));
+             dbuf_branding(level, x, y));
 }
 
 /*
@@ -587,63 +587,13 @@ feel_location(xchar x, xchar y)
             (IS_DOOR(loc->typ) && (loc->doormask & (D_LOCKED | D_CLOSED)))) {
             map_background(x, y, 1);
         } else if ((boulder = sobj_at(BOULDER, level, x, y)) != 0) {
-            map_object(boulder, 1);
-        } else if (IS_DOOR(loc->typ)) {
-            map_background(x, y, 1);
-        } else if (IS_ROOM(loc->typ) || IS_POOL(loc->typ)) {
-            /* 
-             * An open room or water location.  Normally we wouldn't touch
-             * this, but we have to get rid of remembered boulder symbols.
-             * This will only occur in rare occations when the hero goes
-             * blind and doesn't find a boulder where expected (something
-             * came along and picked it up).  We know that there is not a
-             * boulder at this location.  Show fountains, pools, etc.
-             * underneath if already seen.  Otherwise, show the appropriate
-             * floor symbol.
-             *
-             * Similarly, if the hero digs a hole in a wall or feels a location
-             * that used to contain an unseen monster.  In these cases,
-             * there's no reason to assume anything was underneath, so
-             * just show the appropriate floor symbol.  If something was
-             * embedded in the wall, the glyph will probably already
-             * reflect that.  Don't change the symbol in this case.
-             *
-             * This isn't quite correct.  If the boulder was on top of some
-             * other objects they should be seen once the boulder is removed.
-             * However, we have no way of knowing that what is there now
-             * was there then.  So we let the hero have a lapse of memory.
-             * We could also just display what is currently on the top of the
-             * object stack (if anything).
-             */
-            if (loc->mem_obj - 1 == BOULDER) {
-                if (loc->typ != ROOM && loc->seenv) {
-                    map_background(x, y, 1);
-                } else {
-                    loc->mem_bg = loc->waslit ? S_room : S_darkroom;
-                    loc->mem_door_l = 0;
-                    loc->mem_door_t = 0;
-                    dbuf_set_loc(x, y);
-                }
-            } else if (loc->mem_bg < S_room || loc->mem_invis) {
-                loc->mem_bg = loc->waslit ? S_room : S_darkroom;
-                loc->mem_door_l = 0;
-                loc->mem_door_t = 0;
-                dbuf_set_loc(x, y);
-            }
+            map_object(boulder, 1, TRUE);
         } else {
-            /* We feel it (I think hallways are the only things left). */
+            /* We feel it */
             map_background(x, y, 1);
-            /* Corridors are never felt as lit (unless remembered that way) */
-            /* (lit_corridor only).  */
-            if (loc->typ == CORR && loc->mem_bg == S_litcorr && !loc->waslit) {
-                loc->mem_bg = S_corr;
-                loc->mem_door_l = 0;
-                loc->mem_door_t = 0;
-                dbuf_set_loc(x, y);
-            }
         }
     } else {
-        map_location(x, y, 1);
+        map_location(x, y, 1, 1);
 
         if (Punished) {
             /* 
@@ -666,26 +616,13 @@ feel_location(xchar x, xchar y)
                     u.bc_felt &= ~BC_BALL;      /* do not feel the ball */
             }
         }
-
-        /* Floor spaces are dark if unlit.  Corridors are dark if unlit. */
-        if (loc->typ == ROOM && loc->mem_bg == S_room && !loc->waslit) {
-            loc->mem_bg = S_darkroom;
-            loc->mem_door_l = 0;
-            loc->mem_door_t = 0;
-            dbuf_set_loc(x, y);
-        } else if (loc->typ == CORR && loc->mem_bg == S_litcorr && !loc->waslit) {
-            loc->mem_bg = S_corr;
-            loc->mem_door_l = 0;
-            loc->mem_door_t = 0;
-            dbuf_set_loc(x, y);
-        }
     }
     /* draw monster on top if we can sense it */
     if ((x != u.ux || y != u.uy) && (mon = m_at(level, x, y)) && sensemon(mon))
         display_monster(x, y, mon,
                         (tp_sensemon(mon) ||
                          MATCH_WARN_OF_MON(mon)) ? PHYSICALLY_SEEN : DETECTED,
-                        is_worm_tail(mon));
+                        TRUE, is_worm_tail(mon));
 }
 
 /*
@@ -693,19 +630,27 @@ feel_location(xchar x, xchar y)
  *
  * Possibly put a new glyph at the given location.
  */
-void
-newsym(int x, int y)
+static void
+newsym_core(int x, int y, boolean reroll_hallucinated_appearances)
 {
     struct monst *mon;
     struct rm *loc = &(level->locations[x][y]);
-    int see_it;
-    xchar worm_tail;
+    unsigned msense_status;
+
+    if (!isok(x, y)) {
+        impossible("Trying to create new symbol at position: (%d,%d)", x, y);
+        return;
+    }
+
+    if (!level) {
+        impossible("Calling newsym without a valid level.");
+    }
 
     if (in_mklev)
         return;
 
     /* only permit updating the hero when swallowed */
-    if (u.uswallow) {
+    if (Engulfed) {
         if (x == u.ux && y == u.uy)
             display_self();
         return;
@@ -725,6 +670,11 @@ newsym(int x, int y)
         if (dx > 1 || dy > 1)
             return;
     }
+
+    msense_status = 0;
+    mon = m_at(level, x, y);
+    if (mon)
+        msense_status = msensem(&youmonst, mon);
 
     /* Can physically see the location. */
     if (cansee(x, y)) {
@@ -746,19 +696,30 @@ newsym(int x, int y)
 
         if (x == u.ux && y == u.uy) {
             if (senseself()) {
-                map_location(x, y, 0);  /* map *under* self */
+                /* map *under* self */
+                map_location(x, y, 0, reroll_hallucinated_appearances);
                 display_self();
             } else
                 /* we can see what is there */
-                map_location(x, y, 1);
+                map_location(x, y, 1, reroll_hallucinated_appearances);
         } else {
-            mon = m_at(level, x, y);
-            worm_tail = is_worm_tail(mon);
-            see_it = mon && (worm_tail ? (!mon->minvis || See_invisible)
-                             : (mon_visible(mon)) || tp_sensemon(mon) ||
-                             MATCH_WARN_OF_MON(mon));
-            if (mon && (see_it || (!worm_tail && Detect_monsters))) {
-                if (mon->mtrapped) {
+            /* Note: MSENSE_WORM doesn't work for this; that would check to see
+               if we can see a segment of (a worm on this square), as opposed to
+               (a segment of a worm) on this square. Associativity matters!
+
+               The monsndx check is technically unnecessary, but much cheaper
+               than knownwormtail is. */
+
+            if (mon && monsndx(mon->data) == PM_LONG_WORM &&
+                knownwormtail(x, y)) {
+                map_location(x, y, 0, reroll_hallucinated_appearances);
+                /* Assumes that worm tails can be seen only via vision */
+                display_monster(x, y, mon, 0,
+                                reroll_hallucinated_appearances, 1);
+            } else if (msense_status & (MSENSE_ANYVISION | MSENSE_ANYDETECT |
+                                        MSENSE_ITEMMIMIC) &&
+                       mon->mx == x && mon->my == y) {
+                if (mon->mtrapped && (msense_status & MSENSE_ANYVISION)) {
                     struct trap *trap = t_at(level, x, y);
                     int tt = trap ? trap->ttyp : NO_TRAP;
 
@@ -768,16 +729,20 @@ newsym(int x, int y)
                         trap->tseen = TRUE;
                     }
                 }
-                map_location(x, y, 0);  /* map under the monster */
+                /* map under the monster */
+                map_location(x, y, 0, reroll_hallucinated_appearances);
                 /* also gets rid of any invisibility glyph */
-                display_monster(x, y, mon, see_it ? PHYSICALLY_SEEN : DETECTED,
-                                worm_tail);
-            } else if (mon && mon_warning(mon) && !is_worm_tail(mon))
+                display_monster(x, y, mon,
+                                (msense_status &
+                                 (MSENSE_ANYVISION | MSENSE_ITEMMIMIC)) ?
+                                PHYSICALLY_SEEN : DETECTED,
+                                reroll_hallucinated_appearances, 0);
+            } else if (msense_status & MSENSE_WARNING)
                 display_warning(mon);
             else if (level->locations[x][y].mem_invis)
                 map_invisible(x, y);
             else
-                map_location(x, y, 1);  /* map the location */
+                map_location(x, y, 1, reroll_hallucinated_appearances);
         }
 
         if (reg != NULL && ACCESSIBLE(loc->typ))
@@ -791,63 +756,30 @@ newsym(int x, int y)
 
             if (senseself())
                 display_self();
-        } else if ((mon = m_at(level, x, y))
-                   && ((see_it = (tp_sensemon(mon) || MATCH_WARN_OF_MON(mon)
-                                  || (see_with_infrared(mon) &&
-                                      mon_visible(mon))))
-                       || Detect_monsters)
-                   && !is_worm_tail(mon)) {
+        } else if (msense_status &
+                   (MSENSE_ANYVISION | MSENSE_ANYDETECT | MSENSE_ITEMMIMIC) &&
+                   mon->mx == x && mon->my == y) {
             /* Monsters are printed every time. */
             /* This also gets rid of any invisibility glyph */
-            display_monster(x, y, mon, see_it ? 0 : DETECTED, 0);
-        } else if ((mon = m_at(level, x, y)) && mon_warning(mon) &&
-                   !is_worm_tail(mon)) {
+            display_monster(x, y, mon,
+                            (msense_status &
+                             (MSENSE_ANYVISION | MSENSE_ITEMMIMIC)) ?
+                            0 : DETECTED, reroll_hallucinated_appearances, 0);
+        } else if (msense_status & MSENSE_WARNING &&
+                   mon->mx == x && mon->my == y)
             display_warning(mon);
-        }
-
-        /* 
-         * If the location is remembered as being both dark (waslit is false)
-         * and lit (glyph is a lit room or lit corridor) then it was either:
-         *
-         *      (1) A dark location that the hero could see through night
-         *          vision.
-         *
-         *      (2) Darkened while out of the hero's sight.  This can happen
-         *          when cursed scroll of light is read.
-         *
-         * In either case, we have to manually correct the hero's memory to
-         * match waslit.  Deciding when to change waslit is non-trivial.
-         *
-         *  Note:  If flags.lit_corridor is set, then corridors act like room
-         *         squares.  That is, they light up if in night vision range.
-         *         If flags.lit_corridor is not set, then corridors will
-         *         remain dark unless lit by a light spell and may darken
-         *         again, as discussed above.
-         *
-         * These checks and changes must be here and not in back_to_glyph().
-         * They are dependent on the position being out of sight.
-         */
-        else if (!loc->waslit) {
-            if (loc->mem_bg == S_litcorr && loc->typ == CORR) {
-                loc->mem_bg = S_corr;
-                loc->mem_door_l = 0;
-                loc->mem_door_t = 0;
-                dbuf_set_loc(x, y);
-            } else if (loc->mem_bg == S_room && loc->typ == ROOM) {
-                loc->mem_bg = S_darkroom;
-                loc->mem_door_l = 0;
-                loc->mem_door_t = 0;
-                dbuf_set_loc(x, y);
-            } else
-                goto show_mem;
-        } else {
-        show_mem:
-            dbuf_set_loc(x, y);
-        }
+        else
+            dbuf_set_memory(level, x, y);
     }
 }
 
 #undef is_worm_tail
+
+void
+newsym(int x, int y)
+{
+    newsym_core(x, y, FALSE);
+}
 
 /*
  * shieldeff()
@@ -897,8 +829,8 @@ tmpsym_initimpl(int style, int sym, int extra)
     tsym->style = style;
     tsym->sym = sym;
     tsym->extra = extra;
-    flush_screen(); /* flush buffered glyphs */
-    
+    flush_screen();     /* flush buffered glyphs */
+
     tsym->prev = NULL;
     if (tsym_head) {
         tsym_head->prev = tsym;
@@ -943,8 +875,8 @@ tmpsym_init(int style, int sym)
 struct tmp_sym *
 tmpsym_initobj(struct obj *obj)
 {
-    return tmpsym_initimpl(DISP_OBJECT, dbuf_objid(obj),
-                           what_mon(obj->corpsenm) + 1);
+    return tmpsym_initimpl(DISP_OBJECT, dbuf_objid(obj, -1, -1, newsym_rng),
+                           what_mon(obj->corpsenm, -1, -1, newsym_rng) + 1);
 }
 
 
@@ -978,8 +910,8 @@ tmpsym_end(struct tmp_sym *tsym)
         /* Erase (reset) from source to end */
         for (i = 0; i < tsym->sidx; i++)
             newsym(tsym->saved[i].x, tsym->saved[i].y);
-    } else {        /* DISP_FLASH or DISP_ALWAYS */
-        if (tsym->sidx)     /* been called at least once */
+    } else {    /* DISP_FLASH or DISP_ALWAYS */
+        if (tsym->sidx) /* been called at least once */
             newsym(tsym->saved[0].x, tsym->saved[0].y);
     }
     /* tsym->sidx = 0; -- about to be freed, so not necessary */
@@ -1009,10 +941,10 @@ tmpsym_at(struct tmp_sym *tsym, int x, int y)
         tsym->saved[tsym->sidx].x = x;
         tsym->saved[tsym->sidx].y = y;
         tsym->sidx += 1;
-    } else {        /* DISP_FLASH/ALWAYS */
-        if (tsym->sidx) {   /* not first call, so reset previous pos */
+    } else {    /* DISP_FLASH/ALWAYS */
+        if (tsym->sidx) {       /* not first call, so reset previous pos */
             newsym(tsym->saved[0].x, tsym->saved[0].y);
-            tsym->sidx = 0; /* display is presently up to date */
+            tsym->sidx = 0;     /* display is presently up to date */
         }
         if (!cansee(x, y) && tsym->style != DISP_ALWAYS)
             return;
@@ -1024,8 +956,8 @@ tmpsym_at(struct tmp_sym *tsym, int x, int y)
     if (tsym->style == DISP_OBJECT)
         dbuf_set_object(x, y, tsym->sym, tsym->extra);
     else
-        dbuf_set_effect(x, y, tsym->sym);   /* show it */
-    flush_screen(); /* make sure it shows up */
+        dbuf_set_effect(x, y, tsym->sym);       /* show it */
+    flush_screen();     /* make sure it shows up */
 }
 
 /*
@@ -1034,9 +966,11 @@ tmpsym_at(struct tmp_sym *tsym, int x, int y)
  * Free all still-extant tmp_sym data structures. Used for when the game ends
  * while temporary symbols are still active.
  */
-void tmpsym_freeall(void)
+void
+tmpsym_freeall(void)
 {
     struct tmp_sym *tsym;
+
     while (tsym_head) {
         tsym = tsym_head->next;
         free(tsym_head);
@@ -1123,7 +1057,7 @@ under_water(int mode)
     int x, y;
 
     /* swallowing has a higher precedence than under water */
-    if (Is_waterlevel(&u.uz) || u.uswallow)
+    if (Is_waterlevel(&u.uz) || Engulfed)
         return;
 
     /* full update */
@@ -1166,7 +1100,7 @@ under_ground(int mode)
     static boolean dela;
 
     /* swallowing has a higher precedence than under ground */
-    if (u.uswallow)
+    if (Engulfed)
         return;
 
     /* full update */
@@ -1202,7 +1136,7 @@ under_ground(int mode)
  *        sit.c]
  */
 void
-see_monsters(void)
+see_monsters(boolean reroll_hallucinated_appearances)
 {
     struct monst *mon;
 
@@ -1212,7 +1146,8 @@ see_monsters(void)
     for (mon = level->monlist; mon; mon = mon->nmon) {
         if (DEADMONSTER(mon))
             continue;
-        newsym(mon->mx, mon->my);
+        if (isok(mon->mx, mon->my))
+            newsym_core(mon->mx, mon->my, reroll_hallucinated_appearances);
         if (mon->wormno)
             see_wsegs(mon);
     }
@@ -1251,26 +1186,26 @@ set_mimic_blocking(void)
  *      + hallucinating.
  */
 void
-see_objects(void)
+see_objects(boolean reroll_hallucinated_appearances)
 {
     struct obj *obj;
 
     for (obj = level->objlist; obj; obj = obj->nobj)
         if (vobj_at(obj->ox, obj->oy) == obj)
-            newsym(obj->ox, obj->oy);
+            newsym_core(obj->ox, obj->oy, reroll_hallucinated_appearances);
 }
 
 /*
  * Update hallucinated traps.
  */
 void
-see_traps(void)
+see_traps(boolean reroll_hallucinated_appearances)
 {
     struct trap *trap;
 
     for (trap = level->lev_traps; trap; trap = trap->ntrap)
         if (level->locations[trap->tx][trap->ty].mem_trap)
-            newsym(trap->tx, trap->ty);
+            newsym_core(trap->tx, trap->ty, reroll_hallucinated_appearances);
 }
 
 /*
@@ -1289,42 +1224,45 @@ display_self(void)
                  level->locations[x][y].mem_trap,
                  level->locations[x][y].mem_obj,
                  level->locations[x][y].mem_obj_mn, 0,
-                 what_mon(u.usteed->mnum) + 1, MON_RIDDEN, 0,
-                 dbuf_branding(&level->locations[x][y]));
+                 what_mon(monsndx(u.usteed->data), x, y, newsym_rng) + 1,
+                 MON_RIDDEN, 0, dbuf_branding(level, x, y));
     } else if (youmonst.m_ap_type == M_AP_NOTHING) {
-        int monnum = (Upolyd || !iflags.showrace) ? u.umonnum :
-            (flags.female && urace.femalenum != NON_PM) ?
+        int monnum = (Upolyd || !flags.showrace) ? u.umonnum :
+            (u.ufemale && urace.femalenum != NON_PM) ?
             urace.femalenum : urace.malenum;
         dbuf_set(x, y, level->locations[x][y].mem_bg,
                  level->locations[x][y].mem_trap,
                  level->locations[x][y].mem_obj,
                  level->locations[x][y].mem_obj_mn, 0, monnum + 1, 0, 0,
-                 dbuf_branding(&level->locations[x][y]));
+                 dbuf_branding(level, x, y));
     } else if (youmonst.m_ap_type == M_AP_FURNITURE) {
         dbuf_set(x, y, youmonst.mappearance, 0, 0, 0, 0, 0, 0, 0,
-                 dbuf_branding(&level->locations[x][y]));
+                 dbuf_branding(level, x, y));
     } else if (youmonst.m_ap_type == M_AP_OBJECT) {
         dbuf_set(x, y, level->locations[x][y].mem_bg,
                  level->locations[x][y].mem_trap, youmonst.mappearance + 1, 0,
-                 0, 0, 0, 0, dbuf_branding(&level->locations[x][y]));
+                 0, 0, 0, 0, dbuf_branding(level, x, y));
     } else      /* M_AP_MONSTER */
         dbuf_set(x, y, level->locations[x][y].mem_bg,
                  level->locations[x][y].mem_trap,
                  level->locations[x][y].mem_obj,
                  level->locations[x][y].mem_obj_mn, 0, youmonst.mappearance + 1,
-                 0, 0, dbuf_branding(&level->locations[x][y]));
+                 0, 0, dbuf_branding(level, x, y));
 }
 
+int
+doredrawcmd(const struct nh_cmd_arg *arg)
+{
+    (void) arg;
+    return doredraw();
+}
 
 int
 doredraw(void)
 {
     int x, y;
 
-    if (!u.ux)
-        return 0;       /* display isn't ready yet */
-
-    if (u.uswallow) {
+    if (Engulfed) {
         swallowed(1);
         return 0;
     }
@@ -1341,18 +1279,17 @@ doredraw(void)
     vision_recalc(2);
 
     /* display memory */
-    for (x = 1; x < COLNO; x++) {
+    for (x = 0; x < COLNO; x++) {
         for (y = 0; y < ROWNO; y++)
-            dbuf_set_loc(x, y);
+            dbuf_set_memory(level, x, y);
     }
 
     /* see what is to be seen */
     vision_recalc(0);
 
     /* overlay with monsters */
-    see_monsters();
+    see_monsters(FALSE);
 
-    iflags.botl = 1;    /* force a redraw of the bottom line */
     return 0;
 }
 
@@ -1362,28 +1299,48 @@ doredraw(void)
 static struct nh_dbuf_entry dbuf[ROWNO][COLNO];
 
 
-/* 
- * object ids need to be obfuscated for non-identified types to prevent
- * visual identification in tile ports:
- * if a worthless piece of red glass and a ruby have different tile images
- * even when the glass rock is unidentified, describing both as "red gem" is
- * useless.
- * Additionally, it is better if descriptions match up with tiles for potions etc.
- * so that a potion described as "milky" will actually be ablt to look milky.
- * 
- * also used in pickup.c and invent.c
- */
+/* The game engine internally uses object types, but for presenting objects to
+   the user, we need to ensure that the images we show the user match up with
+   object descriptions, rather than types. This function does the conversions
+   required.
+
+   Design principles: randomized-appearance objects always show the appearance
+   rather than the type; for equal-appearance objects (like gray stones), we
+   normally show the plainest type until the object is identified, when we show
+   something appropriate to the type.  (This is most visible with horns in the
+   DawnLike tileset; they look like a plain horn until identified, when they can
+   show clear evidence of being a frost horn, fire horn, etc.).  The exception
+   is objects that exist in pairs in which one is a genuine object, and one is a
+   fake imitation; the fake imitations look genuine until identified, under the
+   assumption that a fake would try to be realistic.
+
+   To find equal-appearance objects, the simplest method is to search for "s 0"
+   in the nethack4.map file that is produced by the tiles code; it lists all the
+   objects in the game (among other things), using "s" and a number to
+   distinguish between equal-appearance objects.  This list is maintained in
+   tiles order in order to make finding missing entries easier. */
 int
 obfuscate_object(int otyp)
 {
     if (!otyp)
         return 0;
 
-    /* object ids are shifted by 1 for display, so that 0 can mean "no object" */
+    /* object ids are shifted by 1 for display, so that 0 can mean "no object"
+       */
     otyp -= 1;
 
     if (!objects[otyp].oc_name_known) {
         switch (otyp) {
+        case DUNCE_CAP:
+        case CORNUTHAUM:
+            otyp = CORNUTHAUM;
+            break;
+
+        case AMULET_OF_YENDOR:
+        case FAKE_AMULET_OF_YENDOR:
+            otyp = AMULET_OF_YENDOR;
+            break;
+
         case SACK:
         case OILSKIN_SACK:
         case BAG_OF_TRICKS:
@@ -1391,11 +1348,9 @@ obfuscate_object(int otyp)
             otyp = SACK;
             break;
 
-        case LOADSTONE:
-        case LUCKSTONE:
-        case FLINT:
-        case TOUCHSTONE:
-            otyp = FLINT;
+        case TALLOW_CANDLE:
+        case WAX_CANDLE:
+            otyp = TALLOW_CANDLE;
             break;
 
         case OIL_LAMP:
@@ -1408,7 +1363,36 @@ obfuscate_object(int otyp)
             otyp = TIN_WHISTLE;
             break;
 
-            /* all gems initially look like pieces of glass */
+        case WOODEN_FLUTE:
+        case MAGIC_FLUTE:
+            otyp = WOODEN_FLUTE;
+            break;
+
+        case TOOLED_HORN:
+        case FROST_HORN:
+        case FIRE_HORN:
+        case HORN_OF_PLENTY:
+            otyp = TOOLED_HORN;
+            break;
+
+        case WOODEN_HARP:
+        case MAGIC_HARP:
+            otyp = WOODEN_HARP;
+            break;
+
+        case LEATHER_DRUM:
+        case DRUM_OF_EARTHQUAKE:
+            otyp = LEATHER_DRUM;
+            break;
+
+        case LOADSTONE:
+        case LUCKSTONE:
+        case FLINT:
+        case TOUCHSTONE:
+            otyp = FLINT;
+            break;
+
+        /* all gems initially look like pieces of glass */
         case DILITHIUM_CRYSTAL:
         case DIAMOND:
         case RUBY:
@@ -1461,6 +1445,8 @@ obfuscate_object(int otyp)
                 break;
             }
             break;
+
+        /* venom does not need obfuscating */
         }
     }
 
@@ -1491,14 +1477,12 @@ dbuf_set_object(int x, int y, int oid, int omn)
 /*
  * copy player memory for a location into the display buffer
  */
-static void
-dbuf_set_loc(int x, int y)
+void
+dbuf_set_memory(struct level *lev, int x, int y)
 {
-    dbuf_set(x, y, level->locations[x][y].mem_bg,
-             level->locations[x][y].mem_trap, level->locations[x][y].mem_obj,
-             level->locations[x][y].mem_obj_mn,
-             level->locations[x][y].mem_invis, 0, 0, 0,
-             dbuf_branding(&level->locations[x][y]));
+    struct rm *loc = &lev->locations[x][y];
+    dbuf_set(x, y, loc->mem_bg, loc->mem_trap, loc->mem_obj, loc->mem_obj_mn,
+             loc->mem_invis, 0, 0, 0, dbuf_branding(lev, x, y));
 }
 
 
@@ -1506,20 +1490,32 @@ dbuf_set_loc(int x, int y)
  * Calculate the branding information for a location.
  */
 short
-dbuf_branding(struct rm *loc)
+dbuf_branding(struct level *lev, int x, int y)
 {
     short b = 0;
+    struct rm *loc = &lev->locations[x][y];
 
     if (loc->mem_stepped)
         b |= NH_BRANDING_STEPPED;
+
     if (loc->mem_door_l && (loc->flags & D_LOCKED))
         b |= NH_BRANDING_LOCKED;
     else if (loc->mem_door_l)
         b |= NH_BRANDING_UNLOCKED;
+
     if (loc->mem_door_t && (loc->flags & D_TRAPPED))
         b |= NH_BRANDING_TRAPPED;
     else if (loc->mem_door_t)
         b |= NH_BRANDING_UNTRAPPED;
+
+    if (cansee(x, y))
+        b |= NH_BRANDING_SEEN;
+
+    if (loc->waslit)
+        b |= NH_BRANDING_LIT;
+    else if (cansee(x, y) && templit(x, y))
+        b |= NH_BRANDING_TEMP_LIT;
+
     return b;
 }
 
@@ -1556,17 +1552,6 @@ dbuf_get_mon(int x, int y)
 }
 
 
-/* warning_at: return TRUE if there is a warning symbol at the given position
- *
- * attack_checks() needs to know and there is no other way to get this info
- */
-boolean
-warning_at(int x, int y)
-{
-    return (dbuf[y][x].mon > NUMMONS) && (dbuf[y][x].monflags & MON_WARNING);
-}
-
-
 void
 cls(void)
 {
@@ -1577,14 +1562,14 @@ cls(void)
 void
 flush_screen_disable(void)
 {
-    delay_flushing = TRUE;
+    turnstate.delay_flushing = TRUE;
 }
 
 
 void
 flush_screen_enable(void)
 {
-    delay_flushing = FALSE;
+    turnstate.delay_flushing = FALSE;
 }
 
 
@@ -1594,12 +1579,12 @@ flush_screen_enable(void)
 void
 flush_screen(void)
 {
-    if (delay_flushing)
+    if (turnstate.delay_flushing)
         return;
 
     update_screen(dbuf, u.ux, u.uy);
 
-    if (iflags.botl)
+    if (!program_state.panicking)
         bot();
 }
 
@@ -1642,10 +1627,10 @@ back_to_cmap(struct level *lev, xchar x, xchar y)
         idx = lev->flags.arboreal ? S_tree : S_stone;
         break;
     case ROOM:
-        idx = (!cansee(x, y) && !ptr->waslit) ? S_darkroom : S_room;
+        idx = S_room;
         break;
     case CORR:
-        idx = (ptr->waslit || flags.lit_corridor) ? S_litcorr : S_corr;
+        idx = S_corr;
         break;
     case HWALL:
     case VWALL:
@@ -1736,7 +1721,7 @@ back_to_cmap(struct level *lev, xchar x, xchar y)
             idx = S_ice;
             break;
         case DB_FLOOR:
-            idx = (!cansee(x, y) && !ptr->waslit) ? S_darkroom : S_room;
+            idx = S_room;
             break;
         default:
             impossible("Strange db-under: %d", ptr->drawbridgemask & DB_UNDER);
@@ -1771,7 +1756,8 @@ swallow_to_effect(int mnum, int loc)
         impossible("swallow_to_effect: bad swallow location");
         loc = S_sw_br;
     }
-    return ((E_SWALLOW << 16) | (what_mon(mnum) << 3) | loc) + 1;
+    return ((E_SWALLOW << 16) |
+            (what_mon(mnum, -1, -1, newsym_rng) << 3) | loc) + 1;
 }
 
 
@@ -2036,9 +2022,10 @@ set_wall_state(struct level *lev)
 
 /* ------------------------------------------------------------------------- */
 /* This matrix is used here and in vision.c. */
-unsigned const char seenv_matrix[3][3] = { {SV2, SV1, SV0},
-{SV3, SVALL, SV7},
-{SV4, SV5, SV6}
+const unsigned char seenv_matrix[3][3] = {
+    {SV2, SV1, SV0},
+    {SV3, SVALL, SV7},
+    {SV4, SV5, SV6}
 };
 
 #define sign(z) ((z) < 0 ? -1 : ((z) > 0 ? 1 : 0))
@@ -2411,3 +2398,4 @@ wall_angle(struct rm *loc)
 }
 
 /*display.c*/
+

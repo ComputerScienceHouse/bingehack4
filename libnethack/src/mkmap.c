@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-13 */
 /* Copyright (c) J. C. Collet, M. Stephenson and D. Cohrs, 1992   */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -6,7 +7,7 @@
 #include "sp_lev.h"
 
 #define HEIGHT  (ROWNO - 1)
-#define WIDTH   (COLNO - 2)
+#define WIDTH   (COLNO - 1)
 
 static void init_map(struct level *lev, schar bg_typ);
 static void init_fill(struct level *lev, schar bg_typ, schar fg_typ);
@@ -19,7 +20,7 @@ static void join_map(struct level *lev, schar, schar);
 static void finish_map(struct level *lev, schar, schar, xchar, xchar);
 static void remove_room(struct level *lev, unsigned roomno);
 
-char *new_locations;
+static char *new_locations;
 int min_rx, max_rx, min_ry, max_ry;     /* rectangle bounds for regions */
 static int n_loc_filled;
 
@@ -28,7 +29,7 @@ init_map(struct level *lev, schar bg_typ)
 {
     int i, j;
 
-    for (i = 1; i < COLNO; i++)
+    for (i = 0; i < COLNO; i++)
         for (j = 0; j < ROWNO; j++)
             lev->locations[i][j].typ = bg_typ;
 }
@@ -42,8 +43,8 @@ init_fill(struct level *lev, schar bg_typ, schar fg_typ)
     limit = (WIDTH * HEIGHT * 2) / 5;
     count = 0;
     while (count < limit) {
-        i = rn1(WIDTH - 1, 2);
-        j = rnd(HEIGHT - 1);
+        i = 1 + mklev_rn2(WIDTH - 1, lev);
+        j = 1 + mklev_rn2(HEIGHT - 1, lev);
         if (lev->locations[i][j].typ == bg_typ) {
             lev->locations[i][j].typ = fg_typ;
             count++;
@@ -71,7 +72,7 @@ pass_one(struct level *lev, schar bg_typ, schar fg_typ)
     int i, j;
     short count, dr;
 
-    for (i = 2; i <= WIDTH; i++)
+    for (i = 1; i <= WIDTH; i++)
         for (j = 1; j < HEIGHT; j++) {
             for (count = 0, dr = 0; dr < 8; dr++)
                 if (get_map
@@ -105,7 +106,7 @@ pass_two(struct level *lev, schar bg_typ, schar fg_typ)
     int i, j;
     short count, dr;
 
-    for (i = 2; i <= WIDTH; i++)
+    for (i = 1; i <= WIDTH; i++)
         for (j = 1; j < HEIGHT; j++) {
             for (count = 0, dr = 0; dr < 8; dr++)
                 if (get_map
@@ -118,7 +119,7 @@ pass_two(struct level *lev, schar bg_typ, schar fg_typ)
                 new_loc(i, j) = get_map(lev, i, j, bg_typ);
         }
 
-    for (i = 2; i <= WIDTH; i++)
+    for (i = 1; i <= WIDTH; i++)
         for (j = 1; j < HEIGHT; j++)
             lev->locations[i][j].typ = new_loc(i, j);
 }
@@ -129,7 +130,7 @@ pass_three(struct level *lev, schar bg_typ, schar fg_typ)
     int i, j;
     short count, dr;
 
-    for (i = 2; i <= WIDTH; i++)
+    for (i = 1; i <= WIDTH; i++)
         for (j = 1; j < HEIGHT; j++) {
             for (count = 0, dr = 0; dr < 8; dr++)
                 if (get_map
@@ -142,7 +143,7 @@ pass_three(struct level *lev, schar bg_typ, schar fg_typ)
                 new_loc(i, j) = get_map(lev, i, j, bg_typ);
         }
 
-    for (i = 2; i <= WIDTH; i++)
+    for (i = 1; i <= WIDTH; i++)
         for (j = 1; j < HEIGHT; j++)
             lev->locations[i][j].typ = new_loc(i, j);
 }
@@ -162,9 +163,9 @@ flood_fill_rm(struct level *lev, int sx, int sy, int rmno, boolean lit,
     schar fg_typ = lev->locations[sx][sy].typ;
 
     /* back up to find leftmost uninitialized location */
-    while (sx > 0 &&
-           (anyroom ? IS_ROOM(lev->locations[sx][sy].typ) : lev->
-            locations[sx][sy].typ == fg_typ) &&
+    while (sx >= 0 &&
+           (anyroom ? IS_ROOM(lev->locations[sx][sy].typ) :
+            lev->locations[sx][sy].typ == fg_typ) &&
            (int)lev->locations[sx][sy].roomno != rmno)
         sx--;
     sx++;       /* compensate for extra decrement */
@@ -251,12 +252,13 @@ wallify_map(struct level *lev)
 
     int x, y, xx, yy;
 
-    for (x = 1; x < COLNO; x++)
+    for (x = 0; x < COLNO; x++)
         for (y = 0; y < ROWNO; y++)
             if (lev->locations[x][y].typ == STONE) {
                 for (yy = y - 1; yy <= y + 1; yy++)
                     for (xx = x - 1; xx <= x + 1; xx++)
-                        if (isok(xx, yy) && lev->locations[xx][yy].typ == ROOM) {
+                        if (isok(xx, yy) &&
+                            lev->locations[xx][yy].typ == ROOM) {
                             if (yy != y)
                                 lev->locations[x][y].typ = HWALL;
                             else
@@ -274,8 +276,10 @@ join_map(struct level *lev, schar bg_typ, schar fg_typ)
     int sx, sy;
     coord sm, em;
 
+    enum rng rng = rng_for_level(&lev->z);
+
     /* first, use flood filling to find all of the regions that need joining */
-    for (i = 2; i <= WIDTH; i++)
+    for (i = 1; i <= WIDTH; i++)
         for (j = 1; j < HEIGHT; j++) {
             if (lev->locations[i][j].typ == fg_typ &&
                 lev->locations[i][j].roomno == NO_ROOM) {
@@ -315,7 +319,7 @@ joinm:
     for (croom = &lev->rooms[0], croom2 = croom + 1;
          croom2 < &lev->rooms[lev->nroom];) {
         /* pick random starting and end locations for "corridor" */
-        if (!somexy(lev, croom, &sm) || !somexy(lev, croom2, &em)) {
+        if (!somexy(lev, croom, &sm, rng) || !somexy(lev, croom2, &em, rng)) {
             /* ack! -- the level is going to be busted */
             /* arbitrarily pick centers of both rooms and hope for the best */
             impossible("No start/end room loc in join_map.");
@@ -330,7 +334,8 @@ joinm:
         /* choose next region to join */
         /* only increment croom if croom and croom2 are non-overlapping */
         if (croom2->lx > croom->hx ||
-            ((croom2->ly > croom->hy || croom2->hy < croom->ly) && rn2(3))) {
+            ((croom2->ly > croom->hy || croom2->hy < croom->ly) &&
+             mklev_rn2(3, lev))) {
             croom = croom2;
         }
         croom2++;       /* always increment the next room */
@@ -347,7 +352,7 @@ finish_map(struct level *lev, schar fg_typ, schar bg_typ, boolean lit,
         wallify_map(lev);
 
     if (lit) {
-        for (i = 1; i < COLNO; i++)
+        for (i = 0; i < COLNO; i++)
             for (j = 0; j < ROWNO; j++)
                 if ((!IS_ROCK(fg_typ) && lev->locations[i][j].typ == fg_typ) ||
                     (!IS_ROCK(bg_typ) && lev->locations[i][j].typ == bg_typ) ||
@@ -358,7 +363,7 @@ finish_map(struct level *lev, schar fg_typ, schar bg_typ, boolean lit,
             lev->rooms[i].rlit = 1;
     }
     /* light lava even if everything's otherwise unlit */
-    for (i = 1; i < COLNO; i++)
+    for (i = 0; i < COLNO; i++)
         for (j = 0; j < ROWNO; j++)
             if (lev->locations[i][j].typ == LAVAPOOL)
                 lev->locations[i][j].lit = TRUE;
@@ -399,8 +404,8 @@ remove_rooms(struct level *lev, int lx, int ly, int hx, int hy)
 }
 
 /*
- * Remove roomno from the level->rooms array, decrementing level->nroom.  Also updates
- * all level roomno values of affected higher numbered rooms.  Assumes
+ * Remove roomno from the level->rooms array, decrementing level->nroom.  Also
+ * updates all level roomno values of affected higher numbered rooms.  Assumes
  * level structure contents corresponding to roomno have already been reset.
  * Currently handles only the removal of rooms that have no subrooms.
  */
@@ -431,12 +436,12 @@ remove_room(struct level *lev, unsigned roomno)
     maxroom->hx = -1;   /* just like add_room */
 }
 
-#define N_P1_ITER 1       /* tune map generation via this value */
-#define N_P2_ITER 1       /* tune map generation via this value */
-#define N_P3_ITER 2       /* tune map smoothing via this value */
+#define N_P1_ITER 1     /* tune map generation via this value */
+#define N_P2_ITER 1     /* tune map generation via this value */
+#define N_P3_ITER 2     /* tune map smoothing via this value */
 
 void
-mkmap(struct level *lev, lev_init * init_lev)
+mkmap(struct level *lev, lev_init *init_lev)
 {
     schar bg_typ = init_lev->bg, fg_typ = init_lev->fg;
     boolean smooth = init_lev->smoothed, join = init_lev->joined;
@@ -444,7 +449,8 @@ mkmap(struct level *lev, lev_init * init_lev)
     int i;
 
     if (lit < 0)
-        lit = (rnd(1 + abs(depth(&u.uz))) < 11 && rn2(77)) ? 1 : 0;
+        lit = (mklev_rn2(1 + abs(depth(&u.uz)), lev) < 10 &&
+               mklev_rn2(77, lev)) ? 1 : 0;
 
     new_locations = malloc((WIDTH + 1) * HEIGHT);
 
@@ -474,3 +480,4 @@ mkmap(struct level *lev, lev_init * init_lev)
 }
 
 /*mkmap.c*/
+

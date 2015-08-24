@@ -1,44 +1,37 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-21 */
 /* Copyright (c) Daniel Thaler, 2011. */
 /* The NetHack server may be freely redistributed under the terms of either:
  *  - the NetHack license
  *  - the GNU General Public license v2 or later
  */
 
+/* For POLLRDHUP */
+#ifndef _GNU_SOURCE
+# define _GNU_SOURCE
+#endif
+
 #include "nhserver.h"
-#include <poll.h>
 #include <ctype.h>
 
+#define DEFAULT_NETHACKDIR "/usr/share/NetHack4/"
+
 #define COMMBUF_SIZE (1024 * 1024)
-
-/* copied from nhcurses.h */
-#ifdef AIMAKE_OPTION_datadir
-# ifndef NETHACKDIR
-#  define NETHACKDIR STRINGIFY_OPTION(AIMAKE_OPTION_datadir)
-# endif
-#endif
-#ifndef STRINGIFY_OPTION
-# define STRINGIFY_OPTION(x) STRINGIFY_OPTION_1(x)
-# define STRINGIFY_OPTION_1(x) #x
-#endif
-
-
-#ifndef NETHACKDIR
-# define NETHACKDIR "/usr/share/NetHack4/"
-#endif
 
 static int infd, outfd;
 int gamefd;
 long gameid;    /* id in the database */
 struct user_info user_info;
-int can_send_msg;
-
+static int can_send_msg;
+static volatile sig_atomic_t currently_sending_message;
+static volatile sig_atomic_t send_server_cancel;
 
 static char **
 init_game_paths(void)
 {
-    char **pathlist = malloc(sizeof (char *) * PREFIX_COUNT);
-    char *dir = NULL, *tmp;
+    const char *pathlist[PREFIX_COUNT];
+    char **pathlist_copy = malloc(sizeof (char *) * PREFIX_COUNT);
+    const char *dir = NULL;
     int i, len;
 
     if (getgid() == getegid()) {
@@ -47,48 +40,119 @@ init_game_paths(void)
             dir = getenv("HACKDIR");
     }
 
-    if (!dir)
-        dir = NETHACKDIR;
+    if (!dir || !*dir)
+        dir = aimake_get_option("gamesdatadir");
+
+    if (!dir || !*dir)
+        dir = DEFAULT_NETHACKDIR;
 
     for (i = 0; i < PREFIX_COUNT; i++)
         pathlist[i] = dir;
 
-#ifdef AIMAKE_OPTION_statedir
-    pathlist[BONESPREFIX] = STRINGIFY_OPTION(AIMAKE_OPTION_statedir);
-    pathlist[SCOREPREFIX] = STRINGIFY_OPTION(AIMAKE_OPTION_statedir);
-    pathlist[TROUBLEPREFIX] = STRINGIFY_OPTION(AIMAKE_OPTION_statedir);
-    pathlist[DUMPPREFIX] = STRINGIFY_OPTION(AIMAKE_OPTION_statedir);
-#endif
-#ifdef AIMAKE_OPTION_specificlockdir
-    pathlist[LOCKPREFIX] = STRINGIFY_OPTION(AIMAKE_OPTION_specificlockdir);
-#endif
-    /* and leave HACKDIR to provide the data */
+    /* If the build system gave us more specific directories, use them. */
+    const char *temp_path;
+
+    temp_path = aimake_get_option("gamesstatedir");
+    if (temp_path) {
+        pathlist[BONESPREFIX] = temp_path;
+        pathlist[SCOREPREFIX] = temp_path;
+        pathlist[TROUBLEPREFIX] = temp_path;
+        pathlist[DUMPPREFIX] = temp_path;
+    }
+
+    temp_path = aimake_get_option("specificlockdir");
+    if (temp_path)
+        pathlist[LOCKPREFIX] = temp_path;
+    /* and leave NETHACKDIR to provide the data */
 
     /* alloc memory for the paths and append slashes as required */
     for (i = 0; i < PREFIX_COUNT; i++) {
-        tmp = pathlist[i];
-        len = strlen(tmp);
-        pathlist[i] = malloc(len + 2);
+        len = strlen(pathlist[i]);
+        pathlist_copy[i] = malloc(len + (i == DUMPPREFIX ? 8 : 2));
 
-        strcpy(pathlist[i], tmp);
-        if (pathlist[i][len - 1] != '/') {
-            pathlist[i][len] = '/';
-            pathlist[i][len + 1] = '\0';
+        strcpy(pathlist_copy[i], pathlist[i]);
+        if (pathlist_copy[i][len - 1] != '/') {
+            pathlist_copy[i][len] = '/';
+            pathlist_copy[i][len + 1] = '\0';
+            len++;
+        }
+        if (i == DUMPPREFIX) {
+            sprintf(pathlist_copy[i] + len, "dumps/");
         }
     }
 
-    strcpy(pathlist[DUMPPREFIX], "./");
-
-    return pathlist;
+    return pathlist_copy;
 }
 
-
+/* The low-level function responsible for doing the actual sending. This is
+   async-signal-safe if the second argument is TRUE (this happens in signal
+   handlers; also during exits for any reason, to prevent the exit code running
+   recursively). */
 void
-client_msg(const char *key, json_t * value)
+send_string_to_client(const char *jsonstr, int defer_errors)
 {
-    int len, ret, pos;
+    int len = strlen(jsonstr);
+    int pos = 0;
+    int ret;
+
+    currently_sending_message++;
+    do {
+        /* For NetHack 4.3, we separate the messages we send with NUL characters
+           (which are not legal in JSON), so that the client can more easily
+           find the boundary between messages. (NitroHack relied on separating
+           messages using the boundary between packets, which doesn't work in
+           practice.) The NUL is added using the terminating NUL of jsonstr. */
+        ret = write(outfd, jsonstr + pos, len + 1 - pos);
+        if (ret == -1 && (errno == EINTR || errno == EAGAIN))
+            continue;
+        else if (ret == -1 || ret == 0) {   /* bad news */
+            if (defer_errors) {
+                currently_sending_message--;
+                return; /* handle the error later */
+            }
+
+            /* since we just found we can't write output to the pipe,
+               prevent any more tries */
+            close(infd);
+            close(outfd);
+            infd = outfd = -1;
+            exit_client(NULL, 0);      /* Goodbye. */
+        }
+        pos += ret;
+    } while (pos < len);
+    currently_sending_message--;
+}
+
+/* Server cancels work differently from other messages; they can be sent out of
+   sequence, can be sent from signal handlers, and don't have a response.
+
+   This function runs async-signal! It can't touch globals, unless they're
+   volatile; it can't allocate memory on the heap (which is why the JSON is
+   hard-coded); and it can't call any function in the libc, except those
+   specifially marked as safe (such as "write"). */
+void
+client_server_cancel_msg(void)
+{
+    if (currently_sending_message) {
+        /* send it later, we don't want one message inside another */
+        send_server_cancel = 1;
+        return;
+    }
+
+    int save_errno = errno;
+
+    send_string_to_client("{\"server_cancel\":{}}", TRUE);
+
+    errno = save_errno;
+}
+
+static void
+client_msg_core(const char *key, json_t *value, nh_bool from_exit)
+{
     char *jsonstr;
     json_t *jval, *display_data;
+
+    currently_sending_message = 1;
 
     jval = json_object();
 
@@ -104,32 +168,30 @@ client_msg(const char *key, json_t * value)
     jsonstr = json_dumps(jval, JSON_COMPACT);
     json_decref(jval);
 
-    if (can_send_msg) {
-        len = strlen(jsonstr);
-        pos = 0;
-        do {
-            ret = write(outfd, &jsonstr[pos], len - pos);
-            if (ret == -1 && (errno == EINTR || errno == EAGAIN))
-                continue;
-            else if (ret == -1 || ret == 0) {   /* bad news */
-                /* since we just found we can't write output to the pipe,
-                   prevent any more tries */
-                close(infd);
-                close(outfd);
-                infd = outfd = -1;
-                exit_client(NULL);      /* Goodbye. */
-            }
-            pos += ret;
-        } while (pos < len);
-    }
+    if (can_send_msg)
+        send_string_to_client(jsonstr, from_exit);
+
     /* this message is sent; don't send another */
     can_send_msg = FALSE;
 
     free(jsonstr);
+
+    currently_sending_message = 0;
+
+    if (send_server_cancel) {
+        client_server_cancel_msg();
+        send_server_cancel = 0;
+    }
 }
 
 void
-exit_client(const char *err)
+client_msg(const char *key, json_t *value)
+{
+    client_msg_core(key, value, FALSE);
+}
+
+noreturn void
+exit_client(const char *err, int coredumpsignal)
 {
     const char *msg = err ? err : "";
     json_t *exit_obj;
@@ -144,12 +206,10 @@ exit_client(const char *err)
                             err ? json_true() : json_false());
         json_object_set_new(exit_obj, "message", json_string(msg));
         if (can_send_msg)
-            client_msg("server_error", exit_obj);
+            client_msg_core("server_error", exit_obj, TRUE);
         else
             json_decref(exit_obj);
 
-        usleep(100);    /* try to make sure the server process handles write()
-                           before close(). */
         close(infd);
         close(outfd);
         infd = outfd = -1;
@@ -158,15 +218,16 @@ exit_client(const char *err)
     termination_flag = 3;       /* make sure the command loop exits if
                                    nh_exit_game jumps there */
     if (!sigsegv_flag)
-        nh_exit_game(EXIT_FORCE_SAVE);  /* might not return here */
+        nh_exit_game(EXIT_SAVE);  /* might not return here */
     nh_lib_exit();
-    close_database();
+
     if (user_info.username)
         free(user_info.username);
     free_config();
-    reset_cached_diplaydata();
-    end_logging();
-    exit(err != NULL);
+    reset_cached_displaydata();
+
+    exit_server(err == NULL ? EXIT_SUCCESS : EXIT_FAILURE,
+                coredumpsignal);
 }
 
 
@@ -186,14 +247,14 @@ read_input(void)
     while (!done && !termination_flag) {
         ret = poll(pfd, 1, settings.client_timeout * 1000);
         if (ret == 0)
-            exit_client("Inactivity timeout");
+            exit_client("Inactivity timeout", 0);
 
         ret = read(infd, &commbuf[datalen], COMMBUF_SIZE - datalen - 1);
         if (ret == -1)
             continue;   /* sone signals will set termination_flag, others won't 
                          */
         else if (ret == 0)
-            exit_client("Input pipe lost");
+            exit_client("Input pipe lost", 0);
         datalen += ret;
 
         if (commbuf[datalen - ret] == '\033') {
@@ -220,14 +281,14 @@ read_input(void)
             if (jval)
                 done = TRUE;
             else if (err.position < datalen)
-                exit_client("Bad JSON data received");
+                exit_client("Bad JSON data received", 0);
         }
 
         if (!jval && datalen >= COMMBUF_SIZE - 1)
-            exit_client("Max allowed input length exceeded");
+            exit_client("Max allowed input length exceeded", 0);
         /* too much data received */
     }
-    /* message received; mow it's our turn to send */
+    /* message received; now it's our turn to send */
     can_send_msg = TRUE;
     return jval;
 }
@@ -252,7 +313,7 @@ client_main_loop(void)
 
         iter = json_object_iter(obj);
         if (!iter)
-            exit_client("Empty command object received.");
+            exit_client("Empty command object received.", 0);
 
         /* find a command function to call */
         key = json_object_iter_key(iter);
@@ -264,11 +325,12 @@ client_main_loop(void)
             }
 
         if (!clientcmd[i].name)
-            exit_client("Unknown command");
+            exit_client("Unknown command", 0);
 
         iter = json_object_iter_next(obj, iter);
         if (iter)
-            exit_client("More than one command received. This is unsupported.");
+            exit_client(
+                "More than one command received. This is unsupported.", 0);
 
         json_decref(obj);
     }
@@ -283,7 +345,7 @@ client_main_loop(void)
  * An instance of NetHack will run in this process under the control of the
  * remote player. 
  */
-void
+noreturn void
 client_main(int userid, int _infd, int _outfd)
 {
     char **gamepaths;
@@ -293,22 +355,18 @@ client_main(int userid, int _infd, int _outfd)
     outfd = _outfd;
     gamefd = -1;
 
-    init_database();
     if (!db_get_user_info(userid, &user_info)) {
         log_msg("get_user_info error for uid %d!", userid);
-        exit_client("database error");
+        exit_client("database error", SIGABRT);
     }
 
     gamepaths = init_game_paths();
-    nh_lib_init(&server_windowprocs, gamepaths);
+    nh_lib_init(&server_windowprocs, (const char *const *)gamepaths);
     for (i = 0; i < PREFIX_COUNT; i++)
         free(gamepaths[i]);
     free(gamepaths);
 
-    db_restore_options(userid);
-
     client_main_loop();
 
-    exit_client(NULL);
-     /*NOTREACHED*/ return;
+    exit_client(NULL, 0);
 }

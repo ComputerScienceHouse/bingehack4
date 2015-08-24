@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-02-02 */
 /* Copyright (c) Daniel Thaler, 2011 */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -45,9 +46,8 @@ center(char *line, char *text)
 
 
 void
-curses_outrip(struct nh_menuitem *items, int icount, nh_bool tombstone,
-              const char *plname, int gold, const char *killbuf, int end_how,
-              int year)
+curses_outrip(struct nh_menulist *ml, nh_bool tombstone, const char *plname,
+              int gold, const char *killbuf, int end_how, int year)
 {
     char **dp, **rip;
     char *dpx;
@@ -57,21 +57,32 @@ curses_outrip(struct nh_menuitem *items, int icount, nh_bool tombstone,
 
     /* clear all game windows and print to the screen directly. Those windows
        will be destroyed later. */
-    clear();
+    erase();
 
     if (tombstone) {
+        /* These allocations are safe because we deallocate them before doing
+           any reading from the user or API calls, thus we don't need to worry
+           about exceptions while they're allocated */
         rip = dp = malloc(sizeof (rip_txt));
         for (x = 0; rip_txt[x]; x++)
             dp[x] = strdup(rip_txt[x]);
         dp[x] = NULL;
 
+        if (x < NAME_LINE || x < GOLD_LINE) {
+            /* We got malicious input from the server. */
+            dealloc_menulist(ml); /* must come before getch() */
+            curses_msgwin("Invalid tombstone data received from server!",
+                          krc_notification);
+            return;
+        }
+
         /* Put name on stone */
-        sprintf(buf, "%s", plname);
+        snprintf(buf, ARRAY_SIZE(buf), "%s", plname);
         buf[STONE_LINE_LEN] = 0;
         center(rip[NAME_LINE], buf);
 
         /* Put $ on stone */
-        sprintf(buf, "%d Au", gold);
+        snprintf(buf, ARRAY_SIZE(buf), "%d Au", gold);
         buf[STONE_LINE_LEN] = 0;        /* It could be a *lot* of gold :-) */
         center(rip[GOLD_LINE], buf);
 
@@ -100,7 +111,7 @@ curses_outrip(struct nh_menuitem *items, int icount, nh_bool tombstone,
         }
 
         /* Put year on stone */
-        sprintf(buf, "%4d", year);
+        snprintf(buf, ARRAY_SIZE(buf), "%4d", year);
         center(rip[YEAR_LINE], buf);
 
         for (i = 0; rip[i]; i++) {
@@ -112,9 +123,11 @@ curses_outrip(struct nh_menuitem *items, int icount, nh_bool tombstone,
         txtpos = sizeof (rip_txt) / sizeof (rip_txt[0]) + 2;
     }
 
-    for (i = 0; i < icount; i++)
-        mvaddstr(txtpos + i, 0, items[i].caption);
+    for (i = 0; i < ml->icount; i++)
+        mvaddstr(txtpos + i, 0, ml->items[i].caption);
     mvaddstr(LINES - 1, 0, "--More--");
+
+    dealloc_menulist(ml); /* must come before getch() */
 
     refresh();
     getch();

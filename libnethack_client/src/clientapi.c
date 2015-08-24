@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) Daniel Thaler, 2012. */
 /* The NetHack client lib may be freely redistributed under the terms of either:
  *  - the NetHack license
@@ -6,16 +7,20 @@
  */
 
 #include "nhclient.h"
+#include "xmalloc.h"
 
-struct nh_window_procs windowprocs, alt_windowprocs;
+struct nh_window_procs client_windowprocs;
 int current_game;
-struct nh_option_desc *option_lists[OPTION_LIST_COUNT];
 
 #ifdef UNIX
 # include <signal.h>
 static struct sigaction oldaction;
 #endif
 
+/* We define the lifetime of pointers returned by clientapi.c as being until the
+   next call into clientapi.c (except for nhnet_input_aborted, which explicitly
+   does not deallocate the pointers). */
+static struct xmalloc_block *xm_blocklist = NULL;
 
 void
 nhnet_lib_init(const struct nh_window_procs *winprocs)
@@ -33,18 +38,18 @@ nhnet_lib_init(const struct nh_window_procs *winprocs)
     sigaction(SIGPIPE, &ignoreaction, &oldaction);
 #endif
 
-    windowprocs = *winprocs;
-    alt_windowprocs = *winprocs;
+    client_windowprocs = *winprocs;
 }
 
 
 void
 nhnet_lib_exit(void)
 {
+    xmalloc_cleanup(&xm_blocklist);
+
     if (nhnet_connected())
         nhnet_disconnect();
 
-    xmalloc_cleanup();
     conn_err = FALSE;
 
 #ifdef WIN32
@@ -62,19 +67,22 @@ nhnet_exit_game(int exit_type)
     json_t *jmsg;
     int ret;
 
+    xmalloc_cleanup(&xm_blocklist);
+
     if (!nhnet_active())
         return nh_exit_game(exit_type);
 
-    xmalloc_cleanup();
+    if (!current_game)
+        return 1;
 
     if (!api_entry())
-        return 0;
+        return 1;
 
     jmsg = json_pack("{si}", "exit_type", exit_type);
     jmsg = send_receive_msg("exit_game", jmsg);
-    if (json_unpack(jmsg, "{si!}", "return", &ret) == -1) {
+    if (json_unpack(jmsg, "{sb!}", "return", &ret) == -1) {
         print_error("Incorrect return object in nhnet_exit_game");
-        ret = 0;
+        ret = 1;
     }
     json_decref(jmsg);
 
@@ -88,18 +96,21 @@ nhnet_exit_game(int exit_type)
 struct nhnet_game *
 nhnet_list_games(int done, int show_all, int *count)
 {
-    int i, has_amulet;
+    int i;
     json_t *jmsg, *jarr, *jobj;
     struct nhnet_game *gb;
-    struct nhnet_game *gamebuf = NULL;
-    const char *plname, *plrole, *plrace, *plgend, *plalign, *level_desc,
-        *death;
+    struct nhnet_game *volatile gamebuf = NULL;
+    const char *plname, *plrole, *plrace, *plgend, *plalign, *game_state;
+
+    *count = 0; /* if we error out, we want this to be initialized */
 
     if (!api_entry())
         return NULL;
 
+    xmalloc_cleanup(&xm_blocklist);
+
     jmsg =
-        json_pack("{si,si,si}", "limit", 0, "completed", done, "show_all",
+        json_pack("{si,sb,sb}", "limit", 0, "completed", done, "show_all",
                   show_all);
     jmsg = send_receive_msg("list_games", jmsg);
     if (json_unpack(jmsg, "{so!}", "games", &jarr) == -1 ||
@@ -108,16 +119,17 @@ nhnet_list_games(int done, int show_all, int *count)
         *count = 0;
     } else {
         *count = json_array_size(jarr);
-        gamebuf = xmalloc(*count * sizeof (struct nhnet_game));
+        gamebuf = xmalloc(&xm_blocklist, *count * sizeof (struct nhnet_game));
         for (i = 0; i < *count; i++) {
             gb = &gamebuf[i];
             memset(gb, 0, sizeof (struct nhnet_game));
             jobj = json_array_get(jarr, i);
             if (json_unpack
-                (jobj, "{si,si,si,ss,ss,ss,ss,ss*}", "gameid", &gb->gameid,
+                (jobj, "{si,si,si,ss,ss,ss,ss,ss,ss*}", "gameid", &gb->gameid,
                  "status", &gb->status, "playmode", &gb->i.playmode, "plname",
                  &plname, "plrole", &plrole, "plrace", &plrace, "plgend",
-                 &plgend, "plalign", &plalign) == -1) {
+                 &plgend, "plalign", &plalign, "game_state", &game_state) ==
+                -1) {
                 print_error("Invalid game info object.");
                 continue;
             }
@@ -126,19 +138,7 @@ nhnet_list_games(int done, int show_all, int *count)
             strncpy(gb->i.plrace, plrace, PLRBUFSZ - 1);
             strncpy(gb->i.plgend, plgend, PLRBUFSZ - 1);
             strncpy(gb->i.plalign, plalign, PLRBUFSZ - 1);
-
-            if (gb->status == LS_SAVED) {
-                json_unpack(jobj, "{ss,si,si,si*}", "level_desc", &level_desc,
-                            "moves", &gb->i.moves, "depth", &gb->i.depth,
-                            "has_amulet", &has_amulet);
-                gb->i.has_amulet = has_amulet;
-                strncpy(gb->i.level_desc, level_desc,
-                        sizeof (gb->i.level_desc) - 1);
-            } else if (gb->status == LS_DONE) {
-                json_unpack(jobj, "{ss,si,si*}", "death", &death, "moves",
-                            &gb->i.moves, "depth", &gb->i.depth);
-                strncpy(gb->i.death, death, sizeof (gb->i.death) - 1);
-            }
+            strncpy(gb->i.game_state, game_state, COLNO - 1);
         }
     }
     json_decref(jmsg);
@@ -149,190 +149,133 @@ nhnet_list_games(int done, int show_all, int *count)
 
 
 int
-nhnet_restore_game(int gid, struct nh_window_procs *rwinprocs)
+nhnet_play_game(int gid, enum nh_followmode followmode)
 {
     int ret;
     json_t *jmsg;
 
+    if (!nhnet_active())
+        return nh_play_game(gid, followmode);
+
     if (!api_entry())
         return ERR_NETWORK_ERROR;
 
-    jmsg = json_pack("{si}", "gameid", gid);
-    jmsg = send_receive_msg("restore_game", jmsg);
+    xmalloc_cleanup(&xm_blocklist);
+
+    jmsg = json_pack("{si,si}", "gameid", gid, "followmode", followmode);
+    current_game = gid;
+    jmsg = send_receive_msg("play_game", jmsg);
+    current_game = 0;
     if (json_unpack(jmsg, "{si!}", "return", &ret) == -1) {
-        print_error("Incorrect return object in nhnet_restore_game");
+        print_error("Incorrect return object in nhnet_play_game");
         ret = ERR_NETWORK_ERROR;        /* we don't know the error actually
                                            was, any error code will do */
     }
     json_decref(jmsg);
-
-    if (ret == GAME_RESTORED)
-        current_game = gid;
-
     api_exit();
     return ret;
 }
 
 
-nh_bool
-nhnet_start_game(const char *name, int role, int race, int gend, int align,
-                 enum nh_game_modes playmode)
+static json_t *
+json_list(const struct nh_listitem *list, int len)
 {
-    int ret;
-    json_t *jmsg;
+    int i;
+    json_t *jarr = json_array();
+
+    xmalloc_cleanup(&xm_blocklist);
+
+    for (i = 0; i < len; i++)
+        json_array_append_new(jarr,
+                              json_pack("{si,ss}", "id", list[i].id, "txt",
+                                        list[i].caption));
+    return jarr;
+}
+
+
+static json_t *
+json_option(const struct nh_option_desc *option)
+{
+    int i;
+    json_t *jopt, *joptval, *joptdesc, *jobj;
+    struct nh_autopickup_rule *r;
+
+    xmalloc_cleanup(&xm_blocklist);
+
+    switch (option->type) {
+    case OPTTYPE_BOOL:
+        joptval = json_integer(option->value.b);
+        joptdesc = json_object();
+        break;
+
+    case OPTTYPE_INT:
+        joptval = json_integer(option->value.i);
+        joptdesc =
+            json_pack("{si,si}", "max", option->i.max, "min", option->i.min);
+        break;
+
+    case OPTTYPE_ENUM:
+        joptval = json_integer(option->value.e);
+        joptdesc = json_list(option->e.choices, option->e.numchoices);
+        break;
+
+    case OPTTYPE_STRING:
+        joptval = json_string(option->value.s);
+        joptdesc = json_integer(option->s.maxlen);
+        break;
+
+    case OPTTYPE_AUTOPICKUP_RULES:
+        joptdesc = json_list(option->a.classes, option->a.numclasses);
+        joptval = json_array();
+        for (i = 0; option->value.ar && i < option->value.ar->num_rules; i++) {
+            r = &option->value.ar->rules[i];
+            jobj =
+                json_pack("{ss,si,si,si}", "pattern", r->pattern, "oclass",
+                          r->oclass, "buc", r->buc, "action", r->action);
+            json_array_append_new(joptval, jobj);
+        }
+        break;
+
+    default:
+        joptdesc = json_string("<error: no description for option>");
+        joptval = json_string("<error>");
+        break;
+    }
+
+    jopt =
+        json_pack("{ss,ss,si,so,so,si}", "name", option->name, "helptxt",
+                  option->helptxt, "type", option->type, "value", joptval,
+                  "desc", joptdesc, "birth", option->birth_option);
+    return jopt;
+}
+
+
+enum nh_create_response
+nhnet_create_game(struct nh_option_desc *opts_orig)
+{
+    json_t *jmsg, *jarr;
+    int ret, i;
+    struct nh_option_desc *volatile opts = opts_orig;
 
     if (!api_entry())
         return 0;
 
-    jmsg =
-        json_pack("{ss,si,si,si,si,si}", "name", name, "role", role, "race",
-                  race, "gender", gend, "alignment", align, "mode", playmode);
-    jmsg = send_receive_msg("start_game", jmsg);
-    if (json_unpack(jmsg, "{si,si!}", "return", &ret, "gameid", &current_game)
-        == -1) {
-        print_error("Incorrect return object in nhnet_start_game");
-        ret = 0;
+    xmalloc_cleanup(&xm_blocklist);
+
+    jarr = json_array();
+    for (i = 0; opts[i].name; i++)
+        json_array_append_new(jarr, json_option(&opts[i]));
+
+    jmsg = json_pack("{so}", "options", jarr);
+    jmsg = send_receive_msg("create_game", jmsg);
+    if (json_unpack(jmsg, "{si}", "return", &ret) == -1) {
+        print_error("Incorrect return object in nhnet_create_game");
+        ret = NHCREATE_FAIL;
     }
 
     json_decref(jmsg);
     api_exit();
     return ret;
-}
-
-
-int
-nhnet_command(const char * volatile cmd, int rep, struct nh_cmd_arg *arg)
-{
-    int ret;
-    json_t *jmsg, *jarg;
-
-    if (!nhnet_active())
-        return nh_command(cmd, rep, arg);
-
-    if (!api_entry())
-        return ERR_NETWORK_ERROR;
-
-    xmalloc_cleanup();
-
-    switch (arg->argtype) {
-    case CMD_ARG_DIR:
-        jarg = json_pack("{si,si}", "argtype", arg->argtype, "d", arg->d);
-        break;
-
-    case CMD_ARG_POS:
-        jarg =
-            json_pack("{si,si,si}", "argtype", arg->argtype, "x", arg->pos.x,
-                      "y", arg->pos.y);
-        break;
-
-    case CMD_ARG_OBJ:
-        jarg =
-            json_pack("{si,si}", "argtype", arg->argtype, "invlet",
-                      arg->invlet);
-        break;
-
-    case CMD_ARG_NONE:
-    default:
-        jarg = json_pack("{si}", "argtype", arg->argtype);
-        break;
-    }
-
-    jmsg =
-        json_pack("{ss,so,si}", "command", cmd ? cmd : "", "arg", jarg, "count",
-                  rep);
-    jmsg = send_receive_msg("game_command", jmsg);
-    if (json_unpack(jmsg, "{si!}", "return", &ret) == -1) {
-        print_error("Incorrect return object in nhnet_command");
-        ret = 0;
-    }
-
-    json_decref(jmsg);
-    api_exit();
-    return ret;
-}
-
-
-nh_bool
-nhnet_view_replay_start(int fd, struct nh_window_procs * rwinprocs,
-                        struct nh_replay_info * info)
-{
-    int ret;
-    json_t *jmsg;
-    const char *nextcmd;
-
-    if (!nhnet_active())
-        return nh_view_replay_start(fd, rwinprocs, info);
-
-    if (!api_entry())
-        return FALSE;
-
-    alt_windowprocs = *rwinprocs;
-
-    jmsg = send_receive_msg("view_start", json_pack("{si}", "gameid", fd));
-    if (json_unpack
-        (jmsg, "{si,s:{ss,si,si,si,si}}", "return", &ret, "info", "nextcmd",
-         &nextcmd, "actions", &info->actions, "max_actions", &info->max_actions,
-         "moves", &info->moves, "max_moves", &info->max_moves) == -1) {
-        print_error("Incorrect return object in nhnet_view_replay_step");
-        ret = 0;
-    } else
-        strncpy(info->nextcmd, nextcmd, sizeof (info->nextcmd) - 1);
-
-    api_exit();
-    return ret;
-}
-
-
-nh_bool
-nhnet_view_replay_step(struct nh_replay_info * info, enum replay_control action,
-                       int count)
-{
-    int ret;
-    json_t *jmsg;
-    const char *nextcmd;
-
-    if (!nhnet_active())
-        return nh_view_replay_step(info, action, count);
-
-    if (!api_entry())
-        return FALSE;
-
-    jmsg =
-        send_receive_msg("view_step",
-                         json_pack("{si,si,s:{si,si,si,si}}", "action", action,
-                                   "count", count, "info", "actions",
-                                   info->actions, "max_actions",
-                                   info->max_actions, "moves", info->moves,
-                                   "max_moves", info->max_moves));
-    if (json_unpack
-        (jmsg, "{si,s:{ss,si,si,si,si}}", "return", &ret, "info", "nextcmd",
-         &nextcmd, "actions", &info->actions, "max_actions", &info->max_actions,
-         "moves", &info->moves, "max_moves", &info->max_moves) == -1) {
-        print_error("Incorrect return object in nhnet_view_replay_step");
-    } else
-        strncpy(info->nextcmd, nextcmd, sizeof (info->nextcmd) - 1);
-
-    api_exit();
-    return ret;
-}
-
-
-void
-nhnet_view_replay_finish(void)
-{
-    if (!nhnet_active())
-        return nh_view_replay_finish();
-
-    xmalloc_cleanup();
-
-    alt_windowprocs = windowprocs;
-
-    if (!api_entry())
-        return;
-
-    send_receive_msg("view_finish", json_object());
-
-    api_exit();
 }
 
 
@@ -341,7 +284,7 @@ nhnet_get_commands(int *count)
 {
     int i, defkey, altkey;
     json_t *jmsg, *jarr, *jobj;
-    struct nh_cmd_desc *cmdlist = NULL;
+    struct nh_cmd_desc *volatile cmdlist = NULL;
     const char *name, *desc;
 
     if (!nhnet_active())
@@ -350,14 +293,16 @@ nhnet_get_commands(int *count)
     if (!api_entry())
         return 0;
 
+    xmalloc_cleanup(&xm_blocklist);
+
     jmsg = json_object();
     jmsg = send_receive_msg("get_commands", jmsg);
     if (json_unpack(jmsg, "{so!}", "cmdlist", &jarr) == -1 ||
         !json_is_array(jarr)) {
-        print_error("Incorrect return object in nhnet_restore_game");
+        print_error("Incorrect return object in nhnet_get_commands");
     } else {
         *count = json_array_size(jarr);
-        cmdlist = xmalloc(*count * sizeof (struct nh_cmd_desc));
+        cmdlist = xmalloc(&xm_blocklist, *count * sizeof (struct nh_cmd_desc));
 
         for (i = 0; i < *count; i++) {
             jobj = json_array_get(jarr, i);
@@ -382,7 +327,7 @@ nhnet_get_object_commands(int *count, char invlet)
 {
     int i, defkey, altkey;
     json_t *jmsg, *jarr, *jobj;
-    struct nh_cmd_desc *cmdlist = NULL;
+    struct nh_cmd_desc *volatile cmdlist = NULL;
     const char *name, *desc;
 
     if (!nhnet_active())
@@ -391,6 +336,8 @@ nhnet_get_object_commands(int *count, char invlet)
     if (!api_entry())
         return 0;
 
+    xmalloc_cleanup(&xm_blocklist);
+
     jmsg = json_pack("{si}", "invlet", invlet);
     jmsg = send_receive_msg("get_obj_commands", jmsg);
     if (json_unpack(jmsg, "{so!}", "cmdlist", &jarr) == -1 ||
@@ -398,7 +345,7 @@ nhnet_get_object_commands(int *count, char invlet)
         print_error("Incorrect return object in nhnet_get_object_commands");
     } else {
         *count = json_array_size(jarr);
-        cmdlist = xmalloc(*count * sizeof (struct nh_cmd_desc));
+        cmdlist = xmalloc(&xm_blocklist, *count * sizeof (struct nh_cmd_desc));
 
         for (i = 0; i < *count; i++) {
             jobj = json_array_get(jarr, i);
@@ -428,13 +375,13 @@ read_symdef_array(json_t * jarr)
     char *str;
 
     size = json_array_size(jarr);
-    arr = xmalloc(size * sizeof (struct nh_symdef));
+    arr = xmalloc(&xm_blocklist, size * sizeof (struct nh_symdef));
 
     for (i = 0; i < size; i++) {
         jobj = json_array_get(jarr, i);
         json_unpack(jobj, "[s,i,i!]", &symname, &ch, &arr[i].color);
         arr[i].ch = ch;
-        str = xmalloc(strlen(symname) + 1);
+        str = xmalloc(&xm_blocklist, strlen(symname) + 1);
         strcpy(str, symname);
         arr[i].symname = str;
     }
@@ -456,8 +403,10 @@ nhnet_get_drawing_info(void)
     if (!api_entry())
         return 0;
 
+    xmalloc_cleanup(&xm_blocklist);
+
     jmsg = send_receive_msg("get_drawing_info", json_object());
-    di = xmalloc(sizeof (struct nh_drawing_info));
+    di = xmalloc(&xm_blocklist, sizeof (struct nh_drawing_info));
     if (json_unpack
         (jmsg,
          "{si,si,si,si,si,si,si,si,si,so,so,so,so,so,so,so,so,so,so,so,so!}",
@@ -505,6 +454,8 @@ read_json_list(json_t * jarr)
     int size, i;
     const char *txt;
 
+    xmalloc_cleanup(&xm_blocklist);
+
     size = json_array_size(jarr);
     list = malloc(size * sizeof (struct nh_listitem));
 
@@ -528,9 +479,10 @@ read_json_option(json_t * jobj, struct nh_option_desc *opt)
     struct nh_autopickup_rule *r;
 
     memset(opt, 0, sizeof (struct nh_option_desc));
-    if (!json_unpack
-        (jobj, "{ss,ss,si,so,so!}", "name", &name, "helptxt", &helptxt, "type",
-         &opt->type, "value", &joptval, "desc", &joptdesc) == -1) {
+    if (json_unpack
+        (jobj, "{ss,ss,si,so,so,si!}", "name", &name, "helptxt", &helptxt,
+         "type", &opt->type, "value", &joptval, "desc", &joptdesc,
+         "birth", &opt->birth_option) == -1) {
         memset(opt, 0, sizeof (struct nh_option_desc));
         print_error("Broken option specification.");
         return;
@@ -579,7 +531,9 @@ read_json_option(json_t * jobj, struct nh_option_desc *opt)
             jelem = json_array_get(joptval, i);
             json_unpack(jelem, "{ss,si,si,si!}", "pattern", &strval, "oclass",
                         &r->oclass, "buc", &r->buc, "action", &r->action);
+            memset(r->pattern, 0, sizeof (r->pattern));
             strncpy(r->pattern, strval, sizeof (r->pattern) - 1);
+            r->pattern[sizeof (r->pattern) - 1] = '\0';
         }
 
         break;
@@ -602,7 +556,7 @@ free_option_data(struct nh_option_desc *opt)
 
     case OPTTYPE_ENUM:
         for (i = 0; i < opt->e.numchoices; i++)
-            free(opt->e.choices[i].caption);
+            free((void *)opt->e.choices[i].caption);
         free((void *)opt->e.choices);
         break;
 
@@ -613,7 +567,7 @@ free_option_data(struct nh_option_desc *opt)
 
     case OPTTYPE_AUTOPICKUP_RULES:
         for (i = 0; i < opt->a.numclasses; i++)
-            free(opt->a.classes[i].caption);
+            free((void *)opt->a.classes[i].caption);
         free((void *)opt->a.classes);
 
         if (opt->value.ar) {
@@ -626,32 +580,30 @@ free_option_data(struct nh_option_desc *opt)
 
 
 nh_bool
-nhnet_set_option(const char *name, union nh_optvalue value, nh_bool isstr)
+nhnet_set_option(const char *name, union nh_optvalue value)
 {
     int ret, i;
     json_t *jmsg, *joval, *jobj;
-    struct nh_option_desc *gameopts, *birthopts, *opt;
+    struct nh_option_desc *opts, *opt;
     struct nh_autopickup_rule *r;
 
-    ret = nh_set_option(name, value, isstr);
+    ret = nh_set_option(name, value);
     if (!nhnet_active())
         return ret;
 
     if (!api_entry())
         return FALSE;
 
-    gameopts = nhnet_get_options(GAME_OPTIONS);
-    birthopts = nhnet_get_options(CURRENT_BIRTH_OPTIONS);
+    xmalloc_cleanup(&xm_blocklist);
+
+    opts = nhnet_get_options();
     opt = NULL;
-    for (i = 0; gameopts[i].name && !opt; i++)
-        if (!strcmp(name, gameopts[i].name))
-            opt = &gameopts[i];
-    for (i = 0; birthopts[i].name && !opt; i++)
-        if (!strcmp(name, birthopts[i].name))
-            opt = &birthopts[i];
+    for (i = 0; opts[i].name && !opt; i++)
+        if (!strcmp(name, opts[i].name))
+            opt = &opts[i];
 
     if (opt) {
-        if (isstr || opt->type == OPTTYPE_STRING)
+        if (opt->type == OPTTYPE_STRING)
             joval = json_string(value.s);
         else if (opt->type == OPTTYPE_INT || opt->type == OPTTYPE_ENUM ||
                  opt->type == OPTTYPE_BOOL) {
@@ -666,14 +618,13 @@ nhnet_set_option(const char *name, union nh_optvalue value, nh_bool isstr)
                 json_array_append_new(joval, jobj);
             }
         } else {
-            /* Shouldn't happen; if it does, put an easily searchable string
-               in as the value to ease debuging */
+            /* Shouldn't happen; if it does, put an easily searchable string in 
+               as the value to ease debugging */
             joval = json_string("<unused>");
         }
 
         jmsg =
-            json_pack("{ss,so,si}", "name", name, "value", joval, "isstr",
-                      isstr);
+            json_pack("{ss,so}", "name", name, "value", joval);
         jmsg = send_receive_msg("set_option", jmsg);
         if (json_unpack(jmsg, "{si,so!}", "return", &ret, "option", &jobj) ==
             -1) {
@@ -690,34 +641,30 @@ nhnet_set_option(const char *name, union nh_optvalue value, nh_bool isstr)
 
 
 struct nh_option_desc *
-nhnet_get_options(enum nh_option_list list)
+nhnet_get_options(void)
 {
     struct nh_option_desc *olist;
     json_t *jmsg, *jarr, *jobj;
     int count, i;
 
     if (!nhnet_active())
-        return nh_get_options(list);
-
-    if (list < OPTION_LIST_COUNT && option_lists[list])
-        return option_lists[list];
+        return nh_get_options();
 
     if (!api_entry()) {
-        olist = xmalloc(sizeof (struct nh_option_desc));
+        olist = malloc( sizeof (struct nh_option_desc));
         memset(olist, 0, sizeof (struct nh_option_desc));
         return olist;
     }
 
-    jmsg = send_receive_msg("get_options", json_pack("{si}", "list", list));
+    jmsg = send_receive_msg("get_options", json_object());
     if (json_unpack(jmsg, "{so!}", "options", &jarr) == -1 ||
         !json_is_array(jarr)) {
         print_error("Incorrect return object in nhnet_get_options");
-        olist = xmalloc(sizeof (struct nh_option_desc));
+        olist = malloc(sizeof (struct nh_option_desc));
         memset(olist, 0, sizeof (struct nh_option_desc));
     } else {
         count = json_array_size(jarr);
-        option_lists[list] = olist =
-            malloc(sizeof (struct nh_option_desc) * (count + 1));
+        olist = malloc(sizeof (struct nh_option_desc) * (count + 1));
         memset(olist, 0, sizeof (struct nh_option_desc) * (count + 1));
         for (i = 0; i < count; i++) {
             jobj = json_array_get(jarr, i);
@@ -732,40 +679,30 @@ nhnet_get_options(enum nh_option_list list)
 
 
 void
-free_option_lists(void)
-{
-    int i, j;
-
-    for (i = 0; i < OPTION_LIST_COUNT; i++)
-        if (option_lists[i]) {
-            for (j = 0; option_lists[i][j].name; j++)
-                free_option_data(&option_lists[i][j]);
-            free(option_lists[i]);
-            option_lists[i] = NULL;
-        }
-}
-
-
-void
 nhnet_describe_pos(int x, int y, struct nh_desc_buf *bufs, int *is_in)
 {
     const char *bgdesc, *trapdesc, *objdesc, *mondesc, *invisdesc, *effectdesc;
     json_t *jmsg;
     int in;
 
-    if (!nhnet_active())
-        return nh_describe_pos(x, y, bufs, is_in);
+    if (!nhnet_active()) {
+        nh_describe_pos(x, y, bufs, is_in);
+        return;
+    }
 
     if (!api_entry())
         return;
 
+    xmalloc_cleanup(&xm_blocklist);
+
     jmsg =
         send_receive_msg("describe_pos",
-                         json_pack("{si,si, si}", "x", x, "y", y, "is_in",
+                         json_pack("{si,si,si}", "x", x, "y", y, "is_in",
                                    is_in != NULL));
-    json_unpack(jmsg, "{ss,ss,ss,ss,ss,ss,si,si!}", "bgdesc", &bgdesc,
+    json_unpack(jmsg, "{ss,ss,ss,ss,ss,ss,si,sb,sb!}", "bgdesc", &bgdesc,
                 "trapdesc", &trapdesc, "objdesc", &objdesc, "mondesc", &mondesc,
-                "invisdesc", &invisdesc, "effectdesc", &effectdesc, "objcount",
+                "invisdesc", &invisdesc, "effectdesc", &effectdesc,
+                "feature_described", &bufs->feature_described, "objcount",
                 &bufs->objcount, "in", &in);
 
     strncpy(bufs->bgdesc, bgdesc, BUFSZ - 1);
@@ -792,7 +729,7 @@ read_string_array(json_t * jarr)
     int size, i;
 
     size = json_array_size(jarr);
-    array = xmalloc(sizeof (char *) * size);
+    array = xmalloc(&xm_blocklist, sizeof (char *) * size);
     for (i = 0; i < size; i++) {
         jstr = json_array_get(jarr, i);
         if (!json_is_string(jstr)) {
@@ -800,7 +737,7 @@ read_string_array(json_t * jarr)
             continue;
         }
         str = json_string_value(jstr);
-        buf = xmalloc(strlen(str) + 1);
+        buf = xmalloc(&xm_blocklist, strlen(str) + 1);
         strcpy(buf, str);
         array[i] = buf;
     }
@@ -823,19 +760,20 @@ nhnet_get_roles(void)
     if (!api_entry())
         return NULL;
 
+    xmalloc_cleanup(&xm_blocklist);
+
     jmsg = send_receive_msg("get_roles", json_object());
-    ri = xmalloc(sizeof (struct nh_roles_info));
+    ri = xmalloc(&xm_blocklist, sizeof (struct nh_roles_info));
     if (json_unpack
-        (jmsg, "{si,si,si,si,si,si,si,si,so,so,so,so,so,so}", "num_roles",
+        (jmsg, "{si,si,si,si,so,so,so,so,so,so}", "num_roles",
          &ri->num_roles, "num_races", &ri->num_races, "num_genders",
-         &ri->num_genders, "num_aligns", &ri->num_aligns, "def_role",
-         &ri->def_role, "def_race", &ri->def_race, "def_gend", &ri->def_gend,
-         "def_align", &ri->def_align, "rolenames_m", &jroles_m, "rolenames_f",
-         &jroles_f, "racenames", &jraces, "gendnames", &jgenders, "alignnames",
-         &jaligns, "matrix", &jmatrix) == -1 || !json_is_array(jroles_m) ||
-        !json_is_array(jroles_f) || !json_is_array(jraces) ||
-        !json_is_array(jgenders) || !json_is_array(jaligns) ||
-        !json_is_array(jmatrix) || json_array_size(jroles_m) != ri->num_roles ||
+         &ri->num_genders, "num_aligns", &ri->num_aligns, "rolenames_m",
+         &jroles_m, "rolenames_f", &jroles_f, "racenames", &jraces, "gendnames",
+         &jgenders, "alignnames", &jaligns, "matrix", &jmatrix) == -1 ||
+        !json_is_array(jroles_m) || !json_is_array(jroles_f) ||
+        !json_is_array(jraces) || !json_is_array(jgenders) ||
+        !json_is_array(jaligns) || !json_is_array(jmatrix) ||
+        json_array_size(jroles_m) != ri->num_roles ||
         json_array_size(jroles_f) != ri->num_roles ||
         json_array_size(jraces) != ri->num_races ||
         json_array_size(jgenders) != ri->num_genders ||
@@ -850,7 +788,7 @@ nhnet_get_roles(void)
         ri->alignnames = read_string_array(jaligns);
 
         size = json_array_size(jmatrix);
-        matrix = xmalloc(size * sizeof (nh_bool));
+        matrix = xmalloc(&xm_blocklist, size * sizeof (nh_bool));
         for (i = 0; i < size; i++)
             matrix[i] = json_integer_value(json_array_get(jmatrix, i));
         ri->matrix = matrix;
@@ -863,8 +801,8 @@ nhnet_get_roles(void)
 
 
 char *
-nhnet_build_plselection_prompt(char *buf, int buflen, int rolenum, int racenum,
-                               int gendnum, int alignnum)
+nhnet_build_plselection_prompt(char *const buf, int buflen, int rolenum,
+                               int racenum, int gendnum, int alignnum)
 {
     json_t *jmsg;
     char *str, *ret;
@@ -875,6 +813,8 @@ nhnet_build_plselection_prompt(char *buf, int buflen, int rolenum, int racenum,
 
     if (!api_entry())
         return NULL;
+
+    xmalloc_cleanup(&xm_blocklist);
 
     jmsg =
         json_pack("{si,si,si,si}", "role", rolenum, "race", racenum, "gend",
@@ -897,8 +837,8 @@ nhnet_build_plselection_prompt(char *buf, int buflen, int rolenum, int racenum,
 
 
 const char *
-nhnet_root_plselection_prompt(char *buf, int buflen, int rolenum, int racenum,
-                              int gendnum, int alignnum)
+nhnet_root_plselection_prompt(char *const buf, int buflen, int rolenum,
+                              int racenum, int gendnum, int alignnum)
 {
     json_t *jmsg;
     char *str, *ret;
@@ -909,6 +849,8 @@ nhnet_root_plselection_prompt(char *buf, int buflen, int rolenum, int racenum,
 
     if (!api_entry())
         return NULL;
+
+    xmalloc_cleanup(&xm_blocklist);
 
     jmsg =
         json_pack("{si,si,si,si}", "role", rolenum, "race", racenum, "gend",
@@ -930,7 +872,7 @@ nhnet_root_plselection_prompt(char *buf, int buflen, int rolenum, int racenum,
 
 
 struct nh_topten_entry *
-nhnet_get_topten(int *out_len, char *statusbuf, const char * volatile player,
+nhnet_get_topten(int *out_len, char *statusbuf, const char *volatile player,
                  int top, int around, nh_bool own)
 {
     struct nh_topten_entry *ttlist;
@@ -946,6 +888,8 @@ nhnet_get_topten(int *out_len, char *statusbuf, const char * volatile player,
     if (!api_entry())
         return NULL;
 
+    xmalloc_cleanup(&xm_blocklist);
+
     jmsg =
         json_pack("{ss,si,si,si}", "player", player ? player : "", "top", top,
                   "around", around, "own", own);
@@ -958,12 +902,14 @@ nhnet_get_topten(int *out_len, char *statusbuf, const char * volatile player,
         len = json_array_size(jarr);
         strncpy(statusbuf, msg, BUFSZ - 1);
         *out_len = len;
-        ttlist = xmalloc((len + 1) * sizeof (struct nh_topten_entry));
+        ttlist = xmalloc(&xm_blocklist,
+                         (len + 1) * sizeof (struct nh_topten_entry));
         memset(ttlist, 0, (len + 1) * sizeof (struct nh_topten_entry));
         for (i = 0; i < len; i++) {
             jobj = json_array_get(jarr, i);
             json_unpack(jobj,
-                        "{si,si,si,si,si,si,si,si,si,si,si,si,si,ss,ss,ss,ss,ss,ss,ss,si!}",
+                        "{si,si,si,si,si,si,si,si,si,si,si,si,si,ss,ss,ss,ss,"
+                        "ss,ss,ss,si!}",
                         "rank", &ttlist[i].rank, "points", &ttlist[i].points,
                         "maxlvl", &ttlist[i].maxlvl, "hp", &ttlist[i].hp,
                         "maxhp", &ttlist[i].maxhp, "deaths", &ttlist[i].deaths,
@@ -999,6 +945,8 @@ nhnet_change_email(const char *email)
     int ret;
     json_t *jmsg;
 
+    xmalloc_cleanup(&xm_blocklist);
+
     jmsg = json_pack("{ss}", "email", email);
     jmsg = send_receive_msg("set_email", jmsg);
     if (json_unpack(jmsg, "{si}", "return", &ret) == -1)
@@ -1012,6 +960,8 @@ nhnet_change_password(const char *password)
 {
     int ret;
     json_t *jmsg;
+
+    xmalloc_cleanup(&xm_blocklist);
 
     jmsg = json_pack("{ss}", "password", password);
     jmsg = send_receive_msg("set_password", jmsg);

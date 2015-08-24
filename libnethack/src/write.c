@@ -1,13 +1,12 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-06-15 */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
 
 static int cost(struct obj *);
 
-/*
- * returns basecost of a scroll or a spellbook
- */
+/* returns base cost of a scroll or a spellbook */
 static int
 cost(struct obj *otmp)
 {
@@ -61,16 +60,16 @@ cost(struct obj *otmp)
 static const char write_on[] = { SCROLL_CLASS, SPBOOK_CLASS, 0 };
 
 int
-dowrite(struct obj *pen)
+dowrite(struct obj *pen, const struct nh_cmd_arg *arg)
 {
     struct obj *paper;
-    char namebuf[BUFSZ], *nm, *bp;
+    const char *namebuf, *nm, *bp;
     struct obj *new_obj;
     int basecost, actualcost;
     int curseval;
-    char qbuf[QBUFSZ];
+    const char *qbuf;
     int first, last, i;
-    boolean by_descr = FALSE;
+    boolean by_descr = FALSE, by_name = FALSE;
     const char *typeword;
 
     if (nohands(youmonst.data)) {
@@ -79,14 +78,16 @@ dowrite(struct obj *pen)
     } else if (Glib) {
         pline("%s from your %s.", Tobjnam(pen, "slip"),
               makeplural(body_part(FINGER)));
+        unwield_silently(pen);
         dropx(pen);
         return 1;
     }
 
     /* get paper to write on */
-    paper = getobj(write_on, "write on");
+    paper = getargobj(arg, write_on, "write on");
     if (!paper)
         return 0;
+
     typeword = (paper->oclass == SPBOOK_CLASS) ? "spellbook" : "scroll";
     if (Blind && !paper->dknown) {
         pline("You don't know if that %s is blank or not!", typeword);
@@ -100,9 +101,9 @@ dowrite(struct obj *pen)
     }
 
     /* what to write */
-    sprintf(qbuf, "What type of %s do you want to write?", typeword);
-    getlin(qbuf, namebuf);
-    mungspaces(namebuf);        /* remove any excess whitespace */
+    qbuf = msgprintf("What type of %s do you want to write?", typeword);
+    namebuf = getarglin(arg, qbuf);
+    namebuf = msgmungspaces(namebuf);   /* remove any excess whitespace */
     if (namebuf[0] == '\033' || !namebuf[0])
         return 1;
     nm = namebuf;
@@ -113,10 +114,8 @@ dowrite(struct obj *pen)
     if (!strncmpi(nm, "of ", 3))
         nm += 3;
 
-    if ((bp = strstri(nm, " armour")) != 0) {
-        strncpy(bp, " armor ", 7);      /* won't add '\0' */
-        mungspaces(bp + 1);     /* remove the extra space */
-    }
+    if ((bp = strstri(nm, " armour")) != 0)
+        nm = msgcat_many(msgchop(nm, bp-nm), " armor", bp+7, NULL);
 
     first = bases[(int)paper->oclass];
     last = bases[(int)paper->oclass + 1] - 1;
@@ -129,6 +128,11 @@ dowrite(struct obj *pen)
             goto found;
         if (!strcmpi(OBJ_DESCR(objects[i]), nm)) {
             by_descr = TRUE;
+            goto found;
+        }
+        if (objects[i].oc_uname &&
+            !strcmpi(objects[i].oc_uname, nm)) {
+            by_name = TRUE;
             goto found;
         }
     }
@@ -144,7 +148,7 @@ found:
     } else if (i == SPE_BOOK_OF_THE_DEAD) {
         pline("No mere dungeon adventurer could write that.");
         return 1;
-    } else if (by_descr && paper->oclass == SPBOOK_CLASS &&
+    } else if ((by_descr || by_name) && paper->oclass == SPBOOK_CLASS &&
                !objects[i].oc_name_known) {
         /* can't write unknown spellbooks by description */
         pline("Unfortunately you don't have enough information to go on.");
@@ -152,9 +156,9 @@ found:
     }
 
     /* KMH, conduct */
-    u.uconduct.literate++;
+    break_conduct(conduct_illiterate);
 
-    new_obj = mksobj(level, i, FALSE, FALSE);
+    new_obj = mksobj(level, i, FALSE, FALSE, rng_main);
     new_obj->bknown = (paper->bknown && pen->bknown);
 
     /* shk imposes a flat rate per use, not based on actual charges used */
@@ -168,7 +172,9 @@ found:
         return 1;
     }
 
-    /* we're really going to write now, so calculate cost */
+    /* we're really going to write now, so calculate cost
+
+       no custom RNG used: too much influence from player actions */
     actualcost = rn1(basecost / 2, basecost / 2);
     curseval = bcsign(pen) + bcsign(paper);
     exercise(A_WIS, TRUE);
@@ -191,7 +197,6 @@ found:
 
     /* can't write if we don't know it - unless we're lucky */
     if (!(objects[new_obj->otyp].oc_name_known) &&
-        !(objects[new_obj->otyp].oc_uname) &&
         (rnl(Role_if(PM_WIZARD) ? 3 : 15))) {
         pline("You %s to write that!", by_descr ? "fail" : "don't know how");
         /* scrolls disappear, spellbooks don't */
@@ -200,12 +205,14 @@ found:
                   "\"My Diary\", but it quickly fades.");
             update_inventory(); /* pen charges */
         } else {
+            const char *written;
             if (by_descr) {
-                strcpy(namebuf, OBJ_DESCR(objects[new_obj->otyp]));
-                wipeout_text(namebuf, (6 + MAXULEV - u.ulevel) / 6, 0);
+                written = OBJ_DESCR(objects[new_obj->otyp]);
+                written = eroded_text(written,
+                                      (6 + MAXULEV - u.ulevel) / 6, 0);
             } else
-                sprintf(namebuf, "%s was here!", plname);
-            pline("You write \"%s\" and the scroll disappears.", namebuf);
+                written = msgprintf("%s was here!", u.uplname);
+            pline("You write \"%s\" and the scroll disappears.", written);
             useup(paper);
         }
         obfree(new_obj, NULL);
@@ -229,3 +236,4 @@ found:
 }
 
 /*write.c*/
+

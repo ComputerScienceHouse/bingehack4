@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-13 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985-1999. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -7,8 +8,6 @@
 static boolean ok_race(int, int, int, int);
 static boolean ok_gend(int, int, int, int);
 static boolean ok_align(int, int, int, int);
-static int randrace(int);
-static int randalign(int, int);
 
 
 /*** Table of all roles ***/
@@ -470,9 +469,9 @@ validrole(int rolenum)
 
 
 int
-randrole(void)
+randrole(enum rng rng)
 {
-    return rn2(SIZE(roles) - 1);
+    return rn2_on_rng(SIZE(roles) - 1, rng);
 }
 
 
@@ -518,33 +517,6 @@ validrace(int rolenum, int racenum)
 
 
 int
-randrace(int rolenum)
-{
-    int i, n = 0;
-
-    /* Count the number of valid races */
-    for (i = 0; races[i].noun; i++)
-        if (roles[rolenum].allow & races[i].allow & ROLE_RACEMASK)
-            n++;
-
-    /* Pick a random race */
-    /* Use a factor of 100 in case of bad random number generators */
-    if (n)
-        n = rn2(n * 100) / 100;
-    for (i = 0; races[i].noun; i++)
-        if (roles[rolenum].allow & races[i].allow & ROLE_RACEMASK) {
-            if (n)
-                n--;
-            else
-                return i;
-        }
-
-    /* This role has no permitted races? */
-    return rn2(SIZE(races) - 1);
-}
-
-
-int
 str2race(char *str)
 {
     int i, len;
@@ -578,8 +550,8 @@ validgend(int rolenum, int racenum, int gendnum)
 {
     /* Assumes nh_validrole and nh_validrace */
     return (gendnum >= 0 && gendnum < ROLE_GENDERS &&
-            (roles[rolenum].allow & races[racenum].allow & genders[gendnum].
-             allow & ROLE_GENDMASK));
+            (roles[rolenum].allow & races[racenum].allow &
+             genders[gendnum].allow & ROLE_GENDMASK));
 }
 
 
@@ -616,36 +588,8 @@ validalign(int rolenum, int racenum, int alignnum)
 {
     /* Assumes nh_validrole and nh_validrace */
     return (alignnum >= 0 && alignnum < ROLE_ALIGNS &&
-            (roles[rolenum].allow & races[racenum].allow & aligns[alignnum].
-             allow & ROLE_ALIGNMASK));
-}
-
-
-int
-randalign(int rolenum, int racenum)
-{
-    int i, n = 0;
-
-    /* Count the number of valid alignments */
-    for (i = 0; i < ROLE_ALIGNS; i++)
-        if (roles[rolenum].allow & races[racenum].allow & aligns[i].
-            allow & ROLE_ALIGNMASK)
-            n++;
-
-    /* Pick a random alignment */
-    if (n)
-        n = rn2(n);
-    for (i = 0; i < ROLE_ALIGNS; i++)
-        if (roles[rolenum].allow & races[racenum].allow & aligns[i].
-            allow & ROLE_ALIGNMASK) {
-            if (n)
-                n--;
-            else
-                return i;
-        }
-
-    /* This role/race has no permitted alignments? */
-    return rn2(ROLE_ALIGNS);
+            (roles[rolenum].allow & races[racenum].allow &
+             aligns[alignnum].allow & ROLE_ALIGNMASK));
 }
 
 
@@ -785,23 +729,29 @@ struct nh_roles_info *
 nh_get_roles(void)
 {
     int i, rolenum, racenum, gendnum, alignnum, arrsize;
-    struct nh_roles_info *info = xmalloc(sizeof (struct nh_roles_info));
+    struct nh_roles_info *info;
     const char **names, **names2;
     nh_bool *tmpmatrix;
 
+    xmalloc_cleanup(&api_blocklist);
+
+    info = xmalloc(&api_blocklist, sizeof (struct nh_roles_info));
+
     /* number of choices */
-    for (i = 0; roles[i].name.m; i++) ;
+    for (i = 0; roles[i].name.m; i++)
+        ;
     info->num_roles = i;
 
-    for (i = 0; races[i].noun; i++) ;
+    for (i = 0; races[i].noun; i++)
+        ;
     info->num_races = i;
 
     info->num_genders = ROLE_GENDERS;
     info->num_aligns = ROLE_ALIGNS;
 
     /* names of choices */
-    names = xmalloc(info->num_roles * sizeof (char *));
-    names2 = xmalloc(info->num_roles * sizeof (char *));
+    names = xmalloc(&api_blocklist, info->num_roles * sizeof (char *));
+    names2 = xmalloc(&api_blocklist, info->num_roles * sizeof (char *));
     for (i = 0; i < info->num_roles; i++) {
         names[i] = roles[i].name.m;
         names2[i] = roles[i].name.f;
@@ -809,32 +759,26 @@ nh_get_roles(void)
     info->rolenames_m = names;
     info->rolenames_f = names2;
 
-    names = xmalloc(info->num_races * sizeof (char *));
+    names = xmalloc(&api_blocklist, info->num_races * sizeof (char *));
     for (i = 0; i < info->num_races; i++)
         names[i] = races[i].noun;
     info->racenames = names;
 
-    names = xmalloc(info->num_genders * sizeof (char *));
+    names = xmalloc(&api_blocklist, info->num_genders * sizeof (char *));
     for (i = 0; i < info->num_genders; i++)
         names[i] = genders[i].adj;
     info->gendnames = names;
 
-    names = xmalloc(info->num_aligns * sizeof (char *));
+    names = xmalloc(&api_blocklist, info->num_aligns * sizeof (char *));
     for (i = 0; i < info->num_aligns; i++)
         names[i] = aligns[i].adj;
     info->alignnames = names;
-
-    /* default choices */
-    info->def_role = flags.init_role;
-    info->def_race = flags.init_race;
-    info->def_gend = flags.init_gend;
-    info->def_align = flags.init_align;
 
     /* valid combinations of choices */
     arrsize =
         info->num_roles * info->num_races * info->num_genders *
         info->num_aligns;
-    tmpmatrix = xmalloc(arrsize * sizeof (nh_bool));
+    tmpmatrix = xmalloc(&api_blocklist, arrsize * sizeof (nh_bool));
     memset(tmpmatrix, FALSE, arrsize * sizeof (nh_bool));
     for (rolenum = 0; rolenum < info->num_roles; rolenum++) {
         for (racenum = 0; racenum < info->num_races; racenum++) {
@@ -913,6 +857,8 @@ race_alignmentcount(int racenum)
 }
 
 
+/* This uses a hardcoded BUFSZ, not the msg* functions, because it runs
+   outside the main game sequence. */
 const char *
 nh_root_plselection_prompt(char *suppliedbuf, int buflen, int rolenum,
                            int racenum, int gendnum, int alignnum)
@@ -921,6 +867,8 @@ nh_root_plselection_prompt(char *suppliedbuf, int buflen, int rolenum,
     char buf[BUFSZ];
     static const char err_ret[] = " character's";
     boolean donefirst = FALSE;
+
+    xmalloc_cleanup(&api_blocklist);
 
     if (!suppliedbuf || buflen < 1)
         return err_ret;
@@ -988,7 +936,8 @@ nh_root_plselection_prompt(char *suppliedbuf, int buflen, int rolenum,
     /* <your lawful female> */
 
     if (racenum != ROLE_NONE && racenum != ROLE_RANDOM) {
-        if (validrole(rolenum) && ok_race(rolenum, racenum, gendnum, alignnum)) {
+        if (validrole(rolenum) &&
+            ok_race(rolenum, racenum, gendnum, alignnum)) {
             if (donefirst)
                 strcat(buf, " ");
             strcat(buf,
@@ -1032,7 +981,8 @@ nh_root_plselection_prompt(char *suppliedbuf, int buflen, int rolenum,
         post_attribs++;
     }
 
-    if ((racenum == ROLE_NONE || racenum == ROLE_RANDOM) && !validrole(rolenum)) {
+    if ((racenum == ROLE_NONE || racenum == ROLE_RANDOM) &&
+        !validrole(rolenum)) {
         if (donefirst)
             strcat(buf, " ");
         strcat(buf, "character");
@@ -1046,6 +996,8 @@ nh_root_plselection_prompt(char *suppliedbuf, int buflen, int rolenum,
         return err_ret;
 }
 
+/* This uses a hardcoded BUFSZ, not the msg* functions, because it runs
+   outside the main game sequence. */
 char *
 nh_build_plselection_prompt(char *buf, int buflen, int rolenum, int racenum,
                             int gendnum, int alignnum)
@@ -1054,8 +1006,13 @@ nh_build_plselection_prompt(char *buf, int buflen, int rolenum, int racenum,
     int num_post_attribs = 0;
     char tmpbuf[BUFSZ];
 
-    if (buflen < QBUFSZ)
-        return (char *)defprompt;
+    xmalloc_cleanup(&api_blocklist);
+
+    if (buflen < QBUFSZ) {
+        strncpy(buf, defprompt, buflen);
+        buf[buflen-1] = '\0'; /* strncpy doesn't \0-terminate on overflow */
+        return buf;
+    }
 
     strcpy(tmpbuf, "Shall I pick ");
     if (racenum != ROLE_NONE || validrole(rolenum))
@@ -1065,9 +1022,14 @@ nh_build_plselection_prompt(char *buf, int buflen, int rolenum, int racenum,
     }
     /* <your> */
 
-    nh_root_plselection_prompt(eos(tmpbuf), buflen - strlen(tmpbuf), rolenum,
-                               racenum, gendnum, alignnum);
-    sprintf(buf, "%s", s_suffix(tmpbuf));
+    nh_root_plselection_prompt(
+        tmpbuf + strlen(tmpbuf), buflen - strlen(tmpbuf),
+        rolenum, racenum, gendnum, alignnum);
+    /* A manual 's is used here because s_suffix will allocate onto the
+     * turnstate chain, which leads to a leak. Furthermore, all races are
+     * singular, so this is more grammatically correct.
+     */
+    sprintf(buf, "%s's", tmpbuf);
 
     /* buf should now be: < your lawful female gnomish cavewoman's> || <your
        lawful female gnome's> || <your lawful female character's> Now append
@@ -1076,19 +1038,19 @@ nh_build_plselection_prompt(char *buf, int buflen, int rolenum, int racenum,
     num_post_attribs = post_attribs;
     if (post_attribs) {
         if (pa[BP_RACE]) {
-            promptsep(eos(buf), num_post_attribs);
+            promptsep(buf + strlen(buf), num_post_attribs);
             strcat(buf, "race");
         }
         if (pa[BP_ROLE]) {
-            promptsep(eos(buf), num_post_attribs);
+            promptsep(buf + strlen(buf), num_post_attribs);
             strcat(buf, "role");
         }
         if (pa[BP_GEND]) {
-            promptsep(eos(buf), num_post_attribs);
+            promptsep(buf + strlen(buf), num_post_attribs);
             strcat(buf, "gender");
         }
         if (pa[BP_ALIGN]) {
-            promptsep(eos(buf), num_post_attribs);
+            promptsep(buf + strlen(buf), num_post_attribs);
             strcat(buf, "alignment");
         }
     }
@@ -1124,37 +1086,6 @@ role_init(void)
 {
     int alignmnt;
 
-    /* Check for a valid role.  Try u.initrole first. */
-    if (!validrole(u.initrole)) {
-        /* Try the player letter second */
-        if ((u.initrole = str2role(pl_character)) < 0)
-            /* None specified; pick a random role */
-            u.initrole = randrole();
-    }
-
-    /* We now have a valid role index.  Copy the role name back. */
-    /* This should become OBSOLETE */
-    strcpy(pl_character, roles[u.initrole].name.m);
-    pl_character[PL_CSIZ - 1] = '\0';
-
-    /* Check for a valid race */
-    if (!validrace(u.initrole, u.initrace))
-        u.initrace = randrace(u.initrole);
-
-    /* Check for a valid gender.  If new game, check both initgend and female.
-       On restore, assume flags.female is correct. */
-    if (flags.pantheon == -1) { /* new game */
-        if (!validgend(u.initrole, u.initrace, flags.female))
-            flags.female = !flags.female;
-    }
-    if (!validgend(u.initrole, u.initrace, u.initgend))
-        /* Note that there is no way to check for an unspecified gender. */
-        u.initgend = flags.female;
-
-    /* Check for a valid alignment */
-    if (!validalign(u.initrole, u.initrace, u.initalign))
-        /* Pick a random alignment */
-        u.initalign = randalign(u.initrole, u.initrace);
     alignmnt = aligns[u.initalign].value;
 
     /* Initialize urole and urace */
@@ -1186,18 +1117,6 @@ role_init(void)
         pm_nemesis.mflags3 |= M3_WANTSARTI | M3_WAITFORU;
     }
 
-    /* Fix up the god names */
-    if (flags.pantheon == -1) { /* new game */
-        flags.pantheon = u.initrole;    /* use own gods */
-        while (!roles[flags.pantheon].lgod)     /* unless they're missing */
-            flags.pantheon = randrole();
-    }
-    if (!urole.lgod) {
-        urole.lgod = roles[flags.pantheon].lgod;
-        urole.ngod = roles[flags.pantheon].ngod;
-        urole.cgod = roles[flags.pantheon].cgod;
-    }
-
     /* Fix up infravision */
     pm_you_male = pm_you_female = mons[urole.malenum];
     if (urole.femalenum != NON_PM)
@@ -1218,6 +1137,27 @@ role_init(void)
 
     /* Success! */
     return;
+}
+
+/* Initialize the player's pantheon.
+ *
+ * This must come after both u and urole are initialized by role_init 
+ * and by either u_init or restore_you
+ */
+void
+pantheon_init(boolean newgame)
+{
+    if (newgame) {
+        u.upantheon = u.initrole;            /* use own gods */
+        while (!roles[u.upantheon].lgod)     /* unless they're missing */
+            u.upantheon = randrole(rng_charstats_role);
+    }
+
+    if (!urole.lgod) {
+        urole.lgod = roles[u.upantheon].lgod;
+        urole.ngod = roles[u.upantheon].ngod;
+        urole.cgod = roles[u.upantheon].cgod;
+    }
 }
 
 const char *
@@ -1256,3 +1196,4 @@ Goodbye(void)
 }
 
 /* role.c */
+

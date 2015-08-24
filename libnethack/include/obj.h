@@ -1,9 +1,12 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-12 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #ifndef OBJ_H
 # define OBJ_H
+
+# include "global.h"
 
 enum obj_where {
     OBJ_FREE,   /* object not attached to anything */
@@ -13,22 +16,24 @@ enum obj_where {
     OBJ_MINVENT,        /* object in a monster inventory */
     OBJ_BURIED, /* object buried */
     OBJ_ONBILL, /* object on shk bill */
+    OBJ_MIGRATING, /* object in limbo between levels */
     NOBJ_STATES
 };
 
-
-union vptrs {
-    struct obj *v_nexthere;     /* floor location lists */
-    struct obj *v_ocontainer;   /* point back to container */
-    struct monst *v_ocarry;     /* point back to carrying monst */
+enum erode_type {
+    ERODE_BURN,
+    ERODE_RUST,
+    ERODE_ROT,
+    ERODE_CORRODE,
 };
 
 struct obj {
     struct obj *nobj;
-    union vptrs v;
-# define nexthere       v.v_nexthere
-# define ocontainer     v.v_ocontainer
-# define ocarry         v.v_ocarry
+    union {
+        struct obj *nexthere;     /* floor location lists */
+        struct obj *ocontainer;   /* point back to container */
+        struct monst *ocarry;     /* point back to carrying monst */
+    };
 
     struct obj *cobj;   /* contents list for containers */
     unsigned int o_id;
@@ -38,78 +43,88 @@ struct obj {
     unsigned owt;
     int quan;   /* number of items */
 
-    schar spe;  /* quality of weapon, armor or ring (+ or -) number of charges
-                   for wand ( >= -1 ) marks your eggs, spinach tins royal
-                   coffers for a court ( == 2) tells which fruit a fruit is
-                   special for uball and amulet historic and gender for statues 
+    schar spe;  /*
+                 * quality of weapon, armor or ring (+ or -)
+                 * number of charges for wand ( >= -1 )
+                 * marks your eggs, spinach tins
+                 * royal coffers for a court ( == 2)
+                 * tells which fruit a fruit is
+                 * special for uball and amulet
+                 * historic and gender for statues
+                 * last used movement for a stethoscope
                  */
 # define STATUE_HISTORIC 0x01
 # define STATUE_MALE     0x02
 # define STATUE_FEMALE   0x04
-    char oclass;        /* object class */
-    char invlet;        /* designation in inventory */
-    char oartifact;     /* artifact array index */
+    char oclass;                /* object class */
+    char invlet;                /* designation in inventory */
+    char oartifact;             /* artifact array index */
 
-    xchar where;        /* where the object thinks it is */
-    xchar timed;        /* # of fuses (timers) attached to this obj */
+    xchar where;                /* where the object thinks it is */
+    xchar timed;                /* # of fuses (timers) attached to this obj */
 
     unsigned cursed:1;
     unsigned blessed:1;
-    unsigned unpaid:1;  /* on some bill */
+    unsigned unpaid:1;          /* on some bill */
     unsigned no_charge:1;       /* if shk shouldn't charge for this */
-    unsigned known:1;   /* exact nature known */
-    unsigned dknown:1;  /* color or text known */
-    unsigned bknown:1;  /* blessing or curse known */
-    unsigned rknown:1;  /* rustproof or not known */
+    unsigned known:1;           /* exact nature known */
+    unsigned dknown:1;          /* color or text known */
+    unsigned bknown:1;          /* blessing or curse known */
+    unsigned rknown:1;          /* rustproof or not known */
 
-    unsigned oeroded:2; /* rusted/burnt weapon/armor */
+    unsigned oeroded:2;         /* rusted/burnt weapon/armor */
     unsigned oeroded2:2;        /* corroded/rotted weapon/armor */
-# define greatest_erosion(otmp) (int)((otmp)->oeroded > (otmp)->oeroded2 ? (otmp)->oeroded : (otmp)->oeroded2)
+# define greatest_erosion(otmp) \
+    (int)((otmp)->oeroded > (otmp)->oeroded2 ? (otmp)->oeroded \
+                                             : (otmp)->oeroded2)
 # define MAX_ERODE 3
-# define orotten oeroded/* rotten food */
+# define orotten oeroded        /* rotten food */
 # define odiluted oeroded       /* diluted potions */
 # define norevive oeroded2
     unsigned oerodeproof:1;     /* erodeproof weapon/armor */
-    unsigned olocked:1; /* object is locked */
-    unsigned obroken:1; /* lock has been broken */
+    unsigned olocked:1;         /* object is locked */
+    unsigned obroken:1;         /* lock has been broken */
     unsigned otrapped:1;        /* container is trapped */
     /* or accidental tripped rolling boulder trap */
 # define opoisoned otrapped     /* object (weapon) is coated with poison */
 
     unsigned recharged:3;       /* number of times it's been recharged */
-    unsigned lamplit:1; /* a light-source -- can be lit */
+    unsigned lamplit:1;         /* a light-source -- can be lit */
 # ifdef INVISIBLE_OBJECTS
-    unsigned oinvis:1;  /* invisible */
+    unsigned oinvis:1;          /* invisible */
 # endif
-    unsigned greased:1; /* covered with grease */
+    unsigned greased:1;         /* covered with grease */
     unsigned oattached:2;       /* obj struct has special attachment */
 # define OATTACHED_NOTHING 0
 # define OATTACHED_MONST   1    /* monst struct in oextra */
 # define OATTACHED_M_ID    2    /* monst id in oextra */
 # define OATTACHED_UNUSED3 3
 
-    unsigned in_use:1;  /* for magic items before useup items */
+    unsigned in_use:1;          /* for magic items before useup items */
     unsigned was_thrown:1;      /* thrown by the hero since last picked up */
+    unsigned was_dropped:1;     /* last left inventory via d or D command */
     unsigned bypass:1;  /* mark this as an object to be skipped by bhito() */
-    /* 5 free bits */
+    /* 4 free bits */
 
-    int corpsenm;       /* type of corpse is mons[corpsenm] */
-# define leashmon   corpsenm    /* gets m_id of attached pet */
-# define spestudied corpsenm    /* # of times a spellbook has been studied */
-# define fromsink   corpsenm    /* a potion from a sink */
-# define lastused   corpsenm    /* last time an unlocking tool was used */
-    unsigned oeaten;    /* nutrition left in food, if partly eaten */
+    union {
+        int corpsenm;           /* type of corpse is mons[corpsenm] */
+        int leashmon;           /* gets m_id of attached pet */
+        int spestudied;         /* # of times a spellbook has been studied */
+        int fromsink;           /* a potion from a sink */
+        int lastused;           /* last time a tool was used */
+    };
+    unsigned oeaten;            /* nutrition left in food, if partly eaten */
 
-    uchar onamelth;     /* length of name (following oxlth) */
-    short oxlth;        /* length of following data */
-    int age;    /* creation date */
+    int onamelth;               /* length of name (following oxlth) */
+    short oxlth;                /* length of following data */
+    int age;                    /* creation date */
     int owornmask;
-    void *oextra[];     /* used for name of ordinary objects - length is
-                           flexible; amount for tmp gold objects */
+    void *oextra[];             /* used for name of ordinary objects - length is
+                                   flexible; amount for tmp gold objects */
 };
 
-# define newobj(xl)     malloc((unsigned)(xl) + sizeof(struct obj))
-# define ONAME(otmp)    (((char *)(otmp)->oextra) + (otmp)->oxlth)
+# define ONAME(otmp)         (((const char *)(otmp)->oextra) + (otmp)->oxlth)
+# define ONAME_MUTABLE(otmp) (((char *)(otmp)->oextra) + (otmp)->oxlth)
 
 /* Weapons and weapon-tools */
 /* KMH -- now based on skill categories.  Formerly:
@@ -170,6 +185,11 @@ struct obj {
                               objects[otmp->otyp].oc_skill >= -P_SHURIKEN && \
                               objects[otmp->otyp].oc_skill <= -P_BOW)
 # define uslinging()         (uwep && objects[uwep->otyp].oc_skill == P_SLING)
+# define is_wep(otmp)        (((otmp)->oclass == WEAPON_CLASS) \
+                                 ? !(is_launcher((otmp)) || is_ammo((otmp)) || \
+                                     is_missile((otmp)) || \
+                                     (is_pole((otmp)) && !u.usteed)) \
+                                 : is_weptool((otmp)))
 
 /* Armor */
 # define is_shield(otmp)     (otmp->oclass == ARMOR_CLASS && \
@@ -203,8 +223,9 @@ struct obj {
                                  || (otmp)->otyp == DWARVISH_ROUNDSHIELD)
 # define is_gnomish_armor(otmp)  (FALSE)
 
-# define helmet_name(otmp) (is_metallic(otmp) && \
-                           (otmp)->otyp != DWARVISH_IRON_HELM ? "helmet" : "hat")
+# define helmet_name(otmp) \
+    (is_metallic(otmp) && \
+     (otmp)->otyp != DWARVISH_IRON_HELM ? "helmet" : "hat")
 # define maybe_helmet_name(otmp) ((otmp) ? helmet_name((otmp)) : "helmet")
 
 
@@ -303,5 +324,26 @@ struct obj {
 /* Flags for get_obj_location(). */
 # define CONTAINED_TOO  0x1
 # define BURIED_TOO     0x2
+
+
+enum destroy_msg_type {
+    destroy_msg_potion_cold,
+    destroy_msg_potion_fire,
+    destroy_msg_scroll_fire,
+    destroy_msg_spellbook_fire,
+    destroy_msg_ring_elec,
+    destroy_msg_wand_elec,
+    num_destroy_msgs
+};
+
+struct destroy_message {
+    const char *plural, *singular, *killer;
+};
+
+extern struct destroy_message destroy_messages[num_destroy_msgs];
+
+/* used to track the thrown object to remove it from the bill if it kills a
+ * shopkeeper */
+extern struct obj *thrownobj;
 
 #endif /* OBJ_H */

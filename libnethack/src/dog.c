@@ -1,11 +1,12 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
 #include "edog.h"
 
-static int pet_type(void);
+static int pet_type(struct newgame_options *);
 
 void
 initedog(struct monst *mtmp)
@@ -21,8 +22,8 @@ initedog(struct monst *mtmp)
     EDOG(mtmp)->apport = 10;
     EDOG(mtmp)->whistletime = 0;
     EDOG(mtmp)->hungrytime = 1000 + moves;
-    EDOG(mtmp)->ogoal.x = -1;   /* force error if used before set */
-    EDOG(mtmp)->ogoal.y = -1;
+    EDOG(mtmp)->save_compat_bytes[0] = -1;
+    EDOG(mtmp)->save_compat_bytes[1] = -1;
     EDOG(mtmp)->abuse = 0;
     EDOG(mtmp)->revivals = 0;
     EDOG(mtmp)->mhpmax_penalty = 0;
@@ -30,16 +31,18 @@ initedog(struct monst *mtmp)
 }
 
 static int
-pet_type(void)
+pet_type(struct newgame_options *ngo)
 {
+    int which_pet = rn2(2);
+
     if (urole.petnum != NON_PM)
         return urole.petnum;
-    else if (preferred_pet == 'c')
+    else if (ngo && ngo->preferred_pet == 'c')
         return PM_KITTEN;
-    else if (preferred_pet == 'd')
+    else if (ngo && ngo->preferred_pet == 'd')
         return PM_LITTLE_DOG;
     else
-        return rn2(2) ? PM_KITTEN : PM_LITTLE_DOG;
+        return which_pet ? PM_KITTEN : PM_LITTLE_DOG;
 }
 
 struct monst *
@@ -66,9 +69,9 @@ make_familiar(struct obj *otmp, xchar x, xchar y, boolean quietly)
                 break;  /* mtmp is null */
             }
         } else if (!rn2(3)) {
-            pm = &mons[pet_type()];
+            pm = &mons[pet_type(NULL)];
         } else {
-            pm = rndmonst(&u.uz);
+            pm = rndmonst(&u.uz, rng_t_create_monster);
             if (!pm) {
                 if (!quietly)
                     pline
@@ -77,7 +80,8 @@ make_familiar(struct obj *otmp, xchar x, xchar y, boolean quietly)
             }
         }
 
-        mtmp = makemon(pm, level, x, y, MM_EDOG | MM_IGNOREWATER);
+        mtmp = makemon(pm, level, x, y, MM_EDOG | MM_IGNOREWATER |
+                       (otmp ? 0 : (MM_CREATEMONSTER | MM_CMONSTER_T)));
         if (otmp && !mtmp) {    /* monster was genocided or square occupied */
             if (!quietly)
                 pline("The figurine writhes and then shatters into pieces!");
@@ -94,17 +98,17 @@ make_familiar(struct obj *otmp, xchar x, xchar y, boolean quietly)
     initedog(mtmp);
     mtmp->msleeping = 0;
     if (otmp) { /* figurine; resulting monster might not become a pet */
-        chance = rn2(10);       /* 0==tame, 1==peaceful, 2==hostile */
+        chance = rn2_on_rng(10, rng_figurine_effect);
+        /* 0: tame, 1: peaceful, 2: hostile, 3+: matching BCU; this gives
+           an 80% chance of the desired effect, 10% of each other effect */
         if (chance > 2)
             chance = otmp->blessed ? 0 : !otmp->cursed ? 1 : 2;
-        /* 0,1,2: b=80%,10,10; nc=10%,80,10; c=10%,10,80 */
         if (chance > 0) {
             mtmp->mtame = 0;    /* not tame after all */
             if (chance == 2) {  /* hostile (cursed figurine) */
                 if (!quietly)
                     pline("You get a bad feeling about this.");
-                mtmp->mpeaceful = 0;
-                set_malign(mtmp);
+                msethostility(mtmp, TRUE, TRUE);
             }
         }
         /* if figurine has been named, give same name to the monster */
@@ -122,27 +126,31 @@ make_familiar(struct obj *otmp, xchar x, xchar y, boolean quietly)
     return mtmp;
 }
 
-/* this function is only called from newgame, so we know:
+/*
+ * This function is only called from newgame, so we know:
  *   - pets aren't genocided so makemon will always work
- *   - the petname has not been used yet */
+ *   - the petname has not been used yet
+ * This is called very late in the newgame sequence, and so can safely clobber
+ * the charstats RNGs.
+ */
 struct monst *
-makedog(void)
+makedog(struct newgame_options *ngo)
 {
     struct monst *mtmp;
     struct obj *otmp;
     const char *petname;
     int pettype;
 
-    if (preferred_pet == 'n')
+    if (ngo->preferred_pet == 'n')
         return NULL;
 
-    pettype = pet_type();
+    pettype = pet_type(ngo);
     if (pettype == PM_LITTLE_DOG)
-        petname = dogname;
+        petname = ngo->dogname;
     else if (pettype == PM_PONY)
-        petname = horsename;
+        petname = ngo->horsename;
     else
-        petname = catname;
+        petname = ngo->catname;
 
     /* default pet names */
     if (!*petname && pettype == PM_LITTLE_DOG) {
@@ -157,15 +165,17 @@ makedog(void)
             petname = "Sirius"; /* Orion's dog */
     }
 
+    /* ideally we'd use rng_charstats_role for this, but... */
     mtmp = makemon(&mons[pettype], level, u.ux, u.uy, MM_EDOG);
 
     /* Horses already wear a saddle */
-    if (pettype == PM_PONY && ! !(otmp = mksobj(level, SADDLE, TRUE, FALSE))) {
+    if (pettype == PM_PONY &&
+        ((otmp = mksobj(level, SADDLE, TRUE, FALSE, rng_charstats_role)))) {
         if (mpickobj(mtmp, otmp))
             panic("merged saddle?");
-        mtmp->misc_worn_check |= W_SADDLE;
+        mtmp->misc_worn_check |= W_MASK(os_saddle);
         otmp->dknown = otmp->bknown = otmp->rknown = 1;
-        otmp->owornmask = W_SADDLE;
+        otmp->owornmask = W_MASK(os_saddle);
         otmp->leashmon = mtmp->m_id;
         update_mon_intrinsics(mtmp, otmp, TRUE, TRUE);
     }
@@ -196,8 +206,8 @@ losedogs(void)
 {
     struct monst *mtmp, *mtmp0 = 0, *mtmp2;
 
-    while ((mtmp = mydogs) != 0) {
-        mydogs = mtmp->nmon;
+    while ((mtmp = turnstate.migrating_pets) != 0) {
+        turnstate.migrating_pets = mtmp->nmon;
         mon_arrive(mtmp, TRUE);
     }
 
@@ -242,14 +252,10 @@ mon_arrive(struct monst *mtmp, boolean with_you)
        the current level has been fully set up; see dochug() */
     mtmp->mstrategy |= STRAT_ARRIVE;
 
-    /* make sure mnexto(rloc_to(set_apparxy())) doesn't use stale data */
-    mtmp->mux = u.ux, mtmp->muy = u.uy;
-    xyloc = mtmp->mtrack[0].x;
-    xyflags = mtmp->mtrack[0].y;
-    xlocale = mtmp->mtrack[1].x;
-    ylocale = mtmp->mtrack[1].y;
-    mtmp->mtrack[0].x = mtmp->mtrack[0].y = 0;
-    mtmp->mtrack[1].x = mtmp->mtrack[1].y = 0;
+    xyloc = mtmp->xyloc;
+    xyflags = mtmp->xyflags;
+    xlocale = mtmp->xlocale;
+    ylocale = mtmp->ylocale;
 
     for (otmp = mtmp->minvent; otmp; otmp = otmp->nobj)
         set_obj_level(mtmp->dlevel, otmp);
@@ -258,8 +264,8 @@ mon_arrive(struct monst *mtmp, boolean with_you)
         return; /* don't place steed on the map */
     if (with_you) {
         /* When a monster accompanies you, sometimes it will arrive at your
-           intended destination and you'll end up next to that spot.  This code 
-           doesn't control the final outcome; goto_level(do.c) decides who ends 
+           intended destination and you'll end up next to that spot.  This code
+           doesn't control the final outcome; goto_level(do.c) decides who ends
            up at your target spot when there is a monster there too. */
         if (!MON_AT(level, u.ux, u.uy) &&
             !rn2(mtmp->mtame ? 10 : mtmp->mpeaceful ? 5 : 2))
@@ -268,7 +274,7 @@ mon_arrive(struct monst *mtmp, boolean with_you)
             mnexto(mtmp);
         return;
     }
-    /* 
+    /*
      * The monster arrived on this level independently of the player.
      * Its coordinate fields were overloaded for use as flags that
      * specify its final destination.
@@ -335,11 +341,12 @@ mon_arrive(struct monst *mtmp, boolean with_you)
         }
      /*FALLTHRU*/ default:
     case MIGR_RANDOM:
-        xlocale = ylocale = 0;
+        xlocale = COLNO;
+        ylocale = ROWNO;
         break;
     }
 
-    if (xlocale && wander) {
+    if ((xlocale != COLNO) && wander) {
         /* monster moved a bit; pick a nearby location */
         /* mnearto() deals w/stone, et al */
         char *r = in_rooms(level, xlocale, ylocale, 0);
@@ -348,14 +355,16 @@ mon_arrive(struct monst *mtmp, boolean with_you)
             coord c;
 
             /* somexy() handles irregular level->rooms */
-            if (somexy(level, &level->rooms[*r - ROOMOFFSET], &c))
+            if (somexy(level, &level->rooms[*r - ROOMOFFSET], &c, rng_main))
                 xlocale = c.x, ylocale = c.y;
-            else
-                xlocale = ylocale = 0;
+            else {
+                xlocale = COLNO;
+                ylocale = ROWNO;
+            }
         } else {        /* not in a room */
             int i, j;
 
-            i = max(1, xlocale - wander);
+            i = max(0, xlocale - wander);
             j = min(COLNO - 1, xlocale + wander);
             xlocale = rn1(j - i, i);
             i = max(0, ylocale - wander);
@@ -364,26 +373,23 @@ mon_arrive(struct monst *mtmp, boolean with_you)
         }
     }
     /* moved a bit */
-    mtmp->mx = 0;       /* (already is 0) */
+    mtmp->mx = COLNO;       /* (already is 0) */
     mtmp->my = xyflags;
-    if (xlocale)
+    if (xlocale != COLNO)
         mnearto(mtmp, xlocale, ylocale, FALSE);
     else {
         if (!rloc(mtmp, TRUE)) {
-            /* 
-             * Failed to place migrating monster,
-             * probably because the level is full.
-             * Dump the monster's cargo and leave the monster dead.
-             */
+            /* Failed to place migrating monster, probably because the level is
+               full.  Dump the monster's cargo and leave the monster dead. */
             struct obj *obj;
 
             while ((obj = mtmp->minvent) != 0) {
                 obj_extract_self(obj);
                 obj_no_longer_held(obj);
-                if (obj->owornmask & W_WEP)
+                if (obj->owornmask & W_MASK(os_wep))
                     setmnotwielded(mtmp, obj);
                 obj->owornmask = 0L;
-                if (xlocale && ylocale)
+                if (xlocale != COLNO && ylocale != ROWNO)
                     place_object(obj, level, xlocale, ylocale);
                 else {
                     rloco(obj);
@@ -391,10 +397,13 @@ mon_arrive(struct monst *mtmp, boolean with_you)
                 }
             }
             mkcorpstat(CORPSE, NULL, mtmp->data, level, xlocale, ylocale,
-                       FALSE);
+                       FALSE, rng_main);
             mongone(mtmp);
         }
     }
+
+    mtmp->mux = COLNO;
+    mtmp->muy = ROWNO;
 }
 
 /* heal monster for time spent elsewhere */
@@ -402,6 +411,13 @@ void
 mon_catchup_elapsed_time(struct monst *mtmp, long nmv)
 {
     int imv = 0;        /* avoid zillions of casts and lint warnings */
+
+    /* Without this, if a monster is deleted during level creation
+       (e.g. statue trap) and the player comes to the level later, it'll
+       have healed itself out of the "deleted" state, thoroughly confusing
+       dmonsfree(). */
+    if (DEADMONSTER(mtmp))
+        return;
 
     if (nmv >= LARGEST_INT)     /* paranoia */
         imv = LARGEST_INT - 1;
@@ -451,9 +467,14 @@ mon_catchup_elapsed_time(struct monst *mtmp, long nmv)
     if (mtmp->mtame) {
         int wilder = (imv + 75) / 150;
 
+        /* The rng_dog_untame RNG is only semi-synched, because the argument
+           changes.  This gives better results than rng_main, and we can't match
+           exactly due to different pet-wrangling habits.
+
+           Note: not msethostility; we're off-level right now. */
         if (mtmp->mtame > wilder)
             mtmp->mtame -= wilder;      /* less tame */
-        else if (mtmp->mtame > rn2(wilder))
+        else if (mtmp->mtame > rn2_on_rng(wilder, rng_dog_untame))
             mtmp->mtame = 0;    /* untame */
         else
             mtmp->mtame = mtmp->mpeaceful = 0;  /* hostile! */
@@ -462,7 +483,7 @@ mon_catchup_elapsed_time(struct monst *mtmp, long nmv)
        dying the next time we call dog_move() */
     if (mtmp->mtame && !mtmp->isminion &&
         (carnivorous(mtmp->data) || herbivorous(mtmp->data))) {
-        struct edog *edog = EDOG(mtmp);
+        const struct edog *edog = CONST_EDOG(mtmp);
 
         if ((moves > edog->hungrytime + 500 && mtmp->mhp < 3) ||
             (moves > edog->hungrytime + 750))
@@ -486,7 +507,7 @@ mon_catchup_elapsed_time(struct monst *mtmp, long nmv)
 }
 
 
-/* called when you move to another level 
+/* called when you move to another level
  * pets_only: true for ascension or final escape */
 void
 keepdogs(boolean pets_only)
@@ -504,9 +525,9 @@ keepdogs(boolean pets_only)
             continue;
         if (((monnear(mtmp, u.ux, u.uy) && levl_follower(mtmp)) ||
              (mtmp == u.usteed) ||
-             /* the wiz will level t-port from anywhere to chase the amulet; if 
+             /* the wiz will level t-port from anywhere to chase the amulet; if
                 you don't have it, will chase you only if in range. -3. */
-             (u.uhave.amulet && mtmp->iswiz))
+             (Uhave_amulet && mtmp->iswiz))
             && ((!mtmp->msleeping && mtmp->mcanmove)
                 /* eg if level teleport or new trap, steed has no control to
                    avoid following */
@@ -562,13 +583,14 @@ keepdogs(boolean pets_only)
 
             relmon(mtmp);
             newsym(mtmp->mx, mtmp->my);
-            mtmp->mx = mtmp->my = 0;    /* avoid mnexto()/MON_AT() problem */
+            mtmp->mx = COLNO;    /* avoid mnexto()/MON_AT() problem */
+            mtmp->my = ROWNO;
             mtmp->wormno = num_segs;
             mtmp->mlstmv = moves;
-            mtmp->nmon = mydogs;
-            mydogs = mtmp;
+            mtmp->nmon = turnstate.migrating_pets;
+            turnstate.migrating_pets = mtmp;
         } else if (mtmp->iswiz) {
-            /* we want to be able to find him when his next resurrection chance 
+            /* we want to be able to find him when his next resurrection chance
                comes up, but have him resume his present location if player
                returns to this level before that time */
             migrate_to_level(mtmp, ledger_no(&u.uz), MIGR_EXACT_XY, NULL);
@@ -618,31 +640,38 @@ migrate_to_level(struct monst *mtmp, xchar tolev,       /* destination level */
     relmon(mtmp);
     mtmp->nmon = migrating_mons;
     migrating_mons = mtmp;
-    newsym(mtmp->mx, mtmp->my);
+    if (mtmp->dlevel == level)
+        newsym(mtmp->mx, mtmp->my);
+
+    /* The dlevel pointer is meaningless for a migrating monster. Set it to NULL
+       so that any uses of it are detected quickly via the resulting
+       segfault. */
+    mtmp->dlevel = NULL;
 
     new_lev.dnum = ledger_to_dnum((xchar) tolev);
     new_lev.dlevel = ledger_to_dlev((xchar) tolev);
-    /* overload mtmp->[mx,my], mtmp->[mux,muy], and mtmp->mtrack[] as */
-    /* destination codes (setup flag bits before altering mx or my) */
+
+    /* set migration data */
     xyflags = (depth(&new_lev) < depth(&u.uz)); /* 1 => up */
     if (In_W_tower(mtmp->mx, mtmp->my, &u.uz))
         xyflags |= 2;
     mtmp->wormno = num_segs;
     mtmp->mlstmv = moves;
-    mtmp->mtrack[1].x = cc ? cc->x : mtmp->mx;
-    mtmp->mtrack[1].y = cc ? cc->y : mtmp->my;
-    mtmp->mtrack[0].x = xyloc;
-    mtmp->mtrack[0].y = xyflags;
+    mtmp->xlocale = cc ? cc->x : mtmp->mx;
+    mtmp->ylocale = cc ? cc->y : mtmp->my;
+    mtmp->xyloc = xyloc;
+    mtmp->xyflags = xyflags;
     mtmp->mux = new_lev.dnum;
     mtmp->muy = new_lev.dlevel;
-    mtmp->mx = mtmp->my = 0;    /* this implies migration */
+    mtmp->mx = COLNO;
+    mtmp->my = ROWNO;    /* this implies migration */
 }
 
 
 /* return quality of food; the lower the better */
 /* fungi will eat even tainted food */
 int
-dogfood(struct monst *mon, struct obj *obj)
+dogfood(const struct monst *mon, struct obj *obj)
 {
     boolean carni = carnivorous(mon->data);
     boolean herbi = herbivorous(mon->data);
@@ -669,7 +698,8 @@ dogfood(struct monst *mon, struct obj *obj)
             return obj->cursed ? UNDEF : APPORT;
 
         /* a starving pet will eat almost anything */
-        starving = (mon->mtame && !mon->isminion && EDOG(mon)->mhpmax_penalty);
+        starving = (mon->mtame && !mon->isminion &&
+                    CONST_EDOG(mon)->mhpmax_penalty);
 
         switch (obj->otyp) {
         case TRIPE_RATION:
@@ -755,9 +785,11 @@ tamedog(struct monst *mtmp, struct obj *obj)
         || (mtmp->data->mflags3 & M3_WANTSARTI))
         return NULL;
 
-    /* worst case, at least it'll be peaceful. */
-    mtmp->mpeaceful = 1;
-    set_malign(mtmp);
+    /* worst case, at least it'll be peaceful; this uses the main RNG because
+       realtime effects means that this won't really sync anyway; this also
+       calls set_malign (thus there's no need for the caller to call it after
+       calling tamedog()) */
+    msethostility(mtmp, FALSE, TRUE);
     if (flags.moonphase == FULL_MOON && night() && rn2(6) && obj &&
         mtmp->data->mlet == S_DOG)
         return NULL;
@@ -768,7 +800,7 @@ tamedog(struct monst *mtmp, struct obj *obj)
 
     /* make grabber let go now, whether it becomes tame or not */
     if (mtmp == u.ustuck) {
-        if (u.uswallow)
+        if (Engulfed)
             expels(mtmp, mtmp->data, TRUE);
         else if (!(Upolyd && sticks(youmonst.data)))
             unstuck(mtmp);
@@ -780,7 +812,7 @@ tamedog(struct monst *mtmp, struct obj *obj)
 
         if (mtmp->mcanmove && !mtmp->mconf && !mtmp->meating &&
             ((tasty = dogfood(mtmp, obj)) == DOGFOOD ||
-             (tasty <= ACCFOOD && EDOG(mtmp)->hungrytime <= moves))) {
+             (tasty <= ACCFOOD && CONST_EDOG(mtmp)->hungrytime <= moves))) {
             /* pet will "catch" and eat this thrown food */
             if (canseemon(mtmp)) {
                 boolean big_corpse = (obj->otyp == CORPSE &&
@@ -810,7 +842,7 @@ tamedog(struct monst *mtmp, struct obj *obj)
         (obj && dogfood(mtmp, obj) >= MANFOOD))
         return NULL;
 
-    if (mtmp->m_id == quest_status.leader_m_id)
+    if (mtmp->m_id == u.quest_status.leader_m_id)
         return NULL;
 
     /* make a new monster which has the pet extension */
@@ -819,7 +851,7 @@ tamedog(struct monst *mtmp, struct obj *obj)
     mtmp2->mxtyp = MX_EDOG;
     mtmp2->mxlth = sizeof (struct edog);
     if (mtmp->mnamelth)
-        strcpy(NAME(mtmp2), NAME(mtmp));
+        strcpy(NAME_MUTABLE(mtmp2), NAME(mtmp));
     initedog(mtmp2);
     replmon(mtmp, mtmp2);
     /* `mtmp' is now obsolete */
@@ -833,7 +865,8 @@ tamedog(struct monst *mtmp, struct obj *obj)
         /* `obj' is now obsolete */
     }
 
-    newsym(mtmp2->mx, mtmp2->my);
+    if (mtmp2->dlevel == level)
+        newsym(mtmp2->mx, mtmp2->my);
     if (attacktype(mtmp2->data, AT_WEAP)) {
         mtmp2->weapon_check = NEED_HTH_WEAPON;
         mon_wield_item(mtmp2);
@@ -867,10 +900,10 @@ wary_dog(struct monst *mtmp, boolean was_dead)
     }
 
     if (edog && (edog->killed_by_u == 1 || edog->abuse > 2)) {
-        mtmp->mpeaceful = mtmp->mtame = 0;
+        msethostility(mtmp, TRUE, FALSE);
         if (edog->abuse >= 0 && edog->abuse < 10)
-            if (!rn2(edog->abuse + 1))
-                mtmp->mpeaceful = 1;
+            if (!rn2_on_rng(edog->abuse + 1, rng_dog_untame))
+                msethostility(mtmp, FALSE, FALSE);
         if (!quietly && cansee(mtmp->mx, mtmp->my)) {
             if (haseyes(youmonst.data)) {
                 if (haseyes(mtmp->data))
@@ -883,9 +916,8 @@ wary_dog(struct monst *mtmp, boolean was_dead)
         }
     } else {
         /* chance it goes wild anyway - Pet Semetary */
-        if (!rn2(mtmp->mtame)) {
-            mtmp->mpeaceful = mtmp->mtame = 0;
-        }
+        if (rn2_on_rng(mtmp->mtame, rng_dog_untame) == mtmp->mtame - 1)
+            msethostility(mtmp, TRUE, FALSE);
     }
     if (!mtmp->mtame) {
         newsym(mtmp->mx, mtmp->my);
@@ -900,7 +932,6 @@ wary_dog(struct monst *mtmp, boolean was_dead)
         edog->revivals++;
         edog->killed_by_u = 0;
         edog->abuse = 0;
-        edog->ogoal.x = edog->ogoal.y = -1;
         if (was_dead || edog->hungrytime < moves + 500L)
             edog->hungrytime = moves + 500L;
         if (was_dead) {
@@ -931,13 +962,13 @@ abuse_dog(struct monst *mtmp)
 
     /* don't make a sound if pet is in the middle of leaving the level */
     /* newsym isn't necessary in this case either */
-    if (mtmp->mx != 0) {
+    if (mtmp->mx != COLNO) {
         if (mtmp->mtame && rn2(mtmp->mtame))
             yelp(mtmp);
         else
             growl(mtmp);        /* give them a moment's worry */
 
-        if (!mtmp->mtame)
+        if (!mtmp->mtame && mtmp->dlevel == level)
             newsym(mtmp->mx, mtmp->my);
     }
 }

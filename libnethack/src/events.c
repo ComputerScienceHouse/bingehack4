@@ -34,7 +34,6 @@ int event_trigger( EventType type, size_t args_len, char * const args[static arg
 		argv[1] = event_type_strings[type];
 		chdir(fqn_prefix[DATAPREFIX]);
 		execvp(fqname(EVENT_SCRIPT, DATAPREFIX, DATAPREFIX), (char **) argv);
-		char *str = strerror(errno);
 		exit(errno == ENOENT ? EXIT_SUCCESS : EXIT_FAILURE); // l'impossible!
 	}
 

@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-04-05 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -6,6 +7,9 @@
 
 #ifndef TRAP_H
 # define TRAP_H
+
+# include "global.h"
+# include "dungeon.h"
 
 union vlaunchinfo {
     short v_launch_otyp;        /* type of object to be triggered */
@@ -41,8 +45,8 @@ struct trap {
 # define ANIMATE_SPELL    2
 
 /* reasons for animate_statue's failure */
-# define AS_OK            0      /* didn't fail */
-# define AS_NO_MON        1      /* makemon failed */
+# define AS_OK            0     /* didn't fail */
+# define AS_NO_MON        1     /* makemon failed */
 # define AS_MON_IS_UNIQUE 2     /* statue monster is unique */
 
 /* Note: if adding/removing a trap, adjust trap_engravings[] in mklev.c */
@@ -75,3 +79,4 @@ struct trap {
 # define TRAPNUM 24
 
 #endif /* TRAP_H */
+

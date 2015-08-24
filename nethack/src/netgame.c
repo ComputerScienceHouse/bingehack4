@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-02-02 */
 /* Copyright (c) Daniel Thaler, 2012 */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -77,7 +78,8 @@ base64_decode(const char *in, char *out)
     int i, len = strlen(in), pos = 0;
 
     for (i = 0; i < len; i += 4) {
-        /* decode blocks; padding '=' are converted to 0 in the decoding table */
+        /* decode blocks; padding '=' are converted to 0 in the decoding table
+           */
         out[pos] = b64d[(int)in[i]] << 2 | b64d[(int)in[i + 1]] >> 4;
         out[pos + 1] = b64d[(int)in[i + 1]] << 4 | b64d[(int)in[i + 2]] >> 2;
         out[pos + 2] =
@@ -88,13 +90,73 @@ base64_decode(const char *in, char *out)
     out[pos] = 0;
 }
 
+static void
+confirm_email_change(const char *buf, void *unused)
+{
+    (void) unused;
+    if (*buf != '\033' &&
+        (*buf || curses_yn_function_internal(
+            "Remove current email address?", "yn", 'n') == 'y'))
+        nhnet_change_email(buf);
+}
+
+/* getline_pw callback; takes in a previously entered new password, compares it
+   to the confirmation of the new password, NULLs out the old password if
+   they don't match to signal to the caller not to change it */
+static void
+passwords_match_callback(const char *buf1, void *other_password_void)
+{
+    char **other_password_p = other_password_void;
+    char *buf2 = *other_password_p;
+    
+    if (buf2[0] == '\033' || buf2[0] == '\0') {
+        curses_msgwin("The password set request was cancelled.",
+                      krc_notification);
+        *other_password_p = NULL;
+    } else if (strcmp(buf1, buf2)) {
+        curses_msgwin("The passwords didn't match. No new password was "
+                      "set.", krc_notification);
+        *other_password_p = NULL;
+    }
+}
+
+static void
+confirm_set_password(const char *buf, void *server_void)
+{
+    struct server_info *server = server_void;
+
+    if (!*buf || *buf == '\033')
+        return;
+
+    curses_getline_pw("Confirm password:", &buf, passwords_match_callback);
+
+    if (buf) {
+        nhnet_change_password(buf);
+        free((void *)server->password);
+        server->password = strdup(buf);
+    }
+}
+
+static void
+change_password_callback(const char *buf, void *server_void)
+{
+    struct server_info *server = server_void;
+
+    if (strcmp(server->password, buf)) {
+        if (*buf && *buf != '\033')
+            curses_msgwin("Incorrect password.", krc_notification);
+        return;
+    }
+
+    curses_getline_pw(
+        "New password: (Beware - it is transmitted in plain text)",
+        server, confirm_set_password);
+}
 
 static void
 account_menu(struct server_info *server)
 {
-    int menuresult[1];
-    int n = 1;
-    char buf1[BUFSZ], buf2[BUFSZ];
+    int menuresult[1] = {0};
 
     static struct nh_menuitem netmenu_items[] = {
         {1, MI_NORMAL, "change email address", 'e', 0, 0},
@@ -103,45 +165,21 @@ account_menu(struct server_info *server)
         {3, MI_NORMAL, "back to main menu", 'x', 0, 0}
     };
 
-    while (n > 0) {
+    while (*menuresult != CURSES_MENU_CANCELLED) {
         menuresult[0] = 3;      /* default action */
-        n = curses_display_menu(netmenu_items, ARRAY_SIZE(netmenu_items),
-                                "Account settings:", PICK_ONE, PLHINT_ANYWHERE,
-                                menuresult);
+        curses_display_menu(
+            STATIC_MENULIST(netmenu_items), "Account settings:",
+            PICK_ONE, PLHINT_ANYWHERE, menuresult, curses_menu_callback);
 
         switch (menuresult[0]) {
         case 1:
-            curses_getline("What email address do you want to use?", buf1);
-            if (*buf1 != '\033' &&
-                (*buf1 ||
-                 curses_yn_function("Remove current email address?", "yn",
-                                    'n') == 'y'))
-                nhnet_change_email(buf1);
+            curses_getline("What email address do you want to use?",
+                           NULL, confirm_email_change);
             break;
 
         case 2:
-            curses_getline_pw("Current password:", buf1);
-            if (strcmp(server->password, buf1)) {
-                curses_msgwin("Incorrect password.");
-                break;
-            }
-
-            curses_getline_pw
-                ("Change password: (Beware - it is transmitted in plain text)",
-                 buf1);
-            if (buf1[0] != '\033' && buf1[0] != '\0')
-                curses_getline_pw("Confirm password:", buf2);
-
-            if (buf2[0] == '\033' || buf2[0] == '\0')
-                curses_msgwin("Password change cancelled.");
-            else if (strcmp(buf1, buf2))
-                curses_msgwin
-                    ("The passwords didn't match. The password was not changed.");
-            else {
-                nhnet_change_password(buf1);
-                free((void *)server->password);
-                server->password = strdup(buf1);
-            }
+            curses_getline_pw("Current password:", server,
+                              change_password_callback);
             break;
 
         case 3:
@@ -160,7 +198,7 @@ read_server_list(void)
 {
     fnchar filename[BUFSZ];
     char hnbuf[256], unbuf_enc[256], pwbuf_enc[256], decbuf[256];
-    char *data, *line;
+    char *line;
     int size, scount, port, n;
     struct server_info *servlist;
     FILE *fp;
@@ -172,7 +210,7 @@ read_server_list(void)
     filename[0] = '\0';
     if (!get_gamedir(CONFIG_DIR, filename))
         return servlist;
-    fnncat(filename, FN("servers.conf"), BUFSZ);
+    fnncat(filename, FN("servers.conf"), BUFSZ - fnlen(filename) - 1);
 
     fp = fopen(filename, "rb");
     if (!fp)
@@ -182,8 +220,12 @@ read_server_list(void)
     size = ftell(fp);
     rewind(fp);
 
-    data = malloc(size + 1);
-    fread(data, size, 1, fp);
+    char data[size + 1];
+    if (fread(data, 1, size, fp) < size) {
+        fclose(fp);
+        curses_msgwin("warning: servers.conf is corrupted", krc_notification);
+        return servlist;
+    }
     data[size] = '\0';
     fclose(fp);
 
@@ -206,7 +248,6 @@ read_server_list(void)
         line = strtok(NULL, "\r\n");
     }
 
-    free(data);
     memset(&servlist[scount], 0, sizeof (struct server_info));
     return servlist;
 }
@@ -223,7 +264,7 @@ write_server_list(struct server_info *servlist)
     filename[0] = '\0';
     if (!get_gamedir(CONFIG_DIR, filename))
         return;
-    fnncat(filename, FN("servers.conf"), BUFSZ);
+    fnncat(filename, FN("servers.conf"), BUFSZ - fnlen(filename) - 1);
 
     fp = fopen(filename, "w+b");
     if (!fp)
@@ -253,49 +294,106 @@ free_server_list(struct server_info *list)
     free(list);
 }
 
-static int
-get_username_password(const char *hostbuf, int port, char *userbuf,
-                      char *passbuf)
+
+static void
+getlin_strdup_callback(const char *buf, void *target_void)
 {
-    int passok, accountok, ret;
-    char passbuf2[BUFSZ];
+    char **target = target_void;
+    if (*buf == '\033' || !*buf)
+        *target = NULL;
+    else
+        *target = strdup(buf);
+}
+
+static int
+rangeclamp(long val, int min, int max)
+{
+    if (val < min)
+        return min;
+    if (val > max)
+        return max;
+    return (int)val;
+}
+
+static void
+getlin_positive_int_callback(const char *buf, void *target_void)
+{
+    int *target = target_void;
+    if (*buf == '\033' || !*buf)
+        *target = -1;
+    else
+        *target = rangeclamp(strtol(buf, NULL, 0), 0, INT_MAX);
+}
+
+/* Given the host and port of a server, fills out the username and password. If
+   returning 0 for failure, no allocations will be done; otherwise, the caller
+   is responsible for freeing the username and password, which will be
+   malloc'ed. */
+static int
+get_username_password(struct server_info *server)
+{
+    int passok, accountok = FALSE, ret;
+
+    server->username = NULL;
+    server->password = NULL;
 
     do {
-        curses_getline("Username (new or existing account):", userbuf);
-        if (userbuf[0] == '\033' || userbuf[0] == '\0')
+        if (server->username) {
+            free(server->username);
+            server->username = NULL;
+        }
+        if (server->password) {
+            free(server->password);
+            server->password = NULL;
+        }
+
+        curses_getline("Username (new or existing account):",
+                       &(server->username), getlin_strdup_callback);
+        if (!server->username)
             return 0;
 
         do {
-            curses_getline_pw
-                ("Password: (beware - it is transmitted in plain text)",
-                 passbuf);
-            if (passbuf[0] == '\033' || passbuf[0] == '\0')
+            curses_getline_pw(
+                "Password: (beware - it is transmitted in plain text)",
+                &(server->password), getlin_strdup_callback);
+            if (!server->password) {
+                free(server->username);
+                server->username = NULL;
                 return 0;
+            }
 
             /* Don't re-ask password unless the account is new */
-            ret = nhnet_connect(hostbuf, port, userbuf, passbuf, NULL, 0);
+            ret = nhnet_connect(server->hostname, server->port,
+                                server->username, server->password, NULL, 0);
             nhnet_disconnect();
             passok = TRUE;
 
             if (ret == AUTH_FAILED_UNKNOWN_USER) {
-                curses_getline_pw("Confirm password:", passbuf2);
-                if (passbuf2[0] == '\033' || passbuf2[0] == '\0')
-                    return 0;
-
-                if (strcmp(passbuf, passbuf2)) {
+                char *pcopy = server->password;
+                curses_getline_pw("Confirm password:", &pcopy,
+                                  passwords_match_callback);
+                if (!pcopy)
                     passok = FALSE;
-                    curses_msgwin("The passwords didn't match.");
-                }
             }
         } while (!passok);
 
-        ret = nhnet_connect(hostbuf, port, userbuf, passbuf, NULL, 0);
-        if (ret == AUTH_FAILED_BAD_PASSWORD) {
-            accountok = FALSE;
-            curses_msgwin("The account exists but this is the wrong password.");
-        } else
+        switch (ret) {
+        case AUTH_FAILED_BAD_PASSWORD:
+            curses_msgwin("The account exists but this is the wrong password.",
+                          krc_notification);
+            break;
+
+        case NO_CONNECTION:
+            curses_msgwin(
+                "Error: could not establish a connection.", krc_notification);
+            break;
+
+        case AUTH_FAILED_UNKNOWN_USER:
+        case AUTH_SUCCESS_NEW:
             accountok = TRUE;
-        nhnet_disconnect();
+            break;
+        }
+        nhnet_disconnect();    
 
     } while (!accountok);
     return 1;
@@ -304,39 +402,44 @@ get_username_password(const char *hostbuf, int port, char *userbuf,
 static struct server_info *
 add_server_menu(struct server_info **servlist)
 {
-    int i, port, hostok;
-    char hostbuf[BUFSZ], portbuf[BUFSZ], userbuf[BUFSZ], passbuf[BUFSZ];
+    int i, hostok;
+    struct server_info server = {0, 0, 0, 0};
 
     do {
-        curses_getline("Hostname or IP address:", hostbuf);
-        if (hostbuf[0] == '\033' || hostbuf[0] == '\0')
+        curses_getline("Hostname or IP address:", &(server.hostname),
+                       getlin_strdup_callback);
+        if (!server.hostname)
             return NULL;
-        curses_getline("Port number (0 or empty = use default):", portbuf);
-        if (portbuf[0] == '\033')
+        curses_getline("Port number (0 = use default):",
+                       &(server.port), getlin_positive_int_callback);
+        if (server.port < 0) {
+            free(server.hostname);
             return NULL;
-
-        port = atoi(portbuf);
+        }
 
         hostok = FALSE;
-        if (nhnet_connect(hostbuf, port, "", "", NULL, 0) != NO_CONNECTION) {
+        if (nhnet_connect(server.hostname, server.port,
+                          "", "", NULL, 0) != NO_CONNECTION) {
             hostok = TRUE;
             nhnet_disconnect();
-        } else
-            curses_msgwin("Connection test failed");
+        } else {
+            curses_msgwin("Connection test failed", krc_notification);
+            free(server.hostname);
+        }
     } while (!hostok);
 
-    for (i = 0; (*servlist)[i].hostname; i++) ;
+    if (!get_username_password(&server)) {
+        free(server.hostname);
+        return NULL;
+    }
+
+    for (i = 0; (*servlist)[i].hostname; i++)
+        ;
     *servlist = realloc(*servlist, sizeof (struct server_info) * (i + 2));
     memmove(&(*servlist)[1], &(*servlist)[0],
             sizeof (struct server_info) * (i + 1));
 
-    if (!get_username_password(hostbuf, port, userbuf, passbuf))
-        return NULL;
-
-    (*servlist)[0].hostname = strdup(hostbuf);
-    (*servlist)[0].port = port;
-    (*servlist)[0].username = strdup(userbuf);
-    (*servlist)[0].password = strdup(passbuf);
+    (*servlist)[0] = server;
 
     write_server_list(*servlist);
 
@@ -345,8 +448,7 @@ add_server_menu(struct server_info **servlist)
 
 
 static void
-list_servers(struct server_info *servlist, struct nh_menuitem **items,
-             int *size, int *icount)
+list_servers(struct server_info *servlist, struct nh_menulist *menu)
 {
     char buf[BUFSZ];
     int i;
@@ -354,36 +456,35 @@ list_servers(struct server_info *servlist, struct nh_menuitem **items,
     for (i = 0; servlist[i].hostname; i++) {
         if (servlist[i].port) {
             if (!strchr(servlist[i].hostname, ':'))
-                sprintf(buf, "%s on %s:%d", servlist[i].username,
+                snprintf(buf, ARRAY_SIZE(buf), "%s on %s:%d", servlist[i].username,
                         servlist[i].hostname, servlist[i].port);
             else
-                sprintf(buf, "%s on [%s]:%d", servlist[i].username,
+                snprintf(buf, ARRAY_SIZE(buf), "%s on [%s]:%d", servlist[i].username,
                         servlist[i].hostname, servlist[i].port);
         } else
-            sprintf(buf, "%s on %s", servlist[i].username,
+            snprintf(buf, ARRAY_SIZE(buf), "%s on %s", servlist[i].username,
                     servlist[i].hostname);
 
-        add_menu_item(*items, *size, *icount, i + 1, buf, 0, 0);
+        add_menu_item(menu, i + 1, buf, 0, 0);
     }
 }
 
 static void
 delete_server_menu(struct server_info *servlist)
 {
-    struct nh_menuitem *items;
-    int icount, size, n, id, selected[1];
+    struct nh_menulist menu;
+    int id, icount, selected[1];
 
-    icount = 0;
-    size = 10;
-    items = malloc(size * sizeof (struct nh_menuitem));
+    init_menulist(&menu);
 
-    list_servers(servlist, &items, &size, &icount);
+    list_servers(servlist, &menu);
 
-    n = curses_display_menu(items, icount, "Delete which server?", PICK_ONE,
-                            PLHINT_ANYWHERE, selected);
-    free(items);
+    icount = menu.icount;
 
-    if (n <= 0)
+    curses_display_menu(&menu, "Delete which server?", PICK_ONE,
+                        PLHINT_ANYWHERE, selected, curses_menu_callback);
+
+    if (*selected == CURSES_MENU_CANCELLED)
         return;
 
     id = selected[0] - 1;
@@ -397,25 +498,23 @@ delete_server_menu(struct server_info *servlist)
 static struct server_info *
 connect_server_menu(struct server_info **servlist)
 {
-    struct nh_menuitem *items;
-    int icount, size, n, selected[1];
+    struct nh_menulist menu;
+    int selected[1];
     struct server_info *server;
 
     while (1) {
-        icount = 0;
-        size = 10;
-        items = malloc(size * sizeof (struct nh_menuitem));
+        init_menulist(&menu);
 
-        list_servers(*servlist, &items, &size, &icount);
+        list_servers(*servlist, &menu);
 
-        add_menu_txt(items, size, icount, "", MI_NORMAL);
-        add_menu_item(items, size, icount, -1, "Add server", '!', 0);
-        add_menu_item(items, size, icount, -2, "Delete server", '#', 0);
+        add_menu_txt(&menu, "", MI_NORMAL);
+        add_menu_item(&menu, -1, "Add server", '!', 0);
+        add_menu_item(&menu, -2, "Delete server", '#', 0);
 
-        n = curses_display_menu(items, icount, "Connect to which server?",
-                                PICK_ONE, PLHINT_ANYWHERE, selected);
-        free(items);
-        if (n <= 0)
+        curses_display_menu(&menu, "Connect to which server?", PICK_ONE,
+                            PLHINT_ANYWHERE, selected, curses_menu_callback);
+
+        if (*selected == CURSES_MENU_CANCELLED)
             break;
 
         if (selected[0] == -1) {
@@ -435,9 +534,8 @@ connect_server_menu(struct server_info **servlist)
 static int
 connect_server(struct server_info *server)
 {
-    int ret, i;
-    char buf[BUFSZ];
-    struct nh_option_desc *game_opts, *birth_opts;
+    int ret;
+    nh_bool ok;
 
     while (1) {
         ret =
@@ -447,59 +545,56 @@ connect_server(struct server_info *server)
             /* only copy into ui_flags.username once the connection has been
                accepted */
             strcpy(ui_flags.username, server->username);
-            return TRUE;
-        } else if (ret == AUTH_SUCCESS_RECONNECT) {
-            nhnet_exit_game(EXIT_FORCE_SAVE);
-            if (!nhnet_connected())     /* disconnect due to an error while
-                                           reconnecting */
-                return FALSE;
-            strcpy(ui_flags.username, server->username);
-            return TRUE;
+            break;
         } else if (ret == NO_CONNECTION) {
-            curses_msgwin("Connection attempt failed");
+            curses_msgwin("Connection attempt failed", krc_notification);
             return FALSE;
         } else if (ret == AUTH_FAILED_BAD_PASSWORD) {
-            curses_msgwin("Authentication failed: Wrong password.");
-            curses_getline("Password:", buf);
-            if (buf[0] == '\033' || buf[0] == '\0')
+            curses_msgwin("Authentication failed: Wrong password.",
+                          krc_notification);
+            char *newpw;
+            curses_getline_pw("Password:", &newpw, getlin_strdup_callback);
+            if (!newpw)
                 return FALSE;
-            free((void *)server->password);
-            server->password = strdup(buf);
+            free(server->password);
+            server->password = newpw;
             continue;
         } else {        /* AUTH_FAILED_UNKNOWN_USER */
-            nhnet_lib_exit();   /* need to acces the local options */
-            game_opts = nh_get_options(GAME_OPTIONS);
-            birth_opts = nh_get_options(CURRENT_BIRTH_OPTIONS);
-            nhnet_lib_init(&curses_windowprocs);
-
+            char buf[sizeof "The account \"\" will be created for you." +
+                     strlen(server->username) + 1];
             sprintf(buf, "The account \"%s\" will be created for you.",
                     server->username);
-            curses_msgwin(buf);
-            curses_getline
-                ("(Optional) You may give an email address for password resets:",
-                 buf);
-            ret =
-                nhnet_connect(server->hostname, server->port, server->username,
-                              server->password, buf, TRUE);
+            curses_msgwin(buf, krc_notification);
+            char *newemail;
+            curses_getline("(Optional) You may give an email address for "
+                           "password resets:", &newemail,
+                           getlin_strdup_callback);
+            ret = nhnet_connect(server->hostname, server->port,
+                                server->username, server->password,
+                                newemail, 1);
+            free(newemail);
             if (ret != AUTH_SUCCESS_NEW) {
-                curses_msgwin("Sorry, the registration failed.");
+                curses_msgwin("Sorry, the registration failed.",
+                              krc_notification);
                 return FALSE;
+            } else {
+                strcpy(ui_flags.username, server->username);
+                break;
             }
-
-            /* upload current options */
-            if (!ui_flags.connection_only &&
-                curses_yn_function("Do you want to copy your current game "
-                                   "options to the server?", "yn",
-                                   'y') == 'y') {
-                for (i = 0; game_opts[i].name; i++)
-                    nh_set_option(game_opts[i].name, game_opts[i].value, 0);
-                for (i = 0; birth_opts[i].name; i++)
-                    nh_set_option(birth_opts[i].name, birth_opts[i].value, 0);
-            }
-
-            return TRUE;
         }
     }
+
+    /* Successful connection; reload options in case server has different
+       perception of valid options than client does. */
+    ok = read_nh_config();
+    if (!ok) {
+        nhnet_disconnect();
+        curses_msgwin("The connection to the server was lost.",
+                      krc_notification);
+        return FALSE;
+    }
+
+    return TRUE;
 }
 
 
@@ -508,7 +603,7 @@ netgame_mainmenu(struct server_info *server)
 {
     int menuresult[1];
     char buf[BUFSZ];
-    int n = 1, logoheight, i;
+    int logoheight, i;
     const char **nhlogo;
     char verstr[32], server_verstr[32];
     const char *const *copybanner = nh_get_copyright_banner();
@@ -516,24 +611,26 @@ netgame_mainmenu(struct server_info *server)
     static struct nh_menuitem netmenu_items[] = {
         {NEWGAME, MI_NORMAL, "new game", 'n', 0, 0},
         {LOAD, MI_NORMAL, "load game", 'l', 0, 0},
-        {REPLAY, MI_NORMAL, "view replay", 'v', 0, 0},
+        {REPLAY, MI_NORMAL, "view a game", 'v', 0, 0},
         {OPTIONS, MI_NORMAL, "set options", 'o', 0, 0},
         {TOPTEN, MI_NORMAL, "show score list", 's', 0},
         {ACCOUNT, MI_NORMAL, "account settings", 'a', 0},
         {DISCONNECT, MI_NORMAL, "disconnect", 'q', 'x', 0}
     };
 
-    sprintf(verstr, "Client version: %d.%d.%d", VERSION_MAJOR, VERSION_MINOR,
+    snprintf(verstr, ARRAY_SIZE(verstr), "Client version: %d.%d.%d", VERSION_MAJOR, VERSION_MINOR,
             PATCHLEVEL);
-    sprintf(server_verstr, "Server version: %d.%d.%d", nhnet_server_ver.major,
+    snprintf(server_verstr, ARRAY_SIZE(server_verstr), "Server version: %d.%d.%d", nhnet_server_ver.major,
             nhnet_server_ver.minor, nhnet_server_ver.patchlevel);
 
     /* In connection-only mode, we can't read the config file until we're
        already logged into the server. So do it now. */
-    if (ui_flags.connection_only)
+    if (ui_flags.connection_only) {
         read_ui_config();
+        read_nh_config();
+    }
 
-    while (n > 0) {
+    while (1) {
         if (COLS >= 100) {
             nhlogo = nhlogo_large;
             logoheight = sizeof (nhlogo_large) / sizeof (nhlogo_large[0]);
@@ -553,20 +650,24 @@ netgame_mainmenu(struct server_info *server)
         mvwaddstr(basewin, LINES - 1, 0, copybanner[2]);
         mvwaddstr(basewin, LINES - 5, COLS - strlen(verstr), verstr);
         mvwaddstr(basewin, LINES - 4, COLS - strlen(verstr), server_verstr);
-        wrefresh(basewin);
+        wnoutrefresh(basewin);
 
 
         menuresult[0] = DISCONNECT;     /* default action */
         snprintf(buf, BUFSZ, "%s on %s:", server->username, server->hostname);
         if (ui_flags.connection_only)
             snprintf(buf, BUFSZ, "Logged in as %s:", server->username);
-        n = curses_display_menu_core(netmenu_items, ARRAY_SIZE(netmenu_items),
-                                     buf, PICK_ONE, menuresult, 0, logoheight,
-                                     COLS, LINES - 3, NULL);
+        curses_display_menu_core(
+            STATIC_MENULIST(netmenu_items), buf, PICK_ONE, menuresult,
+            curses_menu_callback, 0, logoheight, COLS, LINES - 3,
+            FALSE, NULL, TRUE);
 
         switch (menuresult[0]) {
+        case CURSES_MENU_CANCELLED:
+            return;
+
         case NEWGAME:
-            net_rungame();
+            rungame(TRUE);
             break;
 
         case LOAD:
@@ -605,20 +706,15 @@ netgame(void)
 {
     struct server_info *servlist, *server;
     struct server_info localserver = { 0, 0, 0, 0 };
+    int fd;
 
     nhnet_lib_init(&curses_windowprocs);
 
     if (ui_flags.connection_only) {
-        char *username, *password;
-
         servlist = NULL;
         server = &localserver;
         localserver.hostname = strdup("::1");
-        username = malloc(BUFSZ);
-        password = malloc(BUFSZ);
-        localserver.username = username;
-        localserver.password = password;
-        if (!get_username_password(localserver.hostname, 0, username, password))
+        if (!get_username_password(&localserver))
             goto finally;
     } else {
         servlist = read_server_list();
@@ -627,13 +723,31 @@ netgame(void)
     if (!server || !connect_server(server))
         goto finally;
 
+    fd = nhnet_get_socket_fd();
+    if (fd == -1) {
+        curses_msgwin("The connection to the server was lost.",
+                      krc_notification);
+        nhnet_disconnect();
+        goto finally;
+    }
+
+    ui_flags.connected_to_server = 1;
+    uncursed_watch_fd(fd);
+
     free_displaychars();        /* remove old display info */
     init_displaychars();        /* load new display info from the server */
+
+    load_keymap();              /* load command info from the server */
 
     netgame_mainmenu(server);
     if (!ui_flags.connection_only)
         write_server_list(servlist);
+
+    uncursed_unwatch_fd(fd);
+    ui_flags.connected_to_server = 0;
     nhnet_disconnect();
+
+    free_keymap();
 
 finally:
     if (servlist)

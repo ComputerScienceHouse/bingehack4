@@ -1,101 +1,55 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-06-21 */
 /* Copyright (c) Daniel Thaler, 2012 */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "nhcurses.h"
-
-
-void
-net_rungame(void)
-{
-    char plname[BUFSZ];
-    int role = initrole, race = initrace, gend = initgend, align = initalign;
-    int ret;
-
-    if (!player_selection(&role, &race, &gend, &align, random_player))
-        return;
-
-    strncpy(plname, settings.plname, PL_NSIZ);
-    /* The player name is set to "wizard" (again) in nh_start_game, so setting
-       it here just prevents wizmode player from being asked for a name. */
-    if (ui_flags.playmode == MODE_WIZARD)
-        strcpy(plname, "wizard");
-
-    while (!plname[0])
-        curses_getline("what is your name?", plname);
-    if (plname[0] == '\033')    /* canceled */
-        return;
-
-    create_game_windows();
-    if (!nhnet_start_game(plname, role, race, gend, align, ui_flags.playmode)) {
-        destroy_game_windows();
-        return;
-    }
-
-    load_keymap();      /* need to load the keymap after the game has been
-                           started */
-    ret = commandloop();
-    free_keymap();
-
-    destroy_game_windows();
-    cleanup_messages();
-
-    if (ret == GAME_OVER)
-        show_topten(player.plname, settings.end_top, settings.end_around,
-                    settings.end_own);
-}
-
 
 void
 net_loadgame(void)
 {
     char buf[BUFSZ];
     struct nhnet_game *gamelist;
-    struct nh_menuitem *items;
-    int size, icount, id, i, n, ret, pick[1];
+    struct nh_menulist menu;
+    int id, size, i, ret, pick[1];
 
     gamelist = nhnet_list_games(FALSE, FALSE, &size);
+    if (!gamelist) {
+        curses_msgwin("Failed to retrieve the list of saved games.",
+                      krc_notification);
+        return;
+    }
     if (!size) {
-        curses_msgwin("No saved games found.");
+        curses_msgwin("No saved games found.", krc_notification);
         return;
     }
 
-    icount = 0;
-    items = malloc(size * sizeof (struct nh_menuitem));
+    init_menulist(&menu);
+
     for (i = 0; i < size; i++) {
         if (gamelist[i].status == LS_DONE || gamelist[i].status == LS_INVALID)
             continue;
         describe_game(buf, gamelist[i].status, &gamelist[i].i);
         id = (gamelist[i].status == LS_IN_PROGRESS) ? 0 : gamelist[i].gameid;
-        add_menu_item(items, size, icount, id, buf, 0, FALSE);
+        add_menu_item(&menu, id, buf, 0, FALSE);
     }
 
-    n = curses_display_menu(items, icount, "saved games", PICK_ONE,
-                            PLHINT_ANYWHERE, pick);
-    free(items);
-    if (n <= 0)
+    curses_display_menu(&menu, "saved games", PICK_ONE, PLHINT_ANYWHERE, pick,
+                        curses_menu_callback);
+
+    if (*pick == CURSES_MENU_CANCELLED)
         return;
 
     id = pick[0];
 
     create_game_windows();
-    if (nhnet_restore_game(id, NULL) != GAME_RESTORED) {
-        curses_msgwin("Failed to restore saved game.");
-        destroy_game_windows();
-        return;
-    }
 
-    load_keymap();      /* need to load the keymap after the game has been
-                           started */
-    ret = commandloop();
-    free_keymap();
+    ret = playgame(id, FM_PLAY);
 
     destroy_game_windows();
     cleanup_messages();
 
-    if (ret == GAME_OVER)
-        show_topten(player.plname, settings.end_top, settings.end_around,
-                    settings.end_own);
+    game_ended(ret, NULL, TRUE);
 }
 
 void
@@ -103,53 +57,56 @@ net_replay(void)
 {
     char buf[BUFSZ];
     struct nhnet_game *gamelist;
-    struct nh_menuitem *items;
+    struct nh_menulist menu;
     int pick[1];
-    int i, n, icount, size, gamecount, gameid, want_done, show_all;
+    int i, gamecount, gameid, want_done, show_all;
 
-    want_done = TRUE;
-    show_all = FALSE;
+    want_done = FALSE;
+    show_all = TRUE;
     while (1) {
         gamelist = nhnet_list_games(want_done, show_all, &gamecount);
 
-        icount = 0;
-        size = gamecount + 5;
-        items = malloc(size * sizeof (struct nh_menuitem));
+        init_menulist(&menu);
 
         if (!gamecount)
-            add_menu_txt(items, size, icount, "(No games in this list)",
+            add_menu_txt(&menu, "(No games in this list)",
                          MI_NORMAL);
 
         /* add all the files to the menu */
         for (i = 0; i < gamecount; i++) {
             describe_game(buf, gamelist[i].status, &gamelist[i].i);
-            add_menu_item(items, size, icount, gamelist[i].gameid, buf, 0,
+            add_menu_item(&menu, gamelist[i].gameid, buf, 0,
                           FALSE);
         }
 
-        add_menu_txt(items, size, icount, "", MI_NORMAL);
+        add_menu_txt(&menu, "", MI_NORMAL);
         if (want_done)
-            add_menu_item(items, size, icount, -1, "View saved games instead",
-                          '!', FALSE);
+            add_menu_item(&menu, -1, show_all ? "Watch current games" :
+                          "Replay your unfinished games", '!', FALSE);
         else
-            add_menu_item(items, size, icount, -1,
-                          "View completed games instead", '!', FALSE);
+            add_menu_item(&menu, -1,
+                          "Replay a completed game", '!', FALSE);
 
         if (show_all)
-            add_menu_item(items, size, icount, -2, "View only your games", '#',
-                          FALSE);
+            add_menu_item(&menu, -2, want_done ? "View your completed games" :
+                          "View your saved games", '#', FALSE);
         else
-            add_menu_item(items, size, icount, -2,
-                          "View games from all players", '#', FALSE);
+            add_menu_item(&menu, -2, "View games from other players",
+                          '#', FALSE);
 
-        n = curses_display_menu(items, icount, "Pick a game to view", PICK_ONE,
-                                PLHINT_ANYWHERE, pick);
-        free(items);
-        if (n <= 0)
+        curses_display_menu(&menu, want_done ? show_all ?
+                            "Completed games by other players" :
+                            "Your completed games" : show_all ?
+                            "Pick a current game to watch" :
+                            "Replay your saved games", PICK_ONE,
+                            PLHINT_ANYWHERE, pick, curses_menu_callback);
+        if (pick[0] == CURSES_MENU_CANCELLED)
             return;
 
         if (pick[0] == -1) {
             want_done = !want_done;
+            if (want_done)
+                show_all = FALSE; /* will normally be intended */
             continue;
         } else if (pick[0] == -2) {
             show_all = !show_all;
@@ -160,5 +117,16 @@ net_replay(void)
         break;
     }
 
-    replay_commandloop(gameid);
+    create_game_windows();
+
+    /* If the game is over, we want to replay (nothing to watch). If it's our
+       game, we want to replay (not much point in watching yourself). Otherwise,
+       we start in watch mode; the player can change to replay mode from the
+       watch menu. */
+    int ret = playgame(gameid, show_all && !want_done ? FM_WATCH : FM_REPLAY);
+
+    destroy_game_windows();
+    cleanup_messages();
+
+    game_ended(ret, NULL, TRUE);
 }

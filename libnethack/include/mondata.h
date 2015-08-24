@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-12 */
 /* Copyright (c) 1989 Mike Threepoint                             */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -22,7 +23,7 @@
 # define is_lminion(mon)        (is_minion((mon)->data) && \
                                  (mon)->data->maligntyp >= A_COALIGNED && \
                                  ((mon)->data != &mons[PM_ANGEL] || \
-                                  EPRI(mon)->shralign > 0))
+                                  CONST_EPRI(mon)->shralign > 0))
 
 # define is_flyer(ptr)          (((ptr)->mflags1 & M1_FLY) != 0L)
 # define is_floater(ptr)        ((ptr)->mlet == S_EYE)
@@ -33,10 +34,12 @@
                                 (!(breathless(ptr) && \
                                    (ptr->msound == MS_SILENT || \
                                     ptr->msound == MS_BONES)))
-# define amphibious(ptr)        (((ptr)->mflags1 & (M1_AMPHIBIOUS | M1_BREATHLESS)) != 0L)
+# define amphibious(ptr) \
+    (((ptr)->mflags1 & (M1_AMPHIBIOUS | M1_BREATHLESS)) != 0L)
 # define passes_walls(ptr)      (((ptr)->mflags1 & M1_WALLWALK) != 0L)
 # define amorphous(ptr)         (((ptr)->mflags1 & M1_AMORPHOUS) != 0L)
-# define noncorporeal(ptr)      ((ptr)->mlet == S_GHOST)
+# define noncorporeal(ptr)      ((ptr) == &mons[PM_GHOST] || \
+                                 (ptr) == &mons[PM_SHADE])
 # define tunnels(ptr)           (((ptr)->mflags1 & M1_TUNNEL) != 0L)
 # define needspick(ptr)         (((ptr)->mflags1 & M1_NEEDPICK) != 0L)
 # define hides_under(ptr)       (((ptr)->mflags1 & M1_CONCEAL) != 0L)
@@ -118,7 +121,7 @@
                                  (((ptr)->mflags2 & (M2_LORD|M2_PRINCE)) == 0L))
 # define is_dlord(ptr)          (is_demon(ptr) && is_lord(ptr))
 # define is_dprince(ptr)        (is_demon(ptr) && is_prince(ptr))
-# define is_minion(ptr)         ((ptr)->mflags2 & M2_MINION)
+# define is_minion(ptr)         (((ptr)->mflags2 & M2_MINION) != 0L)
 # define likes_gold(ptr)        (((ptr)->mflags2 & M2_GREEDY) != 0L)
 # define likes_gems(ptr)        (((ptr)->mflags2 & M2_JEWELS) != 0L)
 # define likes_objs(ptr)        (((ptr)->mflags2 & M2_COLLECT) != 0L || \
@@ -130,9 +133,10 @@
 # define is_longworm(ptr)       (((ptr) == &mons[PM_BABY_LONG_WORM]) || \
                                  ((ptr) == &mons[PM_LONG_WORM]) || \
                                  ((ptr) == &mons[PM_LONG_WORM_TAIL]))
-# define is_covetous(ptr)       ((ptr->mflags3 & M3_COVETOUS))
-# define infravision(ptr)       ((ptr->mflags3 & M3_INFRAVISION))
-# define infravisible(ptr)      ((ptr->mflags3 & M3_INFRAVISIBLE))
+# define is_covetous(ptr)       ((ptr->mflags3 & M3_COVETOUS) != 0L)
+# define infravision(ptr)       ((ptr->mflags3 & M3_INFRAVISION) != 0L)
+# define infravisible(ptr)      ((ptr->mflags3 & M3_INFRAVISIBLE) != 0L)
+# define has_scent(ptr)         ((ptr->mflags3 & M3_SCENT) != 0L)
 # define is_mplayer(ptr)        (((ptr) >= &mons[PM_ARCHEOLOGIST]) && \
                                  ((ptr) <= &mons[PM_WIZARD]))
 # define is_rider(ptr)          ((ptr) == &mons[PM_DEATH] || \
@@ -198,4 +202,10 @@
 # define befriend_with_obj(ptr, obj) ((obj)->oclass == FOOD_CLASS && \
                                       is_domestic(ptr))
 
+/* Generated in readonly.c */
+extern const int monstr[];
+/* Dummy address */
+extern struct monst zeromonst;
+
 #endif /* MONDATA_H */
+

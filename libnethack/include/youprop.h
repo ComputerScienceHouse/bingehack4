@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-02-08 */
 /* Copyright (c) 1989 Mike Threepoint                             */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -8,333 +9,253 @@
 # include "prop.h"
 # include "permonst.h"
 # include "mondata.h"
-# include "pm.h"
-
-
-/* KMH, intrinsics patch.
- * Reorganized and rewritten for >32-bit properties.
- * HXxx refers to intrinsic bitfields while in human form.
- * EXxx refers to extrinsic bitfields from worn objects.
- * BXxx refers to the cause of the property being blocked.
- * Xxx refers to any source, including polymorph forms.
- */
-
 
 # define maybe_polyd(if_so,if_not)      (Upolyd ? (if_so) : (if_not))
 
+/* The logic for properties has been moved to youprop.c; this file is now just
+   compatibility macros. */
+
+# define u_any_property(p)     (!!u_have_property((p), ANY_PROPERTY, FALSE))
+# define worn_extrinsic(p)     mworn_extrinsic(&youmonst, p)
+# define worn_blocked(p)       mworn_blocked(&youmonst, p)
+# define worn_warntype()       mworn_warntype(&youmonst)
 
 /*** Resistances to troubles ***/
 /* With intrinsics and extrinsics */
-# define HFire_resistance       u.uprops[FIRE_RES].intrinsic
-# define EFire_resistance       u.uprops[FIRE_RES].extrinsic
-# define Fire_resistance        (HFire_resistance || EFire_resistance || \
-                                 resists_fire(&youmonst))
-
-# define HCold_resistance       u.uprops[COLD_RES].intrinsic
-# define ECold_resistance       u.uprops[COLD_RES].extrinsic
-# define Cold_resistance        (HCold_resistance || ECold_resistance || \
-                                 resists_cold(&youmonst))
-
-# define HSleep_resistance      u.uprops[SLEEP_RES].intrinsic
-# define ESleep_resistance      u.uprops[SLEEP_RES].extrinsic
-# define Sleep_resistance       (HSleep_resistance || ESleep_resistance || \
-                                 resists_sleep(&youmonst))
-
-# define HDisint_resistance     u.uprops[DISINT_RES].intrinsic
-# define EDisint_resistance     u.uprops[DISINT_RES].extrinsic
-# define Disint_resistance      (HDisint_resistance || EDisint_resistance || \
-                                 resists_disint(&youmonst))
-
-# define HShock_resistance      u.uprops[SHOCK_RES].intrinsic
-# define EShock_resistance      u.uprops[SHOCK_RES].extrinsic
-# define Shock_resistance       (HShock_resistance || EShock_resistance || \
-                                 resists_elec(&youmonst))
-
-# define HPoison_resistance     u.uprops[POISON_RES].intrinsic
-# define EPoison_resistance     u.uprops[POISON_RES].extrinsic
-# define Poison_resistance      (HPoison_resistance || EPoison_resistance || \
-                                 resists_poison(&youmonst))
-
-# define HDrain_resistance      u.uprops[DRAIN_RES].intrinsic
-# define EDrain_resistance      u.uprops[DRAIN_RES].extrinsic
-# define Drain_resistance       (HDrain_resistance || EDrain_resistance || \
-                                 resists_drli(&youmonst))
+# define HFire_resistance       u.uintrinsic[FIRE_RES]
+# define Fire_resistance        u_any_property(FIRE_RES)
+# define HCold_resistance       u.uintrinsic[COLD_RES]
+# define Cold_resistance        u_any_property(COLD_RES)
+# define HSleep_resistance      u.uintrinsic[SLEEP_RES]
+# define Sleep_resistance       u_any_property(SLEEP_RES)
+# define HDisint_resistance     u.uintrinsic[DISINT_RES]
+# define Disint_resistance      u_any_property(DISINT_RES)
+# define HShock_resistance      u.uintrinsic[SHOCK_RES]
+# define Shock_resistance       u_any_property(SHOCK_RES)
+# define HPoison_resistance     u.uintrinsic[POISON_RES]
+# define Poison_resistance      u_any_property(POISON_RES)
+# define HDrain_resistance      u.uintrinsic[DRAIN_RES]
+# define Drain_resistance       u_any_property(DRAIN_RES)
 
 /* Intrinsics only */
-# define HSick_resistance       u.uprops[SICK_RES].intrinsic
-# define Sick_resistance        (HSick_resistance || \
-                                 youmonst.data->mlet == S_FUNGUS || \
-                                 youmonst.data == &mons[PM_GHOUL] || \
-                                 defends(AD_DISE,uwep))
-# define Invulnerable           u.uprops[INVULNERABLE].intrinsic  /* [Tom] */
+# define HSick_resistance       u.uintrinsic[SICK_RES]
+# define Sick_resistance        u_any_property(SICK_RES)
 
-/* Extrinsics only */
-# define EAntimagic             u.uprops[ANTIMAGIC].extrinsic
-# define Antimagic              (EAntimagic || \
-                                 (Upolyd && resists_magm(&youmonst)))
-
-# define EAcid_resistance       u.uprops[ACID_RES].extrinsic
-# define Acid_resistance        (EAcid_resistance || resists_acid(&youmonst))
-
-# define EStone_resistance      u.uprops[STONE_RES].extrinsic
-# define Stone_resistance       (EStone_resistance || resists_ston(&youmonst))
+/* Extrinsics and polyforms only */
+# define EAntimagic             worn_extrinsic(ANTIMAGIC)
+# define Antimagic              u_any_property(ANTIMAGIC)
+# define EAcid_resistance       worn_extrinsic(ACID_RES)
+# define Acid_resistance        u_any_property(ACID_RES)
+# define EStone_resistance      worn_extrinsic(STONE_RES)
+# define Stone_resistance       u_any_property(STONE_RES)
 
 
 /*** Troubles ***/
 /* Pseudo-property */
 # define Punished               (uball)
 
-/* Those implemented solely as timeouts (we use just intrinsic) */
-# define HStun                  u.uprops[STUNNED].intrinsic
-# define Stunned                (HStun || u.umonnum == PM_STALKER || \
-                                 youmonst.data->mlet == S_BAT)
-                /* Note: birds will also be stunned */
+/* These have silly names that don't follow the normal pattern :-( */
+# define Blinded                u.uintrinsic[BLINDED]
+# define Blindfolded            u_have_property(BLINDED, W_MASK(os_tool), FALSE)
+# define Blind                  u_any_property(BLINDED)
 
-# define HConfusion             u.uprops[CONFUSION].intrinsic
-# define Confusion              HConfusion
+/* Whereas these can't follow the normal pattern */
+# define LWounded_legs          u.uintrinsic[LWOUNDED_LEGS]
+# define RWounded_legs          u.uintrinsic[RWOUNDED_LEGS]
+# define Wounded_legs           (LWounded_legs || RWounded_legs)
+# define Wounded_leg_side       ((LWounded_legs ? LEFT_SIDE : 0) | \
+                                 (RWounded_legs ? RIGHT_SIDE : 0))
 
-# define Blinded                u.uprops[BLINDED].intrinsic
-# define Blindfolded            (ublindf && ublindf->otyp != LENSES)
-                /* ...means blind because of a cover */
-# define Blind  (((Blinded || Blindfolded || !haseyes(youmonst.data)) && \
-                 !(ublindf && ublindf->oartifact == ART_EYES_OF_THE_OVERWORLD)) || \
-                 flags.permablind || unconscious())
-                /* ...the Eyes operate even when you really are blind or don't
-                   have any eyes, but get beaten by game options or
-                   unconsciousness */
+# define HTelepat               u.uintrinsic[TELEPAT]
+# define Blind_telepat          u_any_property(TELEPAT)
+# define Unblind_telepat        u_have_property(TELEPAT,                \
+                                                W_EQUIP|W_ARTIFACT, FALSE)
 
-# define Sick                   u.uprops[SICK].intrinsic
-# define Stoned                 u.uprops[STONED].intrinsic
-# define Strangled              u.uprops[STRANGLED].intrinsic
-# define Vomiting               u.uprops[VOMITING].intrinsic
-# define Glib                   u.uprops[GLIB].intrinsic
-# define Slimed                 u.uprops[SLIMED].intrinsic      /* [Tom] */
-
-/* Hallucination is solely a timeout; its resistance is extrinsic */
-# define HHallucination         u.uprops[HALLUC].intrinsic
-# define EHalluc_resistance     u.uprops[HALLUC_RES].extrinsic
-# define Halluc_resistance      (EHalluc_resistance || \
-                                 (Upolyd && dmgtype(youmonst.data, AD_HALU)))
-# define Hallucination          ((HHallucination && !Halluc_resistance) || \
-                                 flags.permahallu)
-
-/* Timeout, plus a worn mask */
-# define HFumbling              u.uprops[FUMBLING].intrinsic
-# define EFumbling              u.uprops[FUMBLING].extrinsic
-# define Fumbling               (HFumbling || EFumbling)
-
-# define HWounded_legs          u.uprops[WOUNDED_LEGS].intrinsic
-# define EWounded_legs          u.uprops[WOUNDED_LEGS].extrinsic
-# define Wounded_legs           (HWounded_legs || EWounded_legs)
-
-# define HSleeping              u.uprops[SLEEPING].intrinsic
-# define ESleeping              u.uprops[SLEEPING].extrinsic
-# define Sleeping               (HSleeping || ESleeping)
-
-# define HHunger                u.uprops[HUNGER].intrinsic
-# define EHunger                u.uprops[HUNGER].extrinsic
-# define Hunger                 (HHunger || EHunger)
-
+/* And those that work sensibly */
+# define HStun                  u.uintrinsic[STUNNED]
+# define Stunned                u_any_property(STUNNED)
+# define HConfusion             u.uintrinsic[CONFUSION]
+# define Confusion              u_any_property(CONFUSION)
+# define Sick                   u.uintrinsic[SICK]
+# define Stoned                 u.uintrinsic[STONED]
+# define Strangled              u.uintrinsic[STRANGLED]
+# define Vomiting               u.uintrinsic[VOMITING]
+# define Glib                   u.uintrinsic[GLIB]
+# define Slimed                 u.uintrinsic[SLIMED]      /* [Tom] */
+# define HHallucination         u.uintrinsic[HALLUC]
+# define Hallucination          u_any_property(HALLUC)
+# define Halluc_resistance      u_any_property(HALLUC_RES)
+# define HFumbling              u.uintrinsic[FUMBLING]
+# define Fumbling               u_any_property(FUMBLING)
+# define HSleeping              u.uintrinsic[SLEEPING]
+# define Sleeping               u_any_property(SLEEPING)
+# define HHunger                u.uintrinsic[HUNGER]
+# define Hunger                 u_any_property(HUNGER)
 
 /*** Vision and senses ***/
-# define HSee_invisible         u.uprops[SEE_INVIS].intrinsic
-# define ESee_invisible         u.uprops[SEE_INVIS].extrinsic
-# define See_invisible          (HSee_invisible || ESee_invisible || \
-                                 perceives(youmonst.data))
-
-# define HTelepat               u.uprops[TELEPAT].intrinsic
-# define ETelepat               u.uprops[TELEPAT].extrinsic
-# define Blind_telepat          (HTelepat || ETelepat || \
-                                 telepathic(youmonst.data))
-# define Unblind_telepat        (ETelepat)
-
-# define HWarning               u.uprops[WARNING].intrinsic
-# define EWarning               u.uprops[WARNING].extrinsic
-# define Warning                (HWarning || EWarning)
-
-/* Warning for a specific type of monster */
-# define HWarn_of_mon           u.uprops[WARN_OF_MON].intrinsic
-# define EWarn_of_mon           u.uprops[WARN_OF_MON].extrinsic
-# define Warn_of_mon            (HWarn_of_mon || EWarn_of_mon)
-
-# define HUndead_warning        u.uprops[WARN_UNDEAD].intrinsic
-# define Undead_warning         (HUndead_warning)
-
-# define HSearching             u.uprops[SEARCHING].intrinsic
-# define ESearching             u.uprops[SEARCHING].extrinsic
-# define Searching              (HSearching || ESearching)
-
-# define HClairvoyant           u.uprops[CLAIRVOYANT].intrinsic
-# define EClairvoyant           u.uprops[CLAIRVOYANT].extrinsic
-# define BClairvoyant           u.uprops[CLAIRVOYANT].blocked
-# define Clairvoyant            ((HClairvoyant || EClairvoyant) &&\
-                                 !BClairvoyant)
-
-# define HInfravision           u.uprops[INFRAVISION].intrinsic
-# define EInfravision           u.uprops[INFRAVISION].extrinsic
-# define Infravision            (HInfravision || EInfravision || \
-                                  infravision(youmonst.data))
-
-# define HDetect_monsters       u.uprops[DETECT_MONSTERS].intrinsic
-# define EDetect_monsters       u.uprops[DETECT_MONSTERS].extrinsic
-# define Detect_monsters        (HDetect_monsters || EDetect_monsters)
-
-# define HDetect_fish           u.uprops[DETECT_FISH].intrinsic
-# define EDetect_fish           u.uprops[DETECT_FISH].extrinsic
-# define Detect_fish            (HDetect_fish || EDetect_fish)
+# define HSee_invisible         u.uintrinsic[SEE_INVIS]
+# define See_invisible          u_any_property(SEE_INVIS)
+# define HWarning               u.uintrinsic[WARNING]
+# define Warning                u_any_property(WARNING)
+# define HWarn_of_mon           u.uintrinsic[WARN_OF_MON]
+# define Warn_of_mon            u_any_property(WARN_OF_MON)
+# define HUndead_warning        u.uintrinsic[WARN_UNDEAD]
+# define Undead_warning         u_any_property(WARN_UNDEAD)
+# define HSearching             u.uintrinsic[SEARCHING]
+# define Searching              u_any_property(SEARCHING)
+# define HClairvoyant           u.uintrinsic[CLAIRVOYANT]
+# define Clairvoyant            u_any_property(CLAIRVOYANT)
+# define BClairvoyant           worn_blocked(CLAIRVOYANT)
+# define HInfravision           u.uintrinsic[INFRAVISION]
+# define Infravision            u_any_property(INFRAVISION)
+# define HDetect_monsters       u.uintrinsic[DETECT_MONSTERS]
+# define Detect_monsters        u_any_property(DETECT_MONSTERS)
 
 /*** Appearance and behavior ***/
-# define Adornment              u.uprops[ADORNED].extrinsic
+# define Adornment              worn_extrinsic(ADORNED)
 
-# define HInvis                 u.uprops[INVIS].intrinsic
-# define EInvis                 u.uprops[INVIS].extrinsic
-# define BInvis                 u.uprops[INVIS].blocked
-# define Invis                  ((HInvis || EInvis || \
-                                 pm_invisible(youmonst.data)) && !BInvis)
+# define HInvis                 u.uintrinsic[INVIS]
+# define Invis                  u_any_property(INVIS)
+# define BInvis                 worn_blocked(INVIS)
 # define Invisible              (Invis && !See_invisible)
-                /* Note: invisibility also hides inventory and steed */
-
-# define EDisplaced             u.uprops[DISPLACED].extrinsic
-# define Displaced              EDisplaced
-
-# define HStealth               u.uprops[STEALTH].intrinsic
-# define EStealth               u.uprops[STEALTH].extrinsic
-# define BStealth               u.uprops[STEALTH].blocked
-# define Stealth                ((HStealth || EStealth) && !BStealth)
-
-# define HAggravate_monster     u.uprops[AGGRAVATE_MONSTER].intrinsic
-# define EAggravate_monster     u.uprops[AGGRAVATE_MONSTER].extrinsic
-# define Aggravate_monster      (HAggravate_monster || EAggravate_monster)
-
-# define HConflict              u.uprops[CONFLICT].intrinsic
-# define EConflict              u.uprops[CONFLICT].extrinsic
-# define Conflict               (HConflict || EConflict)
-
+# define Displaced              worn_extrinsic(DISPLACED)
+# define HStealth               u.uintrinsic[STEALTH]
+# define Stealth                u_any_property(STEALTH)
+# define HAggravate_monster     u.uintrinsic[AGGRAVATE_MONSTER]
+# define Aggravate_monster      u_any_property(AGGRAVATE_MONSTER)
+# define HConflict              u.uintrinsic[CONFLICT]
+# define Conflict               u_any_property(CONFLICT)
 
 /*** Transportation ***/
-# define HJumping               u.uprops[JUMPING].intrinsic
-# define EJumping               u.uprops[JUMPING].extrinsic
-# define Jumping                (HJumping || EJumping)
+# define Lev_at_will                                                    \
+    (u_have_property(LEVITATION, I_SPECIAL|W_ARTIFACT, FALSE) &&        \
+     !u_have_property(LEVITATION, ~(I_SPECIAL|W_ARTIFACT|W_MASK(os_timeout)), \
+                      FALSE))
 
-# define HTeleportation         u.uprops[TELEPORT].intrinsic
-# define ETeleportation         u.uprops[TELEPORT].extrinsic
-# define Teleportation          (HTeleportation || ETeleportation || \
-                                 can_teleport(youmonst.data))
+# define HJumping               u.uintrinsic[JUMPING]
+# define Jumping                u_any_property(JUMPING)
+# define HTeleportation         u.uintrinsic[TELEPORT]
+# define Teleportation          u_any_property(TELEPORT)
+# define HTeleport_control      u.uintrinsic[TELEPORT_CONTROL]
+# define Teleport_control       u_any_property(TELEPORT_CONTROL)
+# define HLevitation            u.uintrinsic[LEVITATION]
+# define Levitation             u_any_property(LEVITATION)
+# define Flying                 u_any_property(FLYING)
+# define Wwalking               u_any_property(WWALKING)
+# define HSwimming              u.uintrinsic[SWIMMING]
+# define Swimming               u_any_property(SWIMMING)
+# define HMagical_breathing     u.uintrinsic[MAGICAL_BREATHING]
+# define Amphibious             u_any_property(MAGICAL_BREATHING)
+# define HPasses_walls          u.uintrinsic[PASSES_WALLS]
+# define Passes_walls           u_any_property(PASSES_WALLS)
 
-# define HTeleport_control      u.uprops[TELEPORT_CONTROL].intrinsic
-# define ETeleport_control      u.uprops[TELEPORT_CONTROL].extrinsic
-# define Teleport_control       (HTeleport_control || ETeleport_control || \
-                                 control_teleport(youmonst.data))
-
-# define HLevitation            u.uprops[LEVITATION].intrinsic
-# define ELevitation            u.uprops[LEVITATION].extrinsic
-# define Levitation             (HLevitation || ELevitation || \
-                                 is_floater(youmonst.data))
-        /* Can't touch surface, can't go under water; overrides all others */
-# define Lev_at_will            (((HLevitation & I_SPECIAL) != 0L || \
-                                 (ELevitation & W_ARTI) != 0L) && \
-                                 (HLevitation & ~(I_SPECIAL|TIMEOUT)) == 0L && \
-                                 (ELevitation & ~W_ARTI) == 0L && \
-                                 !is_floater(youmonst.data))
-
-# define EFlying                u.uprops[FLYING].extrinsic
-# define Flying                 (EFlying || is_flyer(youmonst.data) || \
-                                 (u.usteed && is_flyer(u.usteed->data)))
-        /* May touch surface; does not override any others */
-
-# define Wwalking               (u.uprops[WWALKING].extrinsic && \
-                                 !Is_waterlevel(&u.uz))
-        /* Don't get wet, can't go under water; overrides others except
-           levitation */
-        /* Wwalking is meaningless on water level */
-
-# define HSwimming              u.uprops[SWIMMING].intrinsic
-# define ESwimming              u.uprops[SWIMMING].extrinsic    /* [Tom] */
-# define Swimming               (HSwimming || ESwimming || \
-                                 is_swimmer(youmonst.data) || \
-                                 (u.usteed && is_swimmer(u.usteed->data)))
-        /* Get wet, don't go under water unless if amphibious */
-
-# define HMagical_breathing     u.uprops[MAGICAL_BREATHING].intrinsic
-# define EMagical_breathing     u.uprops[MAGICAL_BREATHING].extrinsic
-# define Amphibious             (HMagical_breathing || EMagical_breathing || \
-                                 amphibious(youmonst.data))
-        /* Get wet, may go under surface */
-
-# define Breathless             (HMagical_breathing || EMagical_breathing || \
+# define Ground_based           (!Levitation && !Flying &&      \
+                                 !is_clinger(youmonst.data))
+# define Breathless             (HMagical_breathing ||                  \
+                                 worn_extrinsic(MAGICAL_BREATHING) ||   \
                                  breathless(youmonst.data))
-
+# define Engulfed               (u.uswallow)
 # define Underwater             (u.uinwater)
 /* Note that Underwater and u.uinwater are both used in code.
    The latter form is for later implementation of other in-water
    states, like swimming, wading, etc. */
 
-# define HPasses_walls          u.uprops[PASSES_WALLS].intrinsic
-# define EPasses_walls          u.uprops[PASSES_WALLS].extrinsic
-# define Passes_walls           (HPasses_walls || EPasses_walls || \
-                                 passes_walls(youmonst.data))
-
-
 /*** Physical attributes ***/
-# define HSlow_digestion        u.uprops[SLOW_DIGESTION].intrinsic
-# define ESlow_digestion        u.uprops[SLOW_DIGESTION].extrinsic
-# define Slow_digestion         (HSlow_digestion || ESlow_digestion)    /* KMH */
-
-# define HHalf_spell_damage     u.uprops[HALF_SPDAM].intrinsic
-# define EHalf_spell_damage     u.uprops[HALF_SPDAM].extrinsic
-# define Half_spell_damage      (HHalf_spell_damage || EHalf_spell_damage)
-
-# define HHalf_physical_damage  u.uprops[HALF_PHDAM].intrinsic
-# define EHalf_physical_damage  u.uprops[HALF_PHDAM].extrinsic
-# define Half_physical_damage   (HHalf_physical_damage || EHalf_physical_damage)
-
-# define HRegeneration          u.uprops[REGENERATION].intrinsic
-# define ERegeneration          u.uprops[REGENERATION].extrinsic
-# define Regeneration           (HRegeneration || ERegeneration || \
-                                 regenerates(youmonst.data))
-
-# define HEnergy_regeneration   u.uprops[ENERGY_REGENERATION].intrinsic
-# define EEnergy_regeneration   u.uprops[ENERGY_REGENERATION].extrinsic
-# define Energy_regeneration    (HEnergy_regeneration || EEnergy_regeneration)
-
-# define HProtection            u.uprops[PROTECTION].intrinsic
-# define EProtection            u.uprops[PROTECTION].extrinsic
-# define Protection             (HProtection || EProtection)
-
+# define HSlow_digestion        u.uintrinsic[SLOW_DIGESTION]
+# define Slow_digestion         u_any_property(SLOW_DIGESTION)
+# define HHalf_spell_damage     u.uintrinsic[HALF_SPDAM]
+# define Half_spell_damage      u_any_property(HALF_SPDAM)
+# define HHalf_physical_damage  u.uintrinsic[HALF_PHDAM]
+# define Half_physical_damage   u_any_property(HALF_PHDAM)
+# define HRegeneration          u.uintrinsic[REGENERATION]
+# define Regeneration           u_any_property(REGENERATION)
+# define HEnergy_regeneration   u.uintrinsic[ENERGY_REGENERATION]
+# define Energy_regeneration    u_any_property(ENERGY_REGENERATION)
+# define HProtection            u.uintrinsic[PROTECTION]
+# define Protection             u_any_property(PROTECTION)
 # define HProtection_from_shape_changers \
-                                u.uprops[PROT_FROM_SHAPE_CHANGERS].intrinsic
-# define EProtection_from_shape_changers \
-                                u.uprops[PROT_FROM_SHAPE_CHANGERS].extrinsic
+                                u.uintrinsic[PROT_FROM_SHAPE_CHANGERS]
 # define Protection_from_shape_changers \
-                                (HProtection_from_shape_changers || \
-                                 EProtection_from_shape_changers)
+                                u_any_property(PROT_FROM_SHAPE_CHANGERS)
+# define HPolymorph             u.uintrinsic[POLYMORPH]
+# define Polymorph              u_any_property(POLYMORPH)
+# define HPolymorph_control     u.uintrinsic[POLYMORPH_CONTROL]
+# define Polymorph_control      u_any_property(POLYMORPH_CONTROL)
+# define HUnchanging            u.uintrinsic[UNCHANGING]
+# define Unchanging             u_any_property(UNCHANGING)
+# define HFast                  u.uintrinsic[FAST]
+# define Fast                   u_any_property(FAST)
+# define Very_fast              u_have_property(FAST, ~INTRINSIC, FALSE)
+# define Reflecting             u_any_property(REFLECTING)
+# define Free_action            u_any_property(FREE_ACTION)
+# define Fixed_abil             u_any_property(FIXED_ABIL)
+# define Lifesaved              u_any_property(LIFESAVED)
+# define Xray_vision            u_any_property(XRAY_VISION)
 
-# define HPolymorph             u.uprops[POLYMORPH].intrinsic
-# define EPolymorph             u.uprops[POLYMORPH].extrinsic
-# define Polymorph              (HPolymorph || EPolymorph)
+# define XRAY_RANGE             3
 
-# define HPolymorph_control     u.uprops[POLYMORPH_CONTROL].intrinsic
-# define EPolymorph_control     u.uprops[POLYMORPH_CONTROL].extrinsic
-# define Polymorph_control      (HPolymorph_control || EPolymorph_control)
+/*** Possessions ***/
+#define Uhave_amulet            carrying(AMULET_OF_YENDOR)
+#define Uhave_bell              carrying(BELL_OF_OPENING)
+#define Uhave_book              carrying(SPE_BOOK_OF_THE_DEAD)
+#define Uhave_menorah           carrying(CANDELABRUM_OF_INVOCATION)
+#define Uhave_questart          carrying_questart()
 
-# define HUnchanging            u.uprops[UNCHANGING].intrinsic
-# define EUnchanging            u.uprops[UNCHANGING].extrinsic
-# define Unchanging             (HUnchanging || EUnchanging)    /* KMH */
+/* Reasons to be helpless */
+enum helpless_reason {
+    hr_first = 0,
+    hr_asleep = hr_first,
+    hr_fainted,
+    hr_paralyzed,
+    hr_afraid,
+    hr_moving,
+    hr_mimicking,
+    hr_busy,
+    hr_engraving,
+    hr_praying,
+    hr_last = hr_praying
+};
 
-# define HFast                  u.uprops[FAST].intrinsic
-# define EFast                  u.uprops[FAST].extrinsic
-# define Fast                   (HFast || EFast)
-# define Very_fast              ((HFast & ~INTRINSIC) || EFast)
+/* Masks for clearing helplessness */
+/* This must match helpless_reason exactly */
+#define HM(reason) hm_##reason = 1 << hr_##reason
+enum FLAG_ENUM helpless_mask {
+    hm_none = 0,
+    HM(asleep),
+    HM(fainted),
+    hm_unconscious = hm_asleep | hm_fainted,
+    HM(paralyzed),
+    HM(afraid),
+    HM(moving),
+    HM(mimicking),
+    HM(busy),
+    HM(engraving),
+    HM(praying),
+    hm_all = (1 << (hr_last + 1)) - 1,
+};
 
-# define EReflecting            u.uprops[REFLECTING].extrinsic
-# define Reflecting             (EReflecting || \
-                                 (youmonst.data == &mons[PM_SILVER_DRAGON]))
-
-# define Free_action            u.uprops[FREE_ACTION].extrinsic /* [Tom] */
-
-# define Fixed_abil             u.uprops[FIXED_ABIL].extrinsic  /* KMH */
-
-# define Lifesaved              u.uprops[LIFESAVED].extrinsic
-
+/* The game's player conducts.
+ * Editing this enum will break save compatibility. */
+enum player_conduct {
+    conduct_first = 0,
+    conduct_food = conduct_first,        /* eaten any comestible */
+    conduct_vegan,                       /* ... or any animal byproduct */
+    conduct_vegetarian,                  /* ... or any meat */
+    conduct_gnostic,                     /* used prayer, priest, or altar */
+    conduct_weaphit,                     /* hit a monster with a weapon */
+    conduct_killer,                      /* killed a monster yourself */
+    conduct_illiterate,                  /* read something (other than BotD) */
+    conduct_polypile,                    /* polymorphed an object */
+    conduct_polyself,                    /* transformed yourself */
+    conduct_wish,                        /* used a wish */
+    conduct_artiwish,                    /* wished for an artifact */
+    conduct_genocide,                    /* committed genocide */
+    conduct_elbereth,                    /* wrote an elbereth */
+    conduct_puddingsplit,                /* split a pudding */
+    conduct_lostalign,                   /* lost alignment record points */
+    conduct_unused1,                     /* unused, might not be 0 in -beta1 */
+    num_conducts,
+};
 
 #endif /* YOUPROP_H */
+

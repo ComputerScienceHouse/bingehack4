@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-06-15 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -18,21 +19,21 @@ take_gold(void)
             delobj(otmp);
         }
     }
-    if (!lost_money) {
+    if (!lost_money)
         pline("You feel a strange sensation.");
-    } else {
+    else
         pline("You notice you have no money!");
-        iflags.botl = 1;
-    }
 }
 
 int
-dosit(void)
+dosit(const struct nh_cmd_arg *arg)
 {
     static const char sit_message[] = "You sit on the %s.";
     struct trap *trap;
     int typ = level->locations[u.ux][u.uy].typ;
     int attrib;
+
+    (void) arg;
 
     if (u.usteed) {
         pline("You are already sitting on %s.", mon_nam(u.usteed));
@@ -79,7 +80,7 @@ dosit(void)
             } else if (u.utraptype == TT_PIT) {
                 if (trap->ttyp == SPIKED_PIT) {
                     pline("You sit down on a spike.  Ouch!");
-                    losehp(1, "sitting on an iron spike", KILLED_BY);
+                    losehp(1, killer_msg(DIED, "sitting on an iron spike"));
                     exercise(A_STR, FALSE);
                 } else
                     pline("You sit down in the pit.");
@@ -91,7 +92,7 @@ dosit(void)
                 /* Must have fire resistance or they'd be dead already */
                 pline("You sit in the lava!");
                 u.utrap += rnd(4);
-                losehp(dice(2, 10), "sitting in lava", KILLED_BY);
+                losehp(dice(2, 10), killer_msg(DIED, "sitting in lava"));
             } else if (u.utraptype == TT_INFLOOR) {
                 pline("You can't maneuver to sit!");
                 u.utrap++;
@@ -109,9 +110,9 @@ dosit(void)
     in_water:
         pline("You sit in the water.");
         if (!rn2(10) && uarm)
-            rust_dmg(uarm, "armor", 1, TRUE, &youmonst);
+            water_damage(uarm, "armor", TRUE);
         if (!rn2(10) && uarmf && uarmf->otyp != WATER_WALKING_BOOTS)
-            rust_dmg(uarm, "armor", 1, TRUE, &youmonst);
+            water_damage(uarm, "armor", TRUE);
     } else if (IS_SINK(typ)) {
 
         pline(sit_message, defexplain[S_sink]);
@@ -144,8 +145,8 @@ dosit(void)
             return 1;
         }
         pline("The lava burns you!");
-        losehp(dice((Fire_resistance ? 2 : 10), 10), "sitting on lava",
-               KILLED_BY);
+        losehp(dice((Fire_resistance ? 2 : 10), 10),
+               killer_msg(DIED, "sitting on lava"));
 
     } else if (is_ice(level, u.ux, u.uy)) {
 
@@ -160,21 +161,21 @@ dosit(void)
     } else if (IS_THRONE(typ)) {
 
         pline(sit_message, defexplain[S_throne]);
-        if (rnd(6) > 4) {
-            switch (rnd(13)) {
+        if (!rn2_on_rng(3, rng_throne_result)) {
+            switch (1 + rn2_on_rng(13, rng_throne_result)) {
             case 1:
-                attrib = rn2(A_MAX);
+                attrib = rn2_on_rng(A_MAX, rng_throne_result);
                 adjattrib(attrib, -rn1(4, 3), FALSE);
-                losehp(rnd(10), "cursed throne", KILLED_BY_AN);
+                losehp(rnd(10), killer_msg(DIED, "a cursed throne"));
                 break;
             case 2:
-                adjattrib(rn2(A_MAX), 1, FALSE);
+                adjattrib(rn2_on_rng(A_MAX, rng_throne_result), 1, FALSE);
                 break;
             case 3:
                 pline("A%s electric shock shoots through your body!",
                       (Shock_resistance) ? "n" : " massive");
-                losehp(Shock_resistance ? rnd(6) : rnd(30), "electric chair",
-                       KILLED_BY_AN);
+                losehp(Shock_resistance ? rnd(6) : rnd(30),
+                       killer_msg(DIED, "an electric chair"));
                 exercise(A_CON, FALSE);
                 break;
             case 4:
@@ -189,8 +190,8 @@ dosit(void)
                 u.uhp = u.uhpmax;
                 make_blinded(0L, TRUE);
                 make_sick(0L, NULL, FALSE, SICK_ALL);
-                heal_legs();
-                iflags.botl = 1;
+                if (LWounded_legs || RWounded_legs)
+                    heal_legs(Wounded_leg_side);
                 break;
             case 5:
                 take_gold();
@@ -203,27 +204,27 @@ dosit(void)
                     makewish();
                 break;
             case 7:
-                {
-                    int cnt = rnd(10);
-
-                    pline("A voice echoes:");
-                    verbalize("Thy audience hath been summoned, %s!",
-                              flags.female ? "Dame" : "Sire");
-                    while (cnt--)
-                        makemon(courtmon(&u.uz), level, u.ux, u.uy,
-                                NO_MM_FLAGS);
-                    break;
-                }
+            {
+                int cnt = rn2_on_rng(10, rng_throne_result);
+                
+                pline("A voice echoes:");
+                verbalize("Thy audience hath been summoned, %s!",
+                          u.ufemale ? "Dame" : "Sire");
+                while (cnt--)
+                    makemon(courtmon(&u.uz, rng_main), level, u.ux, u.uy,
+                            NO_MM_FLAGS);
+                break;
+            }
             case 8:
                 pline("A voice echoes:");
                 verbalize("By thy Imperious order, %s...",
-                          flags.female ? "Dame" : "Sire");
+                          u.ufemale ? "Dame" : "Sire");
                 do_genocide(5); /* REALLY|ONTHRONE, see do_genocide() */
                 break;
             case 9:
                 pline("A voice echoes:");
-                verbalize
-                    ("A curse upon thee for sitting upon this most holy throne!");
+                verbalize("A curse upon thee for sitting upon this most holy "
+                          "throne!");
                 if (Luck > 0) {
                     make_blinded(Blinded + rn1(100, 250), TRUE);
                 } else
@@ -256,10 +257,11 @@ dosit(void)
                 break;
             case 12:
                 pline("You are granted an insight!");
-                if (invent) {
+                if (invent)
                     /* rn2(5) agrees w/seffects() */
-                    identify_pack(rn2(5));
-                }
+                    identify_pack(rn2_on_rng(5, rng_throne_result));
+                else
+                    rn2_on_rng(5, rng_throne_result); /* to match */
                 break;
             case 13:
                 pline("Your mind turns into a pretzel!");
@@ -276,7 +278,8 @@ dosit(void)
                 pline("You feel somehow out of place...");
         }
 
-        if (!rn2(3) && IS_THRONE(level->locations[u.ux][u.uy].typ)) {
+        if (!rn2_on_rng(3, rng_throne_result) &&
+            IS_THRONE(level->locations[u.ux][u.uy].typ)) {
             /* may have teleported */
             level->locations[u.ux][u.uy].typ = ROOM;
             pline("The throne vanishes in a puff of logic.");
@@ -286,7 +289,7 @@ dosit(void)
     } else if (lays_eggs(youmonst.data)) {
         struct obj *uegg;
 
-        if (!flags.female) {
+        if (!u.ufemale) {
             pline("Males can't lay eggs!");
             return 0;
         }
@@ -296,7 +299,7 @@ dosit(void)
             return 0;
         }
 
-        uegg = mksobj(level, EGG, FALSE, FALSE);
+        uegg = mksobj(level, EGG, FALSE, FALSE, rng_main);
         uegg->spe = 1;
         uegg->quan = 1;
         uegg->owt = weight(uegg);
@@ -307,7 +310,7 @@ dosit(void)
         dropy(uegg);
         stackobj(uegg);
         morehungry((int)objects[EGG].oc_nutrition);
-    } else if (u.uswallow)
+    } else if (Engulfed)
         pline("There are no seats in here!");
     else
         pline("Having fun sitting on the %s?", surface(u.ux, u.uy));
@@ -322,8 +325,12 @@ rndcurse(void)
     int cnt, onum;
     struct obj *otmp;
     static const char mal_aura[] = "You feel a malignant aura surround %s.";
+    boolean saddle;
 
-    if (uwep && (uwep->oartifact == ART_MAGICBANE) && rn2(20)) {
+    cnt = rn2_on_rng(6, rng_rndcurse);
+    saddle = !rn2_on_rng(4, rng_rndcurse);
+    if (rn2_on_rng(20, rng_rndcurse) &&
+        uwep && (uwep->oartifact == ART_MAGICBANE)) {
         pline(mal_aura, "the magic-absorbing blade");
         return;
     }
@@ -339,9 +346,17 @@ rndcurse(void)
             continue;
         nobj++;
     }
+
+    /*
+     * With neither MR nor half spell damage: cnt is 1-6
+     * With either MR or half spell damage:   cnt is 1-3
+     * With both MR and half spell damage:    cnt is 1-2
+     */
+    cnt /= (!!Antimagic + !!Half_spell_damage + 1);
+    cnt++;
+
     if (nobj) {
-        for (cnt = rnd(6 / ((! !Antimagic) + (! !Half_spell_damage) + 1));
-             cnt > 0; cnt--) {
+        for (; cnt > 0; cnt--) {
             onum = rnd(nobj);
             for (otmp = invent; otmp; otmp = otmp->nobj) {
                 /* as above */
@@ -370,15 +385,15 @@ rndcurse(void)
     }
 
     /* treat steed's saddle as extended part of hero's inventory */
-    if (u.usteed && !rn2(4) &&
-        (otmp = which_armor(u.usteed, W_SADDLE)) != 0 &&
+    if (saddle && u.usteed && (otmp = which_armor(u.usteed, os_saddle)) != 0 &&
         !otmp->cursed) { /* skip if already cursed */
         if (otmp->blessed)
             unbless(otmp);
         else
             curse(otmp);
         if (!Blind) {
-            pline("%s %s %s.", s_suffix(upstart(y_monnam(u.usteed))),
+            pline("%s %s %s.", s_suffix(
+                      msgupcasefirst(y_monnam(u.usteed))),
                   aobjnam(otmp, "glow"),
                   hcolor(otmp->cursed ? "black" : "brown"));
             otmp->bknown = TRUE;
@@ -396,7 +411,8 @@ mrndcurse(struct monst *mtmp)
 
     boolean resists = resist(mtmp, 0, 0, FALSE);
 
-    if (MON_WEP(mtmp) && (MON_WEP(mtmp)->oartifact == ART_MAGICBANE) && rn2(20)) {
+    if (MON_WEP(mtmp) && (MON_WEP(mtmp)->oartifact == ART_MAGICBANE) &&
+        rn2(20)) {
         pline(mal_aura, "the magic-absorbing blade");
         return;
     }
@@ -446,6 +462,7 @@ mrndcurse(struct monst *mtmp)
 void
 attrcurse(void)
 {
+    /* probably too rare to benefit from a custom RNG */
     switch (rnd(11)) {
     case 1:
         if (HFire_resistance & INTRINSIC) {
@@ -457,6 +474,7 @@ attrcurse(void)
         if (HTeleportation & INTRINSIC) {
             HTeleportation &= ~INTRINSIC;
             pline("You feel less jumpy.");
+            update_supernatural_abilities();
             break;
         }
     case 3:
@@ -469,7 +487,7 @@ attrcurse(void)
         if (HTelepat & INTRINSIC) {
             HTelepat &= ~INTRINSIC;
             if (Blind && !Blind_telepat)
-                see_monsters(); /* Can't sense mons anymore! */
+                see_monsters(FALSE); /* Can't sense mons anymore! */
             pline("Your senses fail!");
             break;
         }
@@ -524,3 +542,4 @@ attrcurse(void)
 }
 
 /*sit.c*/
+

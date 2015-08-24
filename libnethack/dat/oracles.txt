@@ -1,3 +1,5 @@
+# Last modified by Alex Smith, 2015-03-10
+# NetHack may be freely redistributed.  See license for details.
 -----
 Well, in the beginning, the tariff on non-American sugar from the Caribbean
 was beneficial only to the southern gulf-area sugar farmers...

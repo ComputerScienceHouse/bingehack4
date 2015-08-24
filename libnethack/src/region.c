@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-19 */
 /* Copyright (c) 1996 by Jean-Christophe Collet  */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -262,7 +263,7 @@ remove_region(struct region *reg)
         return;
 
     /* Update screen if necessary */
-    if (reg->visible)
+    if (reg->visible && level == lev)
         for (x = reg->bounding_box.lx; x <= reg->bounding_box.hx; x++)
             for (y = reg->bounding_box.ly; y <= reg->bounding_box.hy; y++)
                 if (isok(x, y) && inside_region(reg, x, y) && cansee(x, y))
@@ -274,10 +275,7 @@ remove_region(struct region *reg)
     lev->n_regions--;
 }
 
-/*
- * Remove all regions and clear all related data (This must be down
- * when changing level, for instance).
- */
+/* Remove all regions and clear all related data. */
 void
 free_regions(struct level *lev)
 {
@@ -372,7 +370,7 @@ in_out_region(struct level *lev, xchar x, xchar y)
             !inside_region(lev->regions[i], x, y)) {
             clear_hero_inside(lev->regions[i]);
             if (lev->regions[i]->leave_msg != NULL)
-                pline(lev->regions[i]->leave_msg);
+                pline("%s", lev->regions[i]->leave_msg);
             if ((f_indx = lev->regions[i]->leave_f) != NO_CALLBACK)
                 (void)(*callbacks[f_indx]) (lev->regions[i], 0);
         }
@@ -383,7 +381,7 @@ in_out_region(struct level *lev, xchar x, xchar y)
             inside_region(lev->regions[i], x, y)) {
             set_hero_inside(lev->regions[i]);
             if (lev->regions[i]->enter_msg != NULL)
-                pline(lev->regions[i]->enter_msg);
+                pline("%s", lev->regions[i]->enter_msg);
             if ((f_indx = lev->regions[i]->enter_f) != NO_CALLBACK)
                 (void)(*callbacks[f_indx]) (lev->regions[i], 0);
         }
@@ -489,6 +487,17 @@ visible_region_at(struct level *lev, xchar x, xchar y)
     return NULL;
 }
 
+
+static void
+save_rect(struct memfile *mf, struct nhrect r)
+{
+    mwrite8(mf, r.lx);
+    mwrite8(mf, r.ly);
+    mwrite8(mf, r.hx);
+    mwrite8(mf, r.hy);
+}
+
+
 /**
  * save_regions :
  */
@@ -499,9 +508,9 @@ save_regions(struct memfile *mf, struct level *lev)
     unsigned len1, len2;
     struct region *r;
 
-    mtag(mf, ledger_no(&lev->z), MTAG_REGION);
     mfmagic_set(mf, REGION_MAGIC);
-    mwrite32(mf, moves);        /* timestamp */
+    mtag(mf, ledger_no(&lev->z), MTAG_REGION);
+    mwrite32(mf, save_encode_32(moves, moves, moves));    /* timestamp */
     mwrite32(mf, lev->n_regions);
 
     /* Note: level regions don't have ID numbers, so we can't tag individual
@@ -511,13 +520,13 @@ save_regions(struct memfile *mf, struct level *lev)
     for (i = 0; i < lev->n_regions; i++) {
         r = lev->regions[i];
 
-        mwrite(mf, &r->bounding_box, sizeof (struct nhrect));
+        save_rect(mf, r->bounding_box);
         mwrite32(mf, r->attach_2_m);
         mwrite32(mf, r->effect_id);
         mwrite32(mf, r->arg);
         mwrite16(mf, r->nrects);
         for (j = 0; j < r->nrects; j++)
-            mwrite(mf, &r->rects[j], sizeof (struct nhrect));
+            save_rect(mf, r->rects[j]);
         mwrite16(mf, r->ttl);
         mwrite16(mf, r->expire_f);
         mwrite16(mf, r->can_enter_f);
@@ -546,6 +555,17 @@ save_regions(struct memfile *mf, struct level *lev)
     }
 }
 
+
+static void
+restore_rect(struct memfile *mf, struct nhrect *r)
+{
+    r->lx = mread8(mf);
+    r->ly = mread8(mf);
+    r->hx = mread8(mf);
+    r->hy = mread8(mf);
+}
+
+
 void
 rest_regions(struct memfile *mf, struct level *lev, boolean ghostly)
 {       /* If a bones file restore */
@@ -557,7 +577,7 @@ rest_regions(struct memfile *mf, struct level *lev, boolean ghostly)
 
     free_regions(lev);  /* Just for security */
     mfmagic_check(mf, REGION_MAGIC);
-    tmstamp = mread32(mf);
+    tmstamp = save_decode_32(mread32(mf), moves, moves);
     if (ghostly)
         tmstamp = 0;
     else
@@ -575,7 +595,7 @@ rest_regions(struct memfile *mf, struct level *lev, boolean ghostly)
 
         r->lev = lev;
 
-        mread(mf, &r->bounding_box, sizeof (struct nhrect));
+        restore_rect(mf, &r->bounding_box);
         r->attach_2_m = mread32(mf);
         r->effect_id = mread32(mf);
         r->arg = mread32(mf);
@@ -583,7 +603,7 @@ rest_regions(struct memfile *mf, struct level *lev, boolean ghostly)
         if (r->nrects > 0)
             r->rects = malloc(sizeof (struct nhrect) * r->nrects);
         for (j = 0; j < r->nrects; j++)
-            mread(mf, &r->rects[j], sizeof (struct nhrect));
+            restore_rect(mf, &r->rects[j]);
         r->ttl = mread16(mf);
         r->expire_f = mread16(mf);
         r->can_enter_f = mread16(mf);
@@ -628,13 +648,8 @@ rest_regions(struct memfile *mf, struct level *lev, boolean ghostly)
             clear_heros_fault(r);
         }
     }
-    /* remove expired lev->regions, do not trigger the expire_f callback
-       (yet!); also update monster lists if this data is coming from a bones
-       file */
     for (i = lev->n_regions - 1; i >= 0; i--)
-        if (lev->regions[i]->ttl == 0)
-            remove_region(lev->regions[i]);
-        else if (ghostly && lev->regions[i]->n_monst > 0)
+        if (ghostly && lev->regions[i]->n_monst > 0)
             reset_region_mids(lev->regions[i]);
 }
 
@@ -697,16 +712,19 @@ inside_gas_cloud(void *p1, void *p2)
     reg = (struct region *)p1;
     dam = (long)reg->arg;
     if (p2 == NULL) {   /* This means *YOU* Bozo! */
-        if (nonliving(youmonst.data) || Breathless)
+        if (nonliving(youmonst.data) || u.uinvulnerable)
             return FALSE;
-        if (!Blind)
-            make_blinded(1L, FALSE);
-        if (u.uinvulnerable)
+        /* If you will unblind next turn, extend the blindness so that you do
+         * not get a "You can see again!" message immediately before being
+         * blinded again. */
+        if (!Blind || Blinded == 1)
+            make_blinded(2L, FALSE);
+        if (Breathless)
             return FALSE;
         if (!Poison_resistance) {
             pline("Something is burning your %s!", makeplural(body_part(LUNG)));
             pline("You cough and spit blood!");
-            losehp(rnd(dam) + 5, "gas cloud", KILLED_BY_AN);
+            losehp(rnd(dam) + 5, killer_msg(DIED, "a gas cloud"));
             return FALSE;
         } else {
             pline("You cough!");
@@ -774,3 +792,4 @@ create_gas_cloud(struct level *lev, xchar x, xchar y, int radius, int damage)
 }
 
 /*region.c*/
+
