@@ -16,7 +16,7 @@ elif [[ "$BUILD_SYSTEM" == aimake ]]; then
 	tempfile="$(mktemp)"
 	trap "rm -f \"$tempfile\"" EXIT ERR
 
-	../aimake -r .. 2>&1 | tee "$tempfile"
+	../aimake -i /tmp/bingehack4 2>&1 | tee "$tempfile"
 	grep -qi "fail" "$tempfile" && exit 1
 else
 	echo "Unsupported build system $BUILD_SYSTEM" >&2
