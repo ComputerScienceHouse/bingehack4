@@ -6,7 +6,7 @@ mkdir build
 cd build
 
 if [[ -z "$BUILD_SYSTEM" ]]; then
-	BUILD_SYSTEM="cmake"
+	BUILD_SYSTEM="aimake"
 fi
 
 if [[ "$BUILD_SYSTEM" == cmake ]]; then
