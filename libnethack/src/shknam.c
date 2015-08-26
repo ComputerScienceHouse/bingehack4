@@ -14,136 +14,54 @@ static void nameshk(struct monst *shk, const char *const *nlp,
 static int shkinit(const struct shclass *shp, struct level *lev,
                    struct mkroom *sroom);
 
+// Names taken from http://www.cs.rit.edu/people/faculty
 static const char *const shkliquors[] = {
-    /* Ukraine */
-    "Njezjin", "Tsjernigof", "Ossipewsk", "Gorlowka",
-    /* Belarus */
-    "Gomel",
-    /* N. Russia */
-    "Konosja", "Weliki Oestjoeg", "Syktywkar", "Sablja",
-    "Narodnaja", "Kyzyl",
-    /* Silezie */
-    "Walbrzych", "Swidnica", "Klodzko", "Raciborz", "Gliwice",
-    "Brzeg", "Krnov", "Hradec Kralove",
-    /* Schweiz */
-    "Leuk", "Brig", "Brienz", "Thun", "Sarnen", "Burglen", "Elm",
-    "Flims", "Vals", "Schuls", "Zum Loch",
+    "Aaron Deever", "Robert Duncan", "Henry A. Etlinger",
     0
 };
 
 static const char *const shkbooks[] = {
-    /* Eire */
-    "Skibbereen", "Kanturk", "Rath Luirc", "Ennistymon", "Lahinch",
-    "Kinnegad", "Lugnaquillia", "Enniscorthy", "Gweebarra",
-    "Kittamagh", "Nenagh", "Sneem", "Ballingeary", "Kilgarvan",
-    "Cahersiveen", "Glenbeigh", "Kilmihil", "Kiltamagh",
-    "Droichead Atha", "Inniscrone", "Clonegal", "Lisnaskea",
-    "Culdaff", "Dunfanaghy", "Inishbofin", "Kesh",
+    "Minseok Kwon", "Zack Butler", "Carol Romanowski",
     0
 };
 
 static const char *const shkarmors[] = {
-    /* Turquie */
-    "Demirci", "Kalecik", "Boyabai", "Yildizeli", "Gaziantep",
-    "Siirt", "Akhalataki", "Tirebolu", "Aksaray", "Ermenak",
-    "Iskenderun", "Kadirli", "Siverek", "Pervari", "Malasgirt",
-    "Bayburt", "Ayancik", "Zonguldak", "Balya", "Tefenni",
-    "Artvin", "Kars", "Makharadze", "Malazgirt", "Midyat",
-    "Birecik", "Kirikkale", "Alaca", "Polatli", "Nallihan",
+    "Alan Kaminsky", "T.J. Borelli", "Jeremy Brown", "Richard Zanibbi",
     0
 };
 
 static const char *const shkwands[] = {
-    /* Wales */
-    "Yr Wyddgrug", "Trallwng", "Mallwyd", "Pontarfynach",
-    "Rhaeader", "Llandrindod", "Llanfair-ym-muallt",
-    "Y-Fenni", "Maesteg", "Rhydaman", "Beddgelert",
-    "Curig", "Llanrwst", "Llanerchymedd", "Caergybi",
-    /* Scotland */
-    "Nairn", "Turriff", "Inverurie", "Braemar", "Lochnagar",
-    "Kerloch", "Beinn a Ghlo", "Drumnadrochit", "Morven",
-    "Uist", "Storr", "Sgurr na Ciche", "Cannich", "Gairloch",
-    "Kyleakin", "Dunvegan",
+    "Trudy Howles", "Peizhao Hu", "Mohan Kumar", "Stanislaw Radziszowski",
     0
 };
 
 static const char *const shkrings[] = {
-    /* Hollandse familienamen */
-    "Feyfer", "Flugi", "Gheel", "Havic", "Haynin", "Hoboken",
-    "Imbyze", "Juyn", "Kinsky", "Massis", "Matray", "Moy",
-    "Olycan", "Sadelin", "Svaving", "Tapper", "Terwen", "Wirix",
-    "Ypey",
-    /* Skandinaviske navne */
-    "Rastegaisa", "Varjag Njarga", "Kautekeino", "Abisko",
-    "Enontekis", "Rovaniemi", "Avasaksa", "Haparanda",
-    "Lulea", "Gellivare", "Oeloe", "Kajaani", "Fauske",
+    "Xumin Liu", "Wiley McKinzie", "Nasser Mooman", "Rajendra K. Raj",
     0
 };
 
 static const char *const shkfoods[] = {
-    /* Indonesia */
-    "Djasinga", "Tjibarusa", "Tjiwidej", "Pengalengan",
-    "Bandjar", "Parbalingga", "Bojolali", "Sarangan",
-    "Ngebel", "Djombang", "Ardjawinangun", "Berbek",
-    "Papar", "Baliga", "Tjisolok", "Siboga", "Banjoewangi",
-    "Trenggalek", "Karangkobar", "Njalindoeng", "Pasawahan",
-    "Pameunpeuk", "Patjitan", "Kediri", "Pemboeang", "Tringanoe",
-    "Makin", "Tipor", "Semai", "Berhala", "Tegal", "Samoe",
+    "Roxanne Canosa", "Fereydoun Kazemian", "Sean Strout",
     0
 };
 
 static const char *const shkweapons[] = {
-    /* Perigord */
-    "Voulgezac", "Rouffiac", "Lerignac", "Touverac", "Guizengeard",
-    "Melac", "Neuvicq", "Vanzac", "Picq", "Urignac", "Corignac",
-    "Fleac", "Lonzac", "Vergt", "Queyssac", "Liorac", "Echourgnac",
-    "Cazelon", "Eypau", "Carignan", "Monbazillac", "Jonzac",
-    "Pons", "Jumilhac", "Fenouilledes", "Laguiolet", "Saujon",
-    "Eymoutiers", "Eygurande", "Eauze", "Labouheyre",
+    "Reynold Bailey", "Ivona Bezakova", "Hans-Peter Bischof",
     0
 };
 
 static const char *const shktools[] = {
-    /* Spmi */
-    "Ymla", "Eed-morra", "Cubask", "Nieb", "Bnowr Falr", "Telloc Cyaj",
-    "Sperc", "Noskcirdneh", "Yawolloh", "Hyeghu", "Niskal", "Trahnil",
-    "Htargcm", "Enrobwem", "Kachzi Rellim", "Regien", "Donmyar",
-    "Yelpur", "Nosnehpets", "Stewe", "Renrut", "_Zlaw", "Nosalnef",
-    "Rewuorb", "Rellenk", "Yad", "Cire Htims", "Y-crad", "Nenilukah",
-    "Corsh", "Aned", "Shimt", "Rathel",
-#ifdef WIN32
-    "Lechaim", "Lexa", "Niod",
-#endif
+    "Joe Geigel", "Edith Hemaspaandra", "Chris Homan", "Leon Reznik",
     0
 };
 
 static const char *const shklight[] = {
-    /* Romania */
-    "Zarnesti", "Slanic", "Nehoiasu", "Ludus", "Sighisoara", "Nisipitu",
-    "Razboieni", "Bicaz", "Dorohoi", "Vaslui", "Fetesti", "Tirgu Neamt",
-    "Babadag", "Zimnicea", "Zlatna", "Jiu", "Eforie", "Mamaia",
-    /* Bulgaria */
-    "Silistra", "Tulovo", "Panagyuritshte", "Smolyan", "Kirklareli",
-    "Pernik", "Lom", "Haskovo", "Dobrinishte", "Varvara", "Oryahovo",
-    "Troyan", "Lovech", "Sliven",
+    "Arthur Nunes-Harwitt", "Matthew Fluet", "James Heliotis",
     0
 };
 
 static const char *const shkgeneral[] = {
-    /* Suriname */
-    "Hebiwerie", "Possogroenoe", "Asidonhopo", "Manlobbi",
-    "Adjama", "Pakka Pakka", "Kabalebo", "Wonotobo",
-    "Akalapi", "Sipaliwini",
-    /* Greenland */
-    "Annootok", "Upernavik", "Angmagssalik",
-    /* N. Canada */
-    "Aklavik", "Inuvik", "Tuktoyaktuk",
-    "Chicoutimi", "Ouiatchouane", "Chibougamau",
-    "Matagami", "Kipawa", "Kinojevis",
-    "Abitibi", "Maganasipi",
-    /* Iceland */
-    "Akureyri", "Kopasker", "Budereyri", "Akranes", "Bordeyri",
-    "Holmavik",
+    "Warren R. Carithers", "Phil White", "Ben K. Steele",
     0
 };
 
@@ -238,7 +156,7 @@ nameshk(struct monst *shk, const char *const *nlp, struct level *lev)
     if (nlp == shklight && In_mines(&lev->z)
         && (sptr = Is_special(&lev->z)) != 0 && sptr->flags.town) {
         /* special-case minetown lighting shk */
-        shname = "Izchak";
+        shname = "Paul Tymann";
         shk->female = FALSE;
     } else {
         /* We want variation from game to game, without needing the save and
@@ -271,7 +189,7 @@ nameshk(struct monst *shk, const char *const *nlp, struct level *lev)
                     continue;
                 continue;       /* next `trycnt' iteration */
             } else {
-                shname = shk->female ? "Lucrezia" : "Dirk";
+                shname = shk->female ? "Paul Mezzanini" : "Matt Campbell";
             }
 
             /* is name already in use on this level? */
