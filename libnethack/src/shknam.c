@@ -14,54 +14,100 @@ static void nameshk(struct monst *shk, const char *const *nlp,
 static int shkinit(const struct shclass *shp, struct level *lev,
                    struct mkroom *sroom);
 
-// Names taken from http://www.cs.rit.edu/people/faculty
+// Names taken from:
+// - http://www.cs.rit.edu/people/faculty
+// - http://nsa.rit.edu/people/people.php
+// - https://www.rit.edu/gccis/igm/key-players#faculty
+// - https://www.se.rit.edu/node/faculty_staff
+// - https://www.rit.edu/studentaffairs/reslife/staffDirectory/
+// - https://www.rit.edu/kgcoe/computerengineering/facultystaff
+
+// Res Life Staff
+// Full names here, since I don't expect people to be as familiar with these
+// people as their professors.
 static const char *const shkliquors[] = {
-    "Aaron Deever", "Robert Duncan", "Henry A. Etlinger",
+    "David Bagley", "Marc Goldman", "Sharon Kompalla-Porter", "Harold Fields",
+    "Ethel DiGiugno", "Moira Tice", "Christie Dobson", "Wendy Stapf",
+    "Adam Griffith", "Aaron Knighton", "Davona Mason", "Chelsea Sims",
+    "Brandon Dunkley", "Mary Brand", "Ericka Smith-Schubart", "Dana Godfrey",
+    "Greg Beattie", "Alex Jones", "Ashley Meyer", "Jacquelyn Martin",
+    "Tammy Palmieri", "Brandon Kotler", "Pradip Ananda", "Tarra Ognissanti",
+    "Cate Fox",
     0
 };
 
+// CS Professors
 static const char *const shkbooks[] = {
-    "Minseok Kwon", "Zack Butler", "Carol Romanowski",
+    "Nunes-Harwitt", "Fluet", "Heliotis",
+    "Deever", "Duncan", "Etlinger",
+    "Geigel", "Hemaspaandra", "Homan", "Reznik",
     0
 };
 
+// NSA Professors
 static const char *const shkarmors[] = {
-    "Alan Kaminsky", "T.J. Borelli", "Jeremy Brown", "Richard Zanibbi",
+    "Arcoraci", "Bogaard", "Border", "Hartpence",
+    "Hill", "Kennedy", "Leone", "Lutz", "Mason",
+    "Oh", "Perez-Hardy", "Shenoy", "Zilora",
     0
 };
 
+// SE Professors
 static const char *const shkwands[] = {
-    "Trudy Howles", "Peizhao Hu", "Mohan Kumar", "Stanislaw Radziszowski",
+    "Hawker", "Kiser", "Krutz", "Kuehl",
+    "Ludi", "Lutz", "Malachowsky", "Martinez",
+    "Meneely", "Mirakhorli", "Nagappan", "Naveda",
+    "Reichlmayr", "Sharma", "Vallino",
     0
 };
 
+// GDD Professors
 static const char *const shkrings[] = {
-    "Xumin Liu", "Wiley McKinzie", "Nasser Mooman", "Rajendra K. Raj",
+    "Oyzon", "Phelps", "Schrieber",
+    "Simkins", "Tayrien", "Van De Mark",
+    "Egert", "Goodman", "Gottlieb",
     0
 };
 
+// GDD Professors
 static const char *const shkfoods[] = {
-    "Roxanne Canosa", "Fereydoun Kazemian", "Sean Strout",
+    "Harris", "Henderson", "Jackson",
+    "Jacobs", "Jefferson", "Kurtz",
+    "Lawley", "McKinzie", "O'Brien",
     0
 };
 
+// GDD Professors
 static const char *const shkweapons[] = {
-    "Reynold Bailey", "Ivona Bezakova", "Hans-Peter Bischof",
+    "Schwartz", "Bayliss", "Bierre",
+    "Biles", "Sotelo", "Boyle",
+    "Cascioli", "Decker", "Doubleday",
     0
 };
 
+// CE Professors
 static const char *const shktools[] = {
-    "Joe Geigel", "Edith Hemaspaandra", "Chris Homan", "Leon Reznik",
+    "Yang", "Azarderakhsh", "Becker-Gomez",
+    "Cockburn", "Ganguly", "Kudithipudi",
+    "Kwasinski", "Alarcon", "Lukowiak",
+    "Melton", "Ptucha", "Savakis", "Shaaban",
     0
 };
 
+// CS Professors
 static const char *const shklight[] = {
-    "Arthur Nunes-Harwitt", "Matthew Fluet", "James Heliotis",
+    "Liu", "McKinzie", "Mooman", "Raj",
+    "Kwon", "Butler", "Romanowski",
+    "Canosa", "Kazemian", "Strout",
+    "Bailey", "Bezakova", "Bischof",
     0
 };
 
+// CS Professors
 static const char *const shkgeneral[] = {
-    "Warren R. Carithers", "Phil White", "Ben K. Steele",
+    "Carithers", "White", "Steele",
+    "Kaminsky", "Borelli", "Brown", "Zanibbi",
+    "Howles", "Hu", "Kumar", "Radziszowski",
     0
 };
 
