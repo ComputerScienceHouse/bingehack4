@@ -86,7 +86,7 @@ enum youprop {
     DETECT_FISH              = 69,
     RING_OF_POWER            = 70,
     WORN_RING_OF_POWER       = 71,
-    LAST_PROP                = DETECT_FISH
+    LAST_PROP                = WORN_RING_OF_POWER
 };
 
 /* This enum holds all the equipment that is tracked indirectly in struct you;
