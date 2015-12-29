@@ -14,136 +14,100 @@ static void nameshk(struct monst *shk, const char *const *nlp,
 static int shkinit(const struct shclass *shp, struct level *lev,
                    struct mkroom *sroom);
 
+// Names taken from:
+// - http://www.cs.rit.edu/people/faculty
+// - http://nsa.rit.edu/people/people.php
+// - https://www.rit.edu/gccis/igm/key-players#faculty
+// - https://www.se.rit.edu/node/faculty_staff
+// - https://www.rit.edu/studentaffairs/reslife/staffDirectory/
+// - https://www.rit.edu/kgcoe/computerengineering/facultystaff
+
+// Res Life Staff
+// Full names here, since I don't expect people to be as familiar with these
+// people as their professors.
 static const char *const shkliquors[] = {
-    /* Ukraine */
-    "Njezjin", "Tsjernigof", "Ossipewsk", "Gorlowka",
-    /* Belarus */
-    "Gomel",
-    /* N. Russia */
-    "Konosja", "Weliki Oestjoeg", "Syktywkar", "Sablja",
-    "Narodnaja", "Kyzyl",
-    /* Silezie */
-    "Walbrzych", "Swidnica", "Klodzko", "Raciborz", "Gliwice",
-    "Brzeg", "Krnov", "Hradec Kralove",
-    /* Schweiz */
-    "Leuk", "Brig", "Brienz", "Thun", "Sarnen", "Burglen", "Elm",
-    "Flims", "Vals", "Schuls", "Zum Loch",
+    "David Bagley", "Marc Goldman", "Sharon Kompalla-Porter", "Harold Fields",
+    "Ethel DiGiugno", "Moira Tice", "Christie Dobson", "Wendy Stapf",
+    "Adam Griffith", "Aaron Knighton", "Davona Mason", "Chelsea Sims",
+    "Brandon Dunkley", "Mary Brand", "Ericka Smith-Schubart", "Dana Godfrey",
+    "Greg Beattie", "Alex Jones", "Ashley Meyer", "Jacquelyn Martin",
+    "Tammy Palmieri", "Brandon Kotler", "Pradip Ananda", "Tarra Ognissanti",
+    "Cate Fox",
     0
 };
 
+// CS Professors
 static const char *const shkbooks[] = {
-    /* Eire */
-    "Skibbereen", "Kanturk", "Rath Luirc", "Ennistymon", "Lahinch",
-    "Kinnegad", "Lugnaquillia", "Enniscorthy", "Gweebarra",
-    "Kittamagh", "Nenagh", "Sneem", "Ballingeary", "Kilgarvan",
-    "Cahersiveen", "Glenbeigh", "Kilmihil", "Kiltamagh",
-    "Droichead Atha", "Inniscrone", "Clonegal", "Lisnaskea",
-    "Culdaff", "Dunfanaghy", "Inishbofin", "Kesh",
+    "Nunes-Harwitt", "Fluet", "Heliotis",
+    "Deever", "Duncan", "Etlinger",
+    "Geigel", "Hemaspaandra", "Homan", "Reznik",
     0
 };
 
+// NSA Professors
 static const char *const shkarmors[] = {
-    /* Turquie */
-    "Demirci", "Kalecik", "Boyabai", "Yildizeli", "Gaziantep",
-    "Siirt", "Akhalataki", "Tirebolu", "Aksaray", "Ermenak",
-    "Iskenderun", "Kadirli", "Siverek", "Pervari", "Malasgirt",
-    "Bayburt", "Ayancik", "Zonguldak", "Balya", "Tefenni",
-    "Artvin", "Kars", "Makharadze", "Malazgirt", "Midyat",
-    "Birecik", "Kirikkale", "Alaca", "Polatli", "Nallihan",
+    "Arcoraci", "Bogaard", "Border", "Hartpence",
+    "Hill", "Kennedy", "Leone", "Lutz", "Mason",
+    "Oh", "Perez-Hardy", "Shenoy", "Zilora",
     0
 };
 
+// SE Professors
 static const char *const shkwands[] = {
-    /* Wales */
-    "Yr Wyddgrug", "Trallwng", "Mallwyd", "Pontarfynach",
-    "Rhaeader", "Llandrindod", "Llanfair-ym-muallt",
-    "Y-Fenni", "Maesteg", "Rhydaman", "Beddgelert",
-    "Curig", "Llanrwst", "Llanerchymedd", "Caergybi",
-    /* Scotland */
-    "Nairn", "Turriff", "Inverurie", "Braemar", "Lochnagar",
-    "Kerloch", "Beinn a Ghlo", "Drumnadrochit", "Morven",
-    "Uist", "Storr", "Sgurr na Ciche", "Cannich", "Gairloch",
-    "Kyleakin", "Dunvegan",
+    "Hawker", "Kiser", "Krutz", "Kuehl",
+    "Ludi", "Lutz", "Malachowsky", "Martinez",
+    "Meneely", "Mirakhorli", "Nagappan", "Naveda",
+    "Reichlmayr", "Sharma", "Vallino",
     0
 };
 
+// GDD Professors
 static const char *const shkrings[] = {
-    /* Hollandse familienamen */
-    "Feyfer", "Flugi", "Gheel", "Havic", "Haynin", "Hoboken",
-    "Imbyze", "Juyn", "Kinsky", "Massis", "Matray", "Moy",
-    "Olycan", "Sadelin", "Svaving", "Tapper", "Terwen", "Wirix",
-    "Ypey",
-    /* Skandinaviske navne */
-    "Rastegaisa", "Varjag Njarga", "Kautekeino", "Abisko",
-    "Enontekis", "Rovaniemi", "Avasaksa", "Haparanda",
-    "Lulea", "Gellivare", "Oeloe", "Kajaani", "Fauske",
+    "Oyzon", "Phelps", "Schrieber",
+    "Simkins", "Tayrien", "Van De Mark",
+    "Egert", "Goodman", "Gottlieb",
     0
 };
 
+// GDD Professors
 static const char *const shkfoods[] = {
-    /* Indonesia */
-    "Djasinga", "Tjibarusa", "Tjiwidej", "Pengalengan",
-    "Bandjar", "Parbalingga", "Bojolali", "Sarangan",
-    "Ngebel", "Djombang", "Ardjawinangun", "Berbek",
-    "Papar", "Baliga", "Tjisolok", "Siboga", "Banjoewangi",
-    "Trenggalek", "Karangkobar", "Njalindoeng", "Pasawahan",
-    "Pameunpeuk", "Patjitan", "Kediri", "Pemboeang", "Tringanoe",
-    "Makin", "Tipor", "Semai", "Berhala", "Tegal", "Samoe",
+    "Harris", "Henderson", "Jackson",
+    "Jacobs", "Jefferson", "Kurtz",
+    "Lawley", "McKinzie", "O'Brien",
     0
 };
 
+// GDD Professors
 static const char *const shkweapons[] = {
-    /* Perigord */
-    "Voulgezac", "Rouffiac", "Lerignac", "Touverac", "Guizengeard",
-    "Melac", "Neuvicq", "Vanzac", "Picq", "Urignac", "Corignac",
-    "Fleac", "Lonzac", "Vergt", "Queyssac", "Liorac", "Echourgnac",
-    "Cazelon", "Eypau", "Carignan", "Monbazillac", "Jonzac",
-    "Pons", "Jumilhac", "Fenouilledes", "Laguiolet", "Saujon",
-    "Eymoutiers", "Eygurande", "Eauze", "Labouheyre",
+    "Schwartz", "Bayliss", "Bierre",
+    "Biles", "Sotelo", "Boyle",
+    "Cascioli", "Decker", "Doubleday",
     0
 };
 
+// CE Professors
 static const char *const shktools[] = {
-    /* Spmi */
-    "Ymla", "Eed-morra", "Cubask", "Nieb", "Bnowr Falr", "Telloc Cyaj",
-    "Sperc", "Noskcirdneh", "Yawolloh", "Hyeghu", "Niskal", "Trahnil",
-    "Htargcm", "Enrobwem", "Kachzi Rellim", "Regien", "Donmyar",
-    "Yelpur", "Nosnehpets", "Stewe", "Renrut", "_Zlaw", "Nosalnef",
-    "Rewuorb", "Rellenk", "Yad", "Cire Htims", "Y-crad", "Nenilukah",
-    "Corsh", "Aned", "Shimt", "Rathel",
-#ifdef WIN32
-    "Lechaim", "Lexa", "Niod",
-#endif
+    "Yang", "Azarderakhsh", "Becker-Gomez",
+    "Cockburn", "Ganguly", "Kudithipudi",
+    "Kwasinski", "Alarcon", "Lukowiak",
+    "Melton", "Ptucha", "Savakis", "Shaaban",
     0
 };
 
+// CS Professors
 static const char *const shklight[] = {
-    /* Romania */
-    "Zarnesti", "Slanic", "Nehoiasu", "Ludus", "Sighisoara", "Nisipitu",
-    "Razboieni", "Bicaz", "Dorohoi", "Vaslui", "Fetesti", "Tirgu Neamt",
-    "Babadag", "Zimnicea", "Zlatna", "Jiu", "Eforie", "Mamaia",
-    /* Bulgaria */
-    "Silistra", "Tulovo", "Panagyuritshte", "Smolyan", "Kirklareli",
-    "Pernik", "Lom", "Haskovo", "Dobrinishte", "Varvara", "Oryahovo",
-    "Troyan", "Lovech", "Sliven",
+    "Liu", "McKinzie", "Mooman", "Raj",
+    "Kwon", "Butler", "Romanowski",
+    "Canosa", "Kazemian", "Strout",
+    "Bailey", "Bezakova", "Bischof",
     0
 };
 
+// CS Professors
 static const char *const shkgeneral[] = {
-    /* Suriname */
-    "Hebiwerie", "Possogroenoe", "Asidonhopo", "Manlobbi",
-    "Adjama", "Pakka Pakka", "Kabalebo", "Wonotobo",
-    "Akalapi", "Sipaliwini",
-    /* Greenland */
-    "Annootok", "Upernavik", "Angmagssalik",
-    /* N. Canada */
-    "Aklavik", "Inuvik", "Tuktoyaktuk",
-    "Chicoutimi", "Ouiatchouane", "Chibougamau",
-    "Matagami", "Kipawa", "Kinojevis",
-    "Abitibi", "Maganasipi",
-    /* Iceland */
-    "Akureyri", "Kopasker", "Budereyri", "Akranes", "Bordeyri",
-    "Holmavik",
+    "Carithers", "White", "Steele",
+    "Kaminsky", "Borelli", "Brown", "Zanibbi",
+    "Howles", "Hu", "Kumar", "Radziszowski",
     0
 };
 
@@ -238,7 +202,7 @@ nameshk(struct monst *shk, const char *const *nlp, struct level *lev)
     if (nlp == shklight && In_mines(&lev->z)
         && (sptr = Is_special(&lev->z)) != 0 && sptr->flags.town) {
         /* special-case minetown lighting shk */
-        shname = "Izchak";
+        shname = "Paul Tymann";
         shk->female = FALSE;
     } else {
         /* We want variation from game to game, without needing the save and
@@ -271,7 +235,7 @@ nameshk(struct monst *shk, const char *const *nlp, struct level *lev)
                     continue;
                 continue;       /* next `trycnt' iteration */
             } else {
-                shname = shk->female ? "Lucrezia" : "Dirk";
+                shname = shk->female ? "Paul Mezzanini" : "Matt Campbell";
             }
 
             /* is name already in use on this level? */
