@@ -20,6 +20,7 @@ static void ccmd_list_games(json_t * params);
 static void ccmd_get_drawing_info(json_t * params);
 static void ccmd_get_roles(json_t * params);
 static void ccmd_get_topten(json_t * params);
+static void ccmd_get_board_entries(json_t * params);
 static void ccmd_get_commands(json_t * params);
 static void ccmd_get_obj_commands(json_t * params);
 static void ccmd_describe_pos(json_t * params);
@@ -45,6 +46,7 @@ const struct client_command clientcmd[] = {
     {"get_drawing_info", ccmd_get_drawing_info, 1},
     {"get_roles", ccmd_get_roles, 1},
     {"get_topten", ccmd_get_topten, 1},
+    {"get_board_entries", ccmd_get_board_entries, 1},
     {"get_commands", ccmd_get_commands, 1},
     {"get_obj_commands", ccmd_get_obj_commands, 1},
     {"describe_pos", ccmd_describe_pos, 1},
@@ -119,7 +121,10 @@ ccmd_start_game(json_t * params)
             db_add_new_game(user_info.uid, basename, rolename,
                             ri->racenames[race], ri->gendnames[gend],
                             ri->alignnames[align], mode, name,
-                            player_info.level_desc);
+                            player_info.level_desc, player_info.hp,
+                            player_info.hpmax, player_info.en, player_info.enmax,
+                            player_info.wi, player_info.in, player_info.st,
+                            player_info.dx, player_info.co, player_info.ch);
         log_msg("%s has started a new game (%d) as %s", user_info.username,
                 gameid, name);
         j_msg = json_pack("{si,si}", "return", ret, "gameid", gameid);
@@ -257,8 +262,12 @@ ccmd_game_command(json_t * params)
     }
 
     client_msg("game_command", json_pack("{si}", "return", result));
-    db_update_game(gameid, player_info.moves, player_info.z,
-                   player_info.level_desc);
+    db_update_game_and_stats(gameid, player_info.moves, player_info.z,
+                             player_info.level_desc, player_info.level,
+                             player_info.hp, player_info.hpmax, player_info.en,
+                             player_info.enmax, player_info.wi, player_info.in,
+                             player_info.st, player_info.dx, player_info.co,
+                             player_info.ch);
 
     /* move the finished game to its final resting place */
     if (result == GAME_OVER) {
@@ -611,6 +620,40 @@ ccmd_get_topten(json_t * params)
     }
     jmsg = json_pack("{so,ss}", "toplist", jarr, "msg", buf);
     client_msg("get_topten", jmsg);
+}
+
+static void
+ccmd_get_board_entries(json_t * params)
+{
+    struct nh_board_entry *entries = NULL;
+    int listlen = 0, i = 0;
+    char *since = NULL;
+    json_t *jmsg = NULL, *jarr = NULL, *jobj = NULL;
+    if (json_unpack(params, "{ss}", "get_entries_since", &since) == -1)
+        exit_client("Bad parameters for get_board_entries");
+
+    entries = db_get_board_entries(since, &listlen);
+
+    jarr = json_array();
+    for (i = 0; i < listlen; i++) {
+        jobj =
+            json_pack(
+             "{si,si,si,si,si,si,si,si,si,si,si,si,si,si,ss,ss,ss,ss,ss,ss,ss}",
+             "level", entries[i].level, "depth", entries[i].depth,
+             "hp", entries[i].hp, "hpmax", entries[i].hpmax,
+             "en", entries[i].en, "enmax", entries[i].enmax,
+             "wi", entries[i].wi, "in", entries[i].in, "st", entries[i].st,
+             "dx", entries[i].dx, "co", entries[i].co, "ch", entries[i].ch,
+             "ts", entries[i].lastactive, "moves", entries[i].moves,
+             "plrole", entries[i].plrole, "plrace", entries[i].plrace,
+             "plgend", entries[i].plgend, "plalign", entries[i].plalign,
+             "name", entries[i].name, "leveldesc", entries[i].leveldesc,
+             "lastactive", entries[i].lastactive);
+        json_array_append_new(jarr,jobj);
+    }
+    jmsg = json_pack("{so}", "brdlist", jarr);
+    client_msg("get_board_entries", jmsg);
+    free(entries);
 }
 
 

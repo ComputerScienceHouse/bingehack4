@@ -103,6 +103,9 @@ extern EXPORT struct nh_topten_entry *nhnet_get_topten(int *out_len,
                                                        const char *player,
                                                        int top, int around,
                                                        nh_bool own);
+extern EXPORT struct nh_board_entry *nhnet_get_board_entries(
+                                                    char *entries_since,
+                                                    int *length);
 extern EXPORT int nhnet_change_email(const char *email);
 extern EXPORT int nhnet_change_password(const char *password);
 
@@ -124,6 +127,7 @@ extern EXPORT int nhnet_change_password(const char *password);
 #  define nh_build_plselection_prompt nhnet_build_plselection_prompt
 #  define nh_root_plselection_prompt  nhnet_root_plselection_prompt
 #  define nh_get_topten               nhnet_get_topten
+#  define nh_get_board_entries        nhnet_get_board_entries
 # endif
 
 #endif

@@ -11,6 +11,7 @@ enum menuids {
     REPLAY,
     OPTIONS,
     TOPTEN,
+    BOARD,
     ACCOUNT,
     DISCONNECT
 };
@@ -519,6 +520,7 @@ netgame_mainmenu(struct server_info *server)
         {REPLAY, MI_NORMAL, "view replay", 'v', 0, 0},
         {OPTIONS, MI_NORMAL, "set options", 'o', 0, 0},
         {TOPTEN, MI_NORMAL, "show score list", 's', 0},
+        {BOARD, MI_NORMAL, "start the binge board", 'b', 0, 0},
         {ACCOUNT, MI_NORMAL, "account settings", 'a', 0},
         {DISCONNECT, MI_NORMAL, "disconnect", 'q', 'x', 0}
     };
@@ -583,6 +585,10 @@ netgame_mainmenu(struct server_info *server)
 
         case TOPTEN:
             show_topten(NULL, -1, FALSE, FALSE);
+            break;
+
+        case BOARD:
+            show_bingeboard();
             break;
 
         case ACCOUNT:

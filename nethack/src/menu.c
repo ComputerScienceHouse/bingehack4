@@ -35,7 +35,7 @@ calc_menuwidth(int *colwidth, int *colpos, int maxcol)
 }
 
 
-static void
+void
 layout_menu(struct gamewin *gw)
 {
     struct win_menu *mdat = (struct win_menu *)gw->extra;
@@ -172,7 +172,7 @@ draw_menu(struct gamewin *gw)
 }
 
 
-static void
+void
 resize_menu(struct gamewin *gw)
 {
     struct win_menu *mdat = (struct win_menu *)gw->extra;
@@ -199,7 +199,7 @@ resize_menu(struct gamewin *gw)
 }
 
 
-static void
+void
 assign_menu_accelerators(struct win_menu *mdat)
 {
     int i;

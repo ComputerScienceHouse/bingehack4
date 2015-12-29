@@ -30,10 +30,16 @@ static const char SQL_init_games_table[] =
     "plname text NOT NULL, " "role text NOT NULL, " "race text NOT NULL, "
     "gender text NOT NULL, " "alignment text NOT NULL, "
     "mode integer NOT NULL, " "moves integer NOT NULL, "
-    "depth integer NOT NULL, " "level_desc text NOT NULL, "
-    "done boolean NOT NULL DEFAULT FALSE, "
+    "depth integer NOT NULL, " "level integer NOT NULL, "
+    "level_desc text NOT NULL, " "done boolean NOT NULL DEFAULT FALSE, "
     "owner integer NOT NULL REFERENCES users (uid), " "ts timestamp NOT NULL, "
-    "start_ts timestamp NOT NULL" ");";
+    "start_ts timestamp NOT NULL, " "health integer NOT NULL, "
+    "maxhealth integer NOT NULL, " "energy integer NOT NULL, "
+    "maxenergy integer NOT NULL, " "wi integer NOT NULL, "
+    "intel integer NOT NULL, " "str integer NOT NULL, "
+    "dx integer NOT NULL, " "co integer NOT NULL, "
+    "ch integer NOT NULL" ");";
+
 
 static const char SQL_init_options_table[] =
     "CREATE TABLE options(" "uid integer NOT NULL REFERENCES users (uid), "
@@ -57,7 +63,8 @@ static const char SQL_check_pgcrypto[] =
 
 static const char SQL_register_user[] =
     "INSERT INTO users (name, pwhash, email, ts, reg_ts) "
-    "VALUES ($1::varchar(50), crypt($2::text, gen_salt('bf', 8)), $3::text, 'now', 'now');";
+    "VALUES ($1::varchar(50), crypt($2::text, gen_salt('bf', 8)), $3::text, "
+            "'now', 'now');";
 
 static const char SQL_last_reg_id[] = "SELECT currval('users_uid_seq');";
 
@@ -80,14 +87,27 @@ static const char SQL_set_user_password[] =
 
 static const char SQL_add_game[] =
     "INSERT INTO games (filename, role, race, gender, alignment, mode, moves, "
-    "depth, owner, plname, level_desc, ts, start_ts) "
+    "depth, level, owner, plname, level_desc, ts, start_ts, health, maxhealth, "
+    "energy, maxenergy, wi, intel, str, dx, co, ch) "
     "VALUES ($1::text, $2::text, $3::text, $4::text, $5::text, "
-    "$6::integer, 1, 1, $7::integer, $8::text, $9::text, 'now', 'now')";
+    "$6::integer, 1, 1, 1, $7::integer, $8::text, $9::text, 'now', 'now', "
+    "$10::integer, $11::integer, $12::integer, $13::integer, $14::integer, "
+    "$15::integer, $16::integer, $17::integer, $18::integer, $19::integer)";
 
 static const char SQL_delete_game[] =
     "DELETE FROM games WHERE owner = $1::integer AND gid = $2::integer;";
 
 static const char SQL_last_game_id[] = "SELECT currval('games_gid_seq');";
+
+static const char SQL_update_game_and_stats[] =
+    "UPDATE games "
+    "SET ts = 'now', moves = $2::integer, depth = $3::integer, "
+             "level = $4::integer, level_desc = $5::text, health = $6::integer, "
+             "maxhealth = $7::integer, energy = $8::integer, "
+             "maxenergy = $9::integer, wi = $10::integer, "
+             "intel = $11::integer, str = $12::integer, dx = $13::integer, "
+             "co = $14::integer, ch = $15::integer "
+    "WHERE gid = $1::integer;";
 
 static const char SQL_update_game[] =
     "UPDATE games "
@@ -122,6 +142,9 @@ static const char SQL_add_topten_entry[] =
     "INSERT INTO topten (gid, points, hp, maxhp, deaths, end_how, death, entrytxt) "
     "VALUES ($1::integer, $2::integer, $3::integer, $4::integer, "
     "$5::integer, $6::integer, $7::text, $8::text);";
+
+static const char SQL_get_games_since[] =
+    "SELECT * FROM games WHERE ts>$1::timestamp AND done='f' ORDER BY start_ts;";
 
 
 static PGconn *conn;
@@ -424,24 +447,42 @@ db_set_user_password(int uid, const char *password)
 long
 db_add_new_game(int uid, const char *filename, const char *role,
                 const char *race, const char *gend, const char *align, int mode,
-                const char *plname, const char *levdesc)
+                const char *plname, const char *levdesc, int hp, int hpmax,
+                int en, int enmax, int wi, int in, int st, int dx,
+                int co, int ch)
 {
-    PGresult *res;
-    char uidstr[16], modestr[16];
+    PGresult *res = NULL;
+    char uidstr[16] = "\0", modestr[16] = "\0", hpstr[16] = "\0",
+         hpmaxstr[16] = "\0", enstr[16] = "\0", enmaxstr[16] = "\0",
+         wistr[16] = "\0", intstr[16] = "\0", ststr[16] = "\0",
+         dxstr[16] = "\0", costr[16] = "\0", chstr[16] = "\0";
 
-    const char *const params[] = { filename, role, race, gend,
-        align, modestr, uidstr, plname, levdesc
+    const char *const params[] = { filename, role, race, gend, align, modestr,
+        uidstr, plname, levdesc, hpstr, hpmaxstr, enstr, enmaxstr, wistr,
+        intstr, ststr, dxstr, costr, chstr
     };
-    const int paramFormats[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    const char *gameid_str;
-    int gid;
+    const int paramFormats[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                 0, 0, 0 };
+    const char *gameid_str = NULL;
+    int gid = 0, numparams = 0;
 
     sprintf(uidstr, "%d", uid);
     sprintf(modestr, "%d", mode);
+    sprintf(hpstr, "%d", hp);
+    sprintf(hpmaxstr, "%d", hpmax);
+    sprintf(enstr, "%d", en);
+    sprintf(enmaxstr, "%d", enmax);
+    sprintf(wistr, "%d", wi);
+    sprintf(intstr, "%d", in);
+    sprintf(ststr, "%d", st);
+    sprintf(dxstr, "%d", dx);
+    sprintf(costr, "%d", co);
+    sprintf(chstr, "%d", ch);
 
+    numparams = sizeof(params) / sizeof(const char *);
     res =
-        PQexecParams(conn, SQL_add_game, 9, NULL, params, NULL, paramFormats,
-                     0);
+        PQexecParams(conn, SQL_add_game, numparams, NULL, params, NULL,
+                     paramFormats, 0);
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         log_msg("db_add_new_game error while adding (%s - %s): %s", plname,
                 filename, PQerrorMessage(conn));
@@ -478,6 +519,46 @@ db_update_game(int game, int moves, int depth, const char *levdesc)
     res =
         PQexecParams(conn, SQL_update_game, 4, NULL, params, NULL, paramFormats,
                      0);
+    if (PQresultStatus(res) != PGRES_COMMAND_OK)
+        log_msg("update_game_ts error: %s", PQerrorMessage(conn));
+    PQclear(res);
+}
+
+
+void
+db_update_game_and_stats(int game, int moves, int depth, const char *levdesc,
+                         int level, int hp, int hpmax, int en, int enmax,
+                         int wi, int in, int st, int dx, int co, int ch)
+{
+    PGresult *res = NULL;
+    char gidstr[16] = "\0", movesstr[16] = "\0", depthstr[16] = "\0",
+         lvlstr[16] = "\0", hpstr[16] = "\0", hpmaxstr[16] = "\0",
+         enstr[16] = "\0", enmaxstr[16] = "\0", wistr[16] = "\0",
+         intstr[16] = "\0", ststr[16] = "\0", dxstr[16] = "\0",
+         costr[16] = "\0", chstr[16] = "\0";
+    const char *const params[] = { gidstr, movesstr, depthstr, lvlstr, levdesc,
+                                   hpstr, hpmaxstr, enstr, enmaxstr, wistr,
+                                   intstr, ststr, dxstr, costr, chstr };
+    const int paramFormats[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+    sprintf(gidstr, "%d", game);
+    sprintf(movesstr, "%d", moves);
+    sprintf(depthstr, "%d", depth);
+    sprintf(lvlstr, "%d", level);
+    sprintf(hpstr, "%d", hp);
+    sprintf(hpmaxstr, "%d", hpmax);
+    sprintf(enstr, "%d", en);
+    sprintf(enmaxstr, "%d", enmax);
+    sprintf(wistr, "%d", wi);
+    sprintf(intstr, "%d", in);
+    sprintf(ststr, "%d", st);
+    sprintf(dxstr, "%d", dx);
+    sprintf(costr, "%d", co);
+    sprintf(chstr, "%d", ch);
+
+    res =
+        PQexecParams(conn, SQL_update_game_and_stats, 15, NULL, params, NULL,
+                     paramFormats, 0);
     if (PQresultStatus(res) != PGRES_COMMAND_OK)
         log_msg("update_game_ts error: %s", PQerrorMessage(conn));
     PQclear(res);
@@ -684,6 +765,166 @@ db_add_topten_entry(int gid, int points, int hp, int maxhp, int deaths,
         log_msg("set_game_done error: %s", PQerrorMessage(conn));
     PQclear(res);
     return;
+}
+
+struct nh_board_entry *
+db_get_board_entries(char *since, int *length) {
+    PGresult *res;
+    int i = 0, tmp = 0, levelcol = 0, depthcol = 0, hpcol = 0, hpmaxcol = 0,
+        encol = 0, enmaxcol = 0, wicol = 0, incol = 0, stcol = 0, dxcol = 0,
+        cocol = 0, chcol = 0, tscol = 0, movescol = 0, plrolecol = 0,
+        plracecol = 0, plgendcol = 0, plaligncol = 0, namecol = 0,
+        leveldesccol = 0;
+    const char *plrole = NULL, *plrace = NULL, *plgend = NULL, *plalign = NULL,
+          *name = NULL, *leveldesc = NULL, *ts = NULL;
+
+    const char *const params[] = { since };
+    const int paramFormats[] = { 0 };
+    struct nh_board_entry *entries = NULL;
+
+    res =
+        PQexecParams(conn, SQL_get_games_since, 1, NULL, params, NULL,
+                     paramFormats, 0);
+    if(PQresultStatus(res) != PGRES_TUPLES_OK) {
+        log_msg("db_get_board_entries error: %s", PQerrorMessage(conn));
+        PQclear(res);
+        return NULL;
+    }
+    *length = PQntuples(res);
+    levelcol = PQfnumber(res, "level");
+    depthcol = PQfnumber(res, "depth");
+    hpcol = PQfnumber(res, "health");
+    hpmaxcol = PQfnumber(res, "maxhealth");
+    encol = PQfnumber(res, "energy");
+    enmaxcol = PQfnumber(res, "maxenergy");
+    wicol = PQfnumber(res, "wi");
+    incol = PQfnumber(res, "intel");
+    stcol = PQfnumber(res, "str");
+    dxcol = PQfnumber(res, "dx");
+    cocol = PQfnumber(res, "co");
+    chcol = PQfnumber(res, "ch");
+    tscol = PQfnumber(res, "ts");
+    movescol = PQfnumber(res, "moves");
+    plrolecol = PQfnumber(res, "role");
+    plracecol = PQfnumber(res, "race");
+    plgendcol = PQfnumber(res, "gender");
+    plaligncol = PQfnumber(res, "alignment");
+    namecol = PQfnumber(res, "plname");
+    leveldesccol = PQfnumber(res, "level_desc");
+
+    entries = calloc((*length), sizeof (struct nh_board_entry));
+    for (i = 0; i < *length; i++) {
+        tmp = strtol(PQgetvalue(res, i, levelcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].level = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, depthcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].depth = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, hpcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].hp = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, hpmaxcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].hpmax = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, encol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].en = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, enmaxcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].enmax = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, wicol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].wi = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, incol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].in = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, stcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].st = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, dxcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].dx = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, cocol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].co = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, chcol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].ch = tmp;
+
+        tmp = strtol(PQgetvalue(res, i, movescol), NULL, 10);
+        if (errno != 0 || tmp > INT_MAX) {
+            log_msg("Error converting string to int");
+            return NULL;
+        }
+        entries[i].moves = tmp;
+
+
+        plrole = PQgetvalue(res, i, plrolecol);
+        plrace = PQgetvalue(res, i, plracecol);
+        plgend = PQgetvalue(res, i, plgendcol);
+        plalign = PQgetvalue(res, i, plaligncol);
+        name = PQgetvalue(res, i, namecol);
+        leveldesc = PQgetvalue(res, i, leveldesccol);
+        ts = PQgetvalue(res, i, tscol);
+
+        strncpy(entries[i].plrole, plrole, PLRBUFSZ);
+        strncpy(entries[i].plrace, plrace, PLRBUFSZ);
+        strncpy(entries[i].plgend, plgend, PLRBUFSZ);
+        strncpy(entries[i].plalign, plalign, PLRBUFSZ);
+        strncpy(entries[i].name, name, PLRBUFSZ);
+        strncpy(entries[i].leveldesc, leveldesc, COLNO);
+        strncpy(entries[i].lastactive, ts, COLNO);
+    }
+
+    PQclear(res);
+    return entries;
 }
 
 /* db_pgsql.c */
