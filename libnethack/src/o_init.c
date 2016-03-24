@@ -1,39 +1,15 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-06-15 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
 #include "lev.h"        /* save & restore info */
 
-static void setgemprobs(const d_level * dlev);
 static void shuffle(int, int, boolean);
 static void shuffle_all(void);
 static boolean interesting_to_discover(int);
 
-
-static void
-setgemprobs(const d_level * dlev)
-{
-    int j, first, lev;
-
-    if (dlev)
-        lev = (ledger_no(dlev) > maxledgerno())
-            ? maxledgerno() : ledger_no(dlev);
-    else
-        lev = 0;
-    first = bases[GEM_CLASS];
-
-    for (j = 0; j < 9 - lev / 3; j++)
-        objects[first + j].oc_prob = 0;
-    first += j;
-    if (first > LAST_GEM || objects[first].oc_class != GEM_CLASS ||
-        OBJ_NAME(objects[first]) == NULL) {
-        raw_printf("Not enough gems? - first=%d j=%d LAST_GEM=%d\n", first, j,
-                   LAST_GEM);
-    }
-    for (j = first; j <= LAST_GEM; j++)
-        objects[j].oc_prob = (171 + j - first) / (LAST_GEM + 1 - first);
-}
 
 /* shuffle descriptions on objects o_low to o_high */
 static void
@@ -50,10 +26,14 @@ shuffle(int o_low, int o_high, boolean domaterial)
         return;
 
     for (j = o_low; j <= o_high; j++) {
+        /* sanity check */
+        if (!has_shuffled_appearance(j))
+            impossible("shuffle() called on nonshuffleable otyp %d", j);
+
         if (objects[j].oc_name_known)
             continue;
         do
-            i = j + rn2(o_high - j + 1);
+            i = j + rn2_on_rng(o_high - j + 1, rng_dungeon_gen);
         while (objects[i].oc_name_known);
         sw = objects[j].oc_descr_idx;
         objects[j].oc_descr_idx = objects[i].oc_descr_idx;
@@ -85,10 +65,6 @@ init_objects(void)
     int i, first, last, sum;
     char oclass;
 
-    /* bug fix to prevent "initialization error" abort on Intel Xenix. reported 
-       by mikew@semike */
-    for (i = 0; i < MAXOCLASSES; i++)
-        bases[i] = 0;
     /* initialize object descriptions */
     for (i = 0; i < NUM_OBJECTS; i++)
         objects[i].oc_name_idx = objects[i].oc_descr_idx = i;
@@ -100,18 +76,18 @@ init_objects(void)
         last = first + 1;
         while (last < NUM_OBJECTS && objects[last].oc_class == oclass)
             last++;
-        bases[(int)oclass] = first;
 
         if (oclass == GEM_CLASS) {
-            setgemprobs(NULL);
-
-            if (rn2(2)) {       /* change turquoise from green to blue? */
+            if (rn2_on_rng(2, rng_dungeon_gen)) {
+                /* change turquoise from green to blue? */
                 COPY_OBJ_DESCR(objects[TURQUOISE], objects[SAPPHIRE]);
             }
-            if (rn2(2)) {       /* change aquamarine from green to blue? */
+            if (rn2_on_rng(2, rng_dungeon_gen)) {
+                /* change aquamarine from green to blue? */
                 COPY_OBJ_DESCR(objects[AQUAMARINE], objects[SAPPHIRE]);
             }
-            switch (rn2(4)) {   /* change fluorite from violet? */
+            switch (rn2_on_rng(4, rng_dungeon_gen)) {
+                /* change fluorite from violet? */
             case 0:
                 break;
             case 1:    /* blue */
@@ -156,7 +132,7 @@ shuffle_all(void)
 
         if (OBJ_DESCR(objects[first]) != NULL && oclass != TOOL_CLASS &&
             oclass != WEAPON_CLASS && oclass != ARMOR_CLASS &&
-            oclass != GEM_CLASS) {
+            oclass != GEM_CLASS && oclass != VENOM_CLASS) {
             int j = last - 1;
 
             if (oclass == POTION_CLASS)
@@ -188,6 +164,48 @@ shuffle_all(void)
     shuffle(SPEED_BOOTS, LEVITATION_BOOTS, FALSE);
 }
 
+/* Returns TRUE if the unidentified appearance of this object could differ from
+   game to game. */
+boolean
+has_shuffled_appearance(int otyp)
+{
+    int oclass = objects[otyp].oc_class;
+
+    /* If an object doesn't even have an unidentified appearance, it definitely
+       doesn't have a shuffled appearance. */
+    if (OBJ_DESCR(objects[otyp]) == NULL)
+        return FALSE;
+
+    /* Most object classes are almost entirely shuffled. */
+    if (oclass == POTION_CLASS || oclass == WAND_CLASS ||
+        oclass == AMULET_CLASS || oclass == GEM_CLASS ||
+        oclass == SPBOOK_CLASS || oclass == RING_CLASS ||
+        oclass == SCROLL_CLASS)
+        return (oclass == WAND_CLASS || oclass == POTION_CLASS ||
+                objects[otyp].oc_magic) &&
+            !objects[otyp].oc_unique && otyp != POT_WATER && otyp != ROCK;
+
+    /* Armour is partially shuffled. */
+    if ((HELMET <= otyp && otyp <= HELM_OF_TELEPATHY) ||
+        (LEATHER_GLOVES <= otyp && otyp <= GAUNTLETS_OF_DEXTERITY) ||
+        (CLOAK_OF_PROTECTION <= otyp && otyp <= CLOAK_OF_DISPLACEMENT) ||
+        (SPEED_BOOTS <= otyp && otyp <= LEVITATION_BOOTS))
+        return TRUE;
+
+    /* Other items are not shuffled. */
+    return FALSE;
+}
+
+/* Returns TRUE if the given otyp has a "corpsenm" field that could potentially
+   be unidentified. */
+boolean
+corpsenm_is_relevant(int otyp)
+{
+    return (otyp == CORPSE || otyp == STATUE || otyp == TIN ||
+            otyp == FIGURINE || otyp == EGG);
+}
+
+
 /* find the object index for snow boots; used [once] by slippery ice code */
 int
 find_skates(void)
@@ -201,12 +219,6 @@ find_skates(void)
 
     impossible("snow boots not found?");
     return -1;  /* not 0, or caller would try again each move */
-}
-
-void
-oinit(const struct level *lev)
-{       /* level dependent initialization */
-    setgemprobs(&lev->z);
 }
 
 
@@ -234,8 +246,14 @@ saveobjclass(struct memfile *mf, struct objclass *ocl)
     mwrite16(mf, ocl->oc_cost);
     mwrite16(mf, ocl->oc_nutrition);
 
+    /* SAVEBREAK (4.3-beta1 -> 4.3-beta2): to match restobjclass */
+    int oprop = ocl->oc_oprop;
+    if (ocl->oc_class == TOOL_CLASS && ocl->oc_material == CLOTH &&
+        ocl->oc_nutrition == 2)
+        oprop ^= BLINDED;
+
     mwrite8(mf, ocl->oc_subtyp);
-    mwrite8(mf, ocl->oc_oprop);
+    mwrite8(mf, oprop);
     mwrite8(mf, ocl->oc_class);
     mwrite8(mf, ocl->oc_delay);
     mwrite8(mf, ocl->oc_color);
@@ -258,10 +276,8 @@ savenames(struct memfile *mf)
 {
     int i;
 
-    mtag(mf, 0, MTAG_OCLASSES);
     mfmagic_set(mf, OCLASSES_MAGIC);
-    for (i = 0; i < MAXOCLASSES; i++)
-        mwrite32(mf, bases[i]);
+    mtag(mf, 0, MTAG_OCLASSES);
 
     for (i = 0; i < NUM_OBJECTS; i++)
         mwrite32(mf, disco[i]);
@@ -283,7 +299,8 @@ freenames(void)
         }
 }
 
-
+/* TODO: Why are we saving all this stuff? Most of it doesn't change
+   between games. */
 static void
 restobjclass(struct memfile *mf, struct objclass *ocl)
 {
@@ -322,6 +339,18 @@ restobjclass(struct memfile *mf, struct objclass *ocl)
     ocl->oc_oc1 = mread8(mf);
     ocl->oc_oc2 = mread8(mf);
 
+    /* SAVEBREAK (4.3-beta1 -> 4.3-beta2)
+
+       4.3-beta1 save files have blindfolds recorded as not causing blindness.
+       Thus, we xor the object property for blindfolds and towels with BLINDED,
+       so that it's saved as 0. At this point in the code, we don't directly
+       know what object we're dealing with; however, we can use the description
+       "cloth tools with nutrition 2" instead, which covers blindfolds and
+       towels but nothing else. */
+    if (ocl->oc_class == TOOL_CLASS && ocl->oc_material == CLOTH &&
+        ocl->oc_nutrition == 2)
+        ocl->oc_oprop ^= BLINDED;
+
     ocl->oc_uname = NULL;
     namelen = mread32(mf);
     if (namelen) {
@@ -338,9 +367,6 @@ restnames(struct memfile *mf)
     int i;
 
     mfmagic_check(mf, OCLASSES_MAGIC);
-
-    for (i = 0; i < MAXOCLASSES; i++)
-        bases[i] = mread32(mf);
 
     for (i = 0; i < NUM_OBJECTS; i++)
         disco[i] = mread32(mf);
@@ -421,13 +447,14 @@ static const short uniq_objs[] = {
 };
 
 int
-dodiscovered(void)
+dodiscovered(const struct nh_cmd_arg *arg)
 {
+    (void) arg;
+
     int i, dis;
     int ct = 0;
     char *s, oclass, prev_class, classes[MAXOCLASSES];
-    struct menulist menu;
-    char buf[BUFSZ];
+    struct nh_menulist menu;
 
     init_menulist(&menu);
     add_menutext(&menu, "Discoveries");
@@ -439,20 +466,14 @@ dodiscovered(void)
         if (objects[uniq_objs[i]].oc_name_known) {
             if (!dis++)
                 add_menuheading(&menu, "Unique Items");
-            sprintf(buf, "  %s", OBJ_NAME(objects[uniq_objs[i]]));
-            add_menutext(&menu, buf);
+            add_menutext(
+                &menu, msgprintf("  %s", OBJ_NAME(objects[uniq_objs[i]])));
             ++ct;
         }
     /* display any known artifacts as another pseudo-class */
     ct += disp_artifact_discoveries(&menu);
 
-    /* several classes are omitted from packorder; one is of interest here */
     strcpy(classes, flags.inv_order);
-    if (!strchr(classes, VENOM_CLASS)) {
-        s = eos(classes);
-        *s++ = VENOM_CLASS;
-        *s = '\0';
-    }
 
     for (s = classes; *s; s++) {
         oclass = *s;
@@ -465,19 +486,20 @@ dodiscovered(void)
                     add_menuheading(&menu, let_to_name(oclass, FALSE));
                     prev_class = oclass;
                 }
-                sprintf(buf, "%s %s",
+                add_menutext(
+                    &menu, msgprintf(
+                        "%s %s",
                         (objects[dis].oc_pre_discovered ? "*" : " "),
-                        obj_typename(dis));
-                add_menutext(&menu, buf);
+                        obj_typename(dis)));
             }
         }
     }
+
     if (ct == 0) {
         pline("You haven't discovered anything yet...");
+        dealloc_menulist(&menu);
     } else
-        display_menu(menu.items, menu.icount, NULL, PICK_NONE, PLHINT_ANYWHERE,
-                     NULL);
-    free(menu.items);
+        display_menu(&menu, NULL, PICK_NONE, PLHINT_ANYWHERE, NULL);
 
     return 0;
 }
@@ -507,3 +529,4 @@ count_discovered_objects(int *curp, int *maxp)
 }
 
 /*o_init.c*/
+

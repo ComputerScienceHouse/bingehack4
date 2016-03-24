@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-21 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* Copyright (c) M. Stephenson, 1990, 1991.                       */
 /* Copyright (c) Dean Luick, 1990.                                */
@@ -8,22 +9,18 @@
 /* #define DEBUG */     /* uncomment for debugging info */
 
 #include "config.h"
+#include "compilers.h"
 #include "permonst.h"
 #include "objclass.h"
 #include "monsym.h"
-#include "artilist.h"
+#include "artinames.h"
 #include "dungeon.h"
 #include "obj.h"
 #include "monst.h"
 #include "you.h"
 #include "flag.h"
 #include "dlb.h"
-
-#ifdef __GNUC__
-# define noreturn __attribute__((noreturn))
-#else
-# define noreturn
-#endif
+#include "nethack_types.h"
 
 /* version information */
 #include "nethack.h"
@@ -54,8 +51,8 @@ int main(int, char **);
 void do_objs(const char *);
 void do_data(const char *, const char *);
 void do_dungeon(const char *, const char *);
-void do_date(const char *, int);
-void do_monstr(const char *);
+void do_date(const char *, int, const char *);
+void do_readonly(const char *);
 void do_permonst(const char *);
 void do_questtxt(const char *, const char *);
 void do_rumors(const char *, const char *, const char*, const char *);
@@ -63,7 +60,7 @@ void do_oracles(const char *, const char *);
 
 static void make_version(void);
 static char *version_string(char *);
-static char *version_id_string(char *, const char *);
+static char *version_id_string(char *, const char *, const char *);
 static char *xcrypt(const char *);
 static int check_control(char *);
 static char *without_control(char *);
@@ -96,9 +93,9 @@ static const char *usage_info[] = {
     "       %s -o [OUT (onames.h)]\n",
     "       %s -d [IN (data.base)] [OUT (data)]\n",
     "       %s -e [IN (dungeon.def)] [OUT (dungeon.pdf)]\n",
-    "       %s -m [OUT (monstr.c)]\n",
-    "       %s -v [OUT (date.h)] [OUT (options)]\n",
-    "       %s -w [OUT (verinfo.h)] [OUT (options)]\n",
+    "       %s -m [OUT (readonly.c)]\n",
+    "       %s -v [OUT (date.h)]\n",
+    "       %s -w [OUT (verinfo.h)] [OPTIONAL-STR (version string)]\n",
     "       %s -p [OUT (permonst.h)]\n",
     "       %s -q [IN (quest.txt)] [OUT (quest.dat)]\n",
     "       %s -r [IN (rumors.tru)] [IN (rumors.fal)] [OUT (rumors)]\n",
@@ -111,9 +108,8 @@ usage(char *argv0, char mode, int expected)
     size_t i;
 
     if (expected)
-        fprintf(stderr,
-                "Error: incorrect number of args for mode -%c: %d args required\n",
-                mode, expected);
+        fprintf(stderr, "Error: incorrect number of args for mode -%c: "
+                "%d args required\n", mode, expected);
 
     for (i = 0; i < sizeof (usage_info) / sizeof (usage_info[0]); i++)
         fprintf(stderr, usage_info[i], argv0);
@@ -159,21 +155,21 @@ main(int argc, char *argv[])
     case 'M':
         if (argc != 3)
             usage(argv[0], argv[1][1], 3);
-        do_monstr(argv[2]);
+        do_readonly(argv[2]);
         break;
 
     case 'v':
     case 'V':
-        if (argc != 3)
+        if (argc != 3 && argc != 4)
             usage(argv[0], argv[1][1], 3);
-        do_date(argv[2], 1);
+        do_date(argv[2], 1, argv[3]);
         break;
 
     case 'w':
     case 'W':
         if (argc != 3)
             usage(argv[0], argv[1][1], 3);
-        do_date(argv[2], 0);
+        do_date(argv[2], 0, 0);
         break;
 
     case 'p':
@@ -216,7 +212,8 @@ main(int argc, char *argv[])
 
 
 /* trivial text encryption routine which can't be broken with `tr' */
-/* duplicated in src/hacklib.c */
+/* the algorithm is duplicated in src/hacklib.c, with different memory
+   management properties*/
 static char *
 xcrypt(const char *str)
 {
@@ -239,7 +236,8 @@ xcrypt(const char *str)
 void
 do_rumors(const char *in_tru, const char *in_false, const char *in_pot, const char *outfile)
 {
-    int true_rumor_size, false_rumor_size;
+    long true_rumor_size, true_rumor_start, false_rumor_size;
+    int c;
 
     if (!(ofp = fopen(outfile, WRTMODE))) {
         perror(outfile);
@@ -250,15 +248,27 @@ do_rumors(const char *in_tru, const char *in_false, const char *in_pot, const ch
     if (!(ifp = fopen(in_tru, RDTMODE))) {
         perror(in_tru);
         fclose(ofp);
-        unlink(outfile);        /* kill empty output file */
+        remove(outfile);        /* kill empty output file */
+        exit(EXIT_FAILURE);
+    }
+
+    /* skip to the first # sign */
+    while (((c = fgetc(ifp))) != '#' && c != EOF)
+        ;
+    if (fgetc(ifp) != '\n') {
+        fprintf(stderr, "true rumours file is missing #\\n sequence\n");
+        fclose(ifp);
+        fclose(ofp);
+        remove(outfile);
         exit(EXIT_FAILURE);
     }
 
     /* get size of true rumors file */
+    true_rumor_start = ftell(ifp);
     fseek(ifp, 0L, SEEK_END);
-    true_rumor_size = ftell(ifp);
-    fprintf(ofp, "%06x\n", true_rumor_size);
-    fseek(ifp, 0L, SEEK_SET);
+    true_rumor_size = ftell(ifp) - true_rumor_start;
+    fprintf(ofp, "%06lx\n", true_rumor_size);
+    fseek(ifp, true_rumor_start, SEEK_SET);
 
     /* copy true rumors */
     while (fgets(in_line, sizeof in_line, ifp) != 0)
@@ -269,7 +279,18 @@ do_rumors(const char *in_tru, const char *in_false, const char *in_pot, const ch
     if (!(ifp = fopen(in_false, RDTMODE))) {
         perror(in_false);
         fclose(ofp);
-        unlink(outfile);        /* kill incomplete output file */
+        remove(outfile);        /* kill incomplete output file */
+        exit(EXIT_FAILURE);
+    }
+
+    /* skip to the first # sign */
+    while (((c = fgetc(ifp))) != '#' && c != EOF)
+        ;
+    if (fgetc(ifp) != '\n') {
+        fprintf(stderr, "false rumours file is missing #\\n sequence\n");
+        fclose(ifp);
+        fclose(ofp);
+        remove(outfile);
         exit(EXIT_FAILURE);
     }
 
@@ -278,7 +299,7 @@ do_rumors(const char *in_tru, const char *in_false, const char *in_pot, const ch
     fseek(ifp, 0L, SEEK_END);
     false_rumor_size = ftell(ifp);
 
-    fprintf(ofp, "%06x\n", false_rumor_size);
+    fprintf(ofp, "%06lx\n", false_rumor_size);
     fseek(ifp, 0L, SEEK_SET);
 
     /* copy false rumors */
@@ -350,7 +371,8 @@ version_string(char *outbuf)
 }
 
 static char *
-version_id_string(char *outbuf, const char *build_date)
+version_id_string(char *outbuf, const char *build_date,
+                  const char *specific_version)
 {
     char subbuf[64], versbuf[64];
 
@@ -359,18 +381,16 @@ version_id_string(char *outbuf, const char *build_date)
     subbuf[0] = ' ';
     strcpy(&subbuf[1], PORT_SUB_ID);
 #endif
-#ifdef BETA
-    strcat(subbuf, " Beta");
-#endif
 
-    sprintf(outbuf, "%s NetHack%s Version %s - last build %s.", PORT_ID, subbuf,
-            version_string(versbuf), build_date);
+    sprintf(outbuf, "%s NetHack%s version %s (%s) - last build %s.",
+            PORT_ID, subbuf, version_string(versbuf),
+            specific_version, build_date);
     return outbuf;
 }
 
 
 void
-do_date(const char *outfile, int printdates)
+do_date(const char *outfile, int printdates, const char *specific_version)
 {
     time_t clocktim = 0;
     char *c, cbuf[60], buf[BUFSZ];
@@ -389,18 +409,18 @@ do_date(const char *outfile, int printdates)
     *c = '\0';  /* strip off the '\n' */
     if (printdates) {
         fprintf(ofp, "#define BUILD_DATE \"%s\"\n", cbuf);
-        fprintf(ofp, "#define BUILD_TIME (%ldL)\n", clocktim);
+        fprintf(ofp, "#define BUILD_TIME (%ldL)\n", (long)clocktim);
         fprintf(ofp, "\n");
+        fprintf(ofp, "#define VERSION_ID \\\n \"%s\"\n",
+                version_id_string(buf, cbuf, specific_version ?
+                                  specific_version : "tarball"));
     }
 
+    fprintf(ofp, "#define VERSION_STRING \"%s\"\n", version_string(buf));
+    fprintf(ofp, "\n");
     fprintf(ofp, "#define VERSION_NUMBER 0x%08xU\n", version.incarnation);
     fprintf(ofp, "#define VERSION_FEATURES 0x%08xU\n", version.feature_set);
     fprintf(ofp, "#define VERSION_SANITY1 0x%08xU\n", version.entity_count);
-    fprintf(ofp, "\n");
-    fprintf(ofp, "#define VERSION_STRING \"%s\"\n", version_string(buf));
-    fprintf(ofp, "#define VERSION_ID \\\n \"%s\"\n",
-            version_id_string(buf, cbuf));
-    fprintf(ofp, "\n");
     fclose(ofp);
     return;
 }
@@ -419,13 +439,13 @@ d_filter(char *line)
     *
     New format (v3.1) of 'data' file which allows much faster lookups [pr]
     "do not edit"               first record is a comment line
-    01234567            hexadecimal formatted offset to text area
+    01234567                    hexadecimal formatted offset to text area
     name-a                      first name of interest
     123,4                       offset to name's text, and number of lines for it
     name-b                      next name of interest
     name-c                      multiple names which share same description also
     456,7                       share a single offset,count line
-    .                   sentinel to mark end of names
+    .                           sentinel to mark end of names
     789,0                       dummy record containing offset, count of EOF
     text-a                      4 lines of descriptive text for name-a
     text-a                      at file position 0x01234567L + 123L
@@ -445,7 +465,7 @@ do_data(const char *infile, const char *outfile)
     long txt_offset;
     int entry_cnt, line_cnt;
 
-    sprintf(tempfile, "%s.%s", outfile, "tmp");
+    snprintf(tempfile, SIZE(tempfile), "%s.%s", outfile, "tmp");
 
     if (!(ifp = fopen(infile, RDTMODE))) {      /* data.base */
         perror(infile);
@@ -460,7 +480,7 @@ do_data(const char *infile, const char *outfile)
         perror(tempfile);
         fclose(ifp);
         fclose(ofp);
-        unlink(outfile);
+        remove(outfile);
         exit(EXIT_FAILURE);
     }
 
@@ -496,7 +516,7 @@ do_data(const char *infile, const char *outfile)
     fclose(ifp);        /* all done with original input file */
 
     /* reprocess the scratch file; 1st format an error msg, just in case */
-    sprintf(in_line, "rewind of \"%s\"", tempfile);
+    snprintf(in_line, SIZE(in_line), "rewind of \"%s\"", tempfile);
     if (rewind(tfp) != 0)
         goto dead_data;
     /* copy all lines of text from the scratch file into the output file */
@@ -505,20 +525,20 @@ do_data(const char *infile, const char *outfile)
 
     /* finished with scratch file */
     fclose(tfp);
-    unlink(tempfile);   /* remove it */
+    remove(tempfile);   /* remove it */
 
     /* update the first record of the output file; prepare error msg 1st */
-    sprintf(in_line, "rewind of \"%s\"", outfile);
+    snprintf(in_line, SIZE(in_line), "rewind of \"%s\"", outfile);
     ok = (rewind(ofp) == 0);
     if (ok) {
-        sprintf(in_line, "header rewrite of \"%s\"", outfile);
+        snprintf(in_line, SIZE(in_line), "header rewrite of \"%s\"", outfile);
         ok = (fprintf(ofp, "%s%08lx\n", Dont_Edit_Data, txt_offset) >= 0);
     }
     if (!ok) {
     dead_data:perror(in_line); /* report the problem */
         /* close and kill the aborted output file, then give up */
         fclose(ofp);
-        unlink(outfile);
+        remove(outfile);
         exit(EXIT_FAILURE);
     }
 
@@ -579,7 +599,7 @@ do_oracles(const char *infile, const char *outfile)
     int oracle_cnt;
     int i;
 
-    sprintf(tempfile, "%s.%s", outfile, "tmp");
+    snprintf(tempfile, SIZE(tempfile), "%s.%s", outfile, "tmp");
 
     if (!(ifp = fopen(infile, RDTMODE))) {
         perror(infile);
@@ -594,7 +614,7 @@ do_oracles(const char *infile, const char *outfile)
         perror(tempfile);
         fclose(ifp);
         fclose(ofp);
-        unlink(outfile);
+        remove(outfile);
         exit(EXIT_FAILURE);
     }
 
@@ -643,7 +663,7 @@ do_oracles(const char *infile, const char *outfile)
     fclose(ifp);        /* all done with original input file */
 
     /* reprocess the scratch file; 1st format an error msg, just in case */
-    sprintf(in_line, "rewind of \"%s\"", tempfile);
+    snprintf(in_line, SIZE(in_line), "rewind of \"%s\"", tempfile);
     if (rewind(tfp) != 0)
         goto dead_data;
     /* copy all lines of text from the scratch file into the output file */
@@ -652,17 +672,17 @@ do_oracles(const char *infile, const char *outfile)
 
     /* finished with scratch file */
     fclose(tfp);
-    unlink(tempfile);   /* remove it */
+    remove(tempfile);   /* remove it */
 
     /* update the first record of the output file; prepare error msg 1st */
-    sprintf(in_line, "rewind of \"%s\"", outfile);
+    snprintf(in_line, SIZE(in_line), "rewind of \"%s\"", outfile);
     ok = (rewind(ofp) == 0);
     if (ok) {
-        sprintf(in_line, "header rewrite of \"%s\"", outfile);
+        snprintf(in_line, SIZE(in_line), "header rewrite of \"%s\"", outfile);
         ok = (fprintf(ofp, "%s%5d\n", Dont_Edit_Data, oracle_cnt) >= 0);
     }
     if (ok) {
-        sprintf(in_line, "data rewrite of \"%s\"", outfile);
+        snprintf(in_line, SIZE(in_line), "data rewrite of \"%s\"", outfile);
         for (i = 0; i <= oracle_cnt; i++) {
             if (!(ok = (fpos = ftell(ofp)) >= 0))
                 break;
@@ -680,7 +700,7 @@ do_oracles(const char *infile, const char *outfile)
     dead_data:perror(in_line); /* report the problem */
         /* close and kill the aborted output file, then give up */
         fclose(ofp);
-        unlink(outfile);
+        remove(outfile);
         exit(EXIT_FAILURE);
     }
 
@@ -846,31 +866,106 @@ mstrength(const struct permonst *ptr)
     return (tmp >= 0) ? tmp : 0;
 }
 
+/* Generate the following read-only data tables:
+ *
+ * monstr:                       mstrength values for monsters
+ * bases:                        the first object of each class
+ * timezone_list, timezone_spec: timezones
+ */
 void
-do_monstr(const char *outfile)
+do_readonly(const char *outfile)
 {
     const struct permonst *ptr;
     int i, j;
 
-    /* 
-     * create the source file, "monstr.c"
-     */
+    /* create the source file, "readonly.c" */
     if (!(ofp = fopen(outfile, WRTMODE))) {
         perror(outfile);
         exit(EXIT_FAILURE);
     }
 
     fprintf(ofp, "%s", Dont_Edit_Code);
+    fprintf(ofp,
+            "/* This file contains generated tables of read-only data. */\n");
     fprintf(ofp, "#include \"config.h\"\n");
-    fprintf(ofp, "\nconst int monstr[] = {\n");
-    for (ptr = &mons[0], j = 0; ptr->mlet; ptr++) {
-        i = mstrength(ptr);
-        fprintf(ofp, "%2d,%c", i, (++j & 15) ? ' ' : '\n');
-    }
-    /* might want to insert a final 0 entry here instead of just newline */
-    fprintf(ofp, "%s};\n", (j & 15) ? "\n" : "");
+    fprintf(ofp, "#include \"decl.h\"\n");
+    fprintf(ofp, "#include \"objclass.h\"\n");
+    fprintf(ofp, "#include \"mondata.h\"\n");
 
-    fprintf(ofp, "\n/*monstr.c*/\n");
+    /* monstr */
+    fprintf(ofp, "\nconst int monstr[] = {\n");
+    j = 0;
+    for (ptr = &mons[0]; ptr->mlet; ptr++) {
+        i = mstrength(ptr);
+        j += fprintf(ofp, "%2d, ", i);
+        if (j > 70) {
+            fprintf(ofp, "\n");
+            j = 0;
+        }
+    }
+    fprintf(ofp, "%s};\n", j > 0 ? "\n" : "");
+
+    /* bases: based on code previously in o_init.c */
+    int bases[MAXOCLASSES];
+    for (j = 0; j < MAXOCLASSES; j++)
+        bases[j] = 0;
+    for (i = 0; !i || objects[i].oc_class != ILLOBJ_CLASS;) {
+        j = objects[i].oc_class;
+        bases[j] = i;
+        while (objects[i].oc_class == j) i++;
+    }
+    fprintf(ofp, "\nconst int bases[MAXOCLASSES] = {\n");
+    j = 0;
+    for (i = 0; i < MAXOCLASSES; i++) {
+        j += fprintf(ofp, "%3d, ", bases[i]);
+        if (j > 70) {
+            fprintf(ofp, "\n");
+            j = 0;
+        }
+    }
+    fprintf(ofp, "%s};\n", j > 0 ? "\n" : "");
+
+    /* timezones */
+
+    /* We don't bother trying to handle DST; the only timezones we support are
+       UTC offsets. (This also avoids exploits due to timezones with malicious
+       DST rules; timezones are under user control on some systems.)
+       
+       We support timezones from UTC-1200 to UTC+1400 in 15 minute intervals. I
+       think that's sufficient to cover the entire world (if I've missed a
+       country near the dateline or one with a weird offset, let me
+       know). Allowing the range to be too wide allows some silly
+       full-moon-related offsets, where you can extend the range of a full moon
+       up to a day.
+
+       Although this will inevitably be slightly exploitable no matter what,
+       making this a birth option cuts down on timezone-related shenanigans. */
+    fprintf(ofp, "\nconst struct nh_listitem timezone_list[] = {\n");
+    fprintf(ofp, "    {0, \"UTC\"},\n");
+    for (i = -3600 * 12; i <= 3600 * 14; i += 3600 / 4) {
+        if (i == 0)
+            continue;
+        fprintf(ofp, "    {%d, \"UTC%c%02d%02d\"},\n", i,
+                i < 0 ? '-' : '+', abs(i) / 3600, abs(i) % 3600 / 60);
+    }
+    fprintf(ofp, "};\n");
+    fprintf(ofp, "const struct nh_enum_option timezone_spec =\n");
+    fprintf(ofp, "    { timezone_list, "
+            "sizeof timezone_list / sizeof *timezone_list };\n\n");
+
+    /* polyinit */
+    fprintf(ofp, "\nconst struct nh_listitem polyinit_list[] = {\n");
+    fprintf(ofp, "    {-1, \"(off)\"},\n");
+    for (i = 0; mons[i].mlet; i++) {
+        if (!(mons[i].mflags2 & M2_NOPOLY))
+            fprintf(ofp, "    {%d, \"%s\"},\n", i, mons[i].mname);
+    }
+    fprintf(ofp, "};\n");
+    fprintf(ofp, "const struct nh_enum_option polyinit_spec =\n");
+    fprintf(ofp, "    { polyinit_list, "
+            "sizeof polyinit_list / sizeof *polyinit_list };\n\n");
+
+    fprintf(ofp, "\n/*readonly.c*/\n");
 
     fclose(ofp);
     return;
@@ -1198,10 +1293,11 @@ do_objs(const char *outfile)
 {
     int i, sum = 0;
     char *c, *objnam;
-    int nspell = 0;
     int prefix = 0;
     char class = '\0';
     boolean sumerr = FALSE;
+    char last_gem[128] = "";
+    boolean need_comma = FALSE;
 
     if (!(ofp = fopen(outfile, WRTMODE))) {
         perror(outfile);
@@ -1249,7 +1345,6 @@ do_objs(const char *outfile)
         case SPBOOK_CLASS:
             fprintf(ofp, "#define\tSPE_");
             prefix = 1;
-            nspell++;
             break;
         case SCROLL_CLASS:
             fprintf(ofp, "#define\tSCR_");
@@ -1264,6 +1359,10 @@ do_objs(const char *outfile)
                 break;
             }
             break;
+        case GEM_CLASS:
+            if (objects[i].oc_material == GEMSTONE) {
+                strcpy(last_gem, objnam);
+            }
         default:
             fprintf(ofp, "#define\t");
         }
@@ -1281,8 +1380,14 @@ do_objs(const char *outfile)
         sumerr = TRUE;
     }
 
-    fprintf(ofp, "#define\tLAST_GEM\t(JADE)\n");
-    fprintf(ofp, "#define\tMAXSPELL\t%d\n", nspell + 1);
+    if (!*last_gem) {
+        fprintf(stderr, "no gems at all");
+        fflush(stderr);
+        sumerr = TRUE;
+        /* Put in something that won't completely break things */
+        snprintf(last_gem, SIZE(last_gem), "%d", i - 1);
+    }
+    fprintf(ofp, "#define\tLAST_GEM\t%s\n", last_gem);
     fprintf(ofp, "#define\tNUM_OBJECTS\t%d\n", i);
 
     fprintf(ofp, "\n/* Artifacts (unique objects) */\n\n");
@@ -1302,7 +1407,19 @@ do_objs(const char *outfile)
         fprintf(ofp, "#define\tART_%s\t%d\n", limit(objnam, 1), i);
     }
 
-    fprintf(ofp, "#define\tNROFARTIFACTS\t%d\n", i - 1);
+    fprintf(ofp, "#define\tNROFARTIFACTS\t%d\n\n", i - 1);
+
+    fprintf(ofp, "#define\tUNUSEDOBJECTS\t{ ");
+    for (i = 0; !i || objects[i].oc_class != ILLOBJ_CLASS; i++) {
+        if (i && !OBJ_NAME(objects[i])) {
+            if (need_comma)
+                fprintf(ofp, ", ");
+            fprintf(ofp, "%d", i);
+            need_comma = TRUE;
+        }
+    }
+    fprintf(ofp, " }\n");
+
     fprintf(ofp, "\n#endif /* ONAMES_H */\n");
     fclose(ofp);
     if (sumerr)
@@ -1331,3 +1448,4 @@ struct attribs attrmax, attrmin;
 #endif /* STRICT_REF_DEF */
 
 /*makedefs.c*/
+

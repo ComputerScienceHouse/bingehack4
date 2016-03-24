@@ -1,9 +1,12 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-06-15 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #ifndef OBJCLASS_H
 # define OBJCLASS_H
+
+# include "global.h"
 
 /* definition of a class of objects */
 
@@ -42,6 +45,7 @@ struct objclass {
 
     unsigned oc_material:5;
 # define LIQUID         1       /* currently only for venom */
+/* Start of burnable items (some code cares about this order) */
 # define WAX            2
 # define VEGGY          3       /* foodstuffs */
 # define FLESH          4       /* ditto */
@@ -49,6 +53,7 @@ struct objclass {
 # define CLOTH          6
 # define LEATHER        7
 # define WOOD           8
+/* End of burnable items */
 # define BONE           9
 # define DRAGON_HIDE    10      /* not leather! */
 # define IRON           11      /* Fe - includes steel */
@@ -72,7 +77,9 @@ struct objclass {
 # define is_rustprone(otmp)     (objects[otmp->otyp].oc_material == IRON)
 
 /* secondary damage: rot/acid/acid */
-# define is_corrodeable(otmp)   (objects[otmp->otyp].oc_material == COPPER || objects[otmp->otyp].oc_material == IRON)
+# define is_corrodeable(otmp) \
+    (objects[otmp->otyp].oc_material == COPPER || \
+     objects[otmp->otyp].oc_material == IRON)
 
 # define is_damageable(otmp) (is_rustprone(otmp) || is_flammable(otmp) || \
                                 is_rottable(otmp) || is_corrodeable(otmp))
@@ -103,6 +110,7 @@ struct objclass {
     schar oc_oc1, oc_oc2;
 # define oc_hitbon      oc_oc1  /* weapons: "to hit" bonus */
 
+# define oc_defletter   oc_oc1  /* books: default spell letter */
 # define a_ac           oc_oc1  /* armor class, used in ARM_BONUS in do.c */
 # define a_can          oc_oc2  /* armor: used in mhitu.c */
 # define oc_level       oc_oc2  /* books: spell level */
@@ -150,6 +158,7 @@ extern void init_objlist(void);
 # define ALL_CLASSES    (MAXOCLASSES+2) /* input to getobj().  */
 # define ALLOW_NONE     (MAXOCLASSES+3) /* */
 # define NONE_ON_COMMA  (MAXOCLASSES+4) /* Render ALLOW_NONE as , not -.  */
+# define SPLIT_LETTER   (MAXOCLASSES+5) /* Split on count should use letter */
 
 # define BURNING_OIL    (MAXOCLASSES+1) /* Can be used as input to explode. */
 # define MON_EXPLODE    (MAXOCLASSES+2) /* Exploding monster (e.g. gas spore) */
@@ -186,3 +195,4 @@ struct fruit {
 # define OBJ_NAME(obj)  (obj_descr[(obj).oc_name_idx].oc_name)
 # define OBJ_DESCR(obj) (obj_descr[(obj).oc_descr_idx].oc_descr)
 #endif /* OBJCLASS_H */
+

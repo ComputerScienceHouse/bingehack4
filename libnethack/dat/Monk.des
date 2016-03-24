@@ -1,3 +1,4 @@
+# Last modified by Alex Smith, 2013-09-21
 #	Copyright (c) 1989 by Jean-Christophe Collet
 #	Copyright (c) 1991-2 by M. Stephenson
 # NetHack may be freely redistributed.  See license for details.
@@ -36,7 +37,7 @@ ENDMAP
 REGION:(00,00,75,19),lit,"ordinary"
 REGION:(24,06,33,13),lit,"temple"
 # Portal arrival point
-BRANCH:(05,04,05,04),(0,0,0,0)
+BRANCH:(05,04,05,04),levregion()
 # Stairs
 STAIR:(52,09),down
 # Doors

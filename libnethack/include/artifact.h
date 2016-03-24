@@ -1,9 +1,14 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-04-05 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #ifndef ARTIFACT_H
 # define ARTIFACT_H
+
+# include "global.h"
+# include "align.h"
+# include "permonst.h"
 
 # define SPFX_NONE   0x0000000L /* no special effects, just a bonus */
 # define SPFX_NOGEN  0x0000001L /* item is special, bequeathed by gods */
@@ -35,7 +40,9 @@
 # define SPFX_XRAY   0x2000000L /* gives X-RAY vision to player */
 # define SPFX_REFLECT 0x4000000L/* Reflection */
 # define SPFX_INVIS  0x8000000L /* Invisibility */
-# define SPFX_FISH   0x10000000UL
+# define SPFX_FISH   0x10000000UL /* Fish Detection */
+# define SPFX_RPOWER 0x20000000UL /* Has the Ring of Power */
+# define SPFX_WRPOWER 0x40000000UL /* Wearing the Ring of Power */
 
 struct artifact {
     const char *name;
@@ -63,3 +70,4 @@ struct artifact {
 # define CREATE_AMMO    (LAST_PROP+9)
 
 #endif /* ARTIFACT_H */
+

@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-02-27 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -15,10 +16,10 @@ were_change(struct monst *mon)
             !rn2(night()? (flags.moonphase == FULL_MOON ? 3 : 30)
                  : (flags.moonphase == FULL_MOON ? 10 : 50))) {
             new_were(mon);      /* change into animal form */
-            if (flags.soundok && !canseemon(mon)) {
+            if (!canseemon(mon)) {
                 const char *howler;
 
-                switch (mon->mnum) {
+                switch (monsndx(mon->data)) {
                 case PM_WEREWOLF:
                     howler = "wolf";
                     break;
@@ -93,16 +94,16 @@ new_were(struct monst *mon)
 
 /* were-creature (even you) summons a horde */
 int
-were_summon(const struct permonst *ptr, boolean yours,
+were_summon(struct monst *msummoner,
             int *visible,    /* number of visible helpers created */
-            char *genbuf)
+            const char **genbuf)
 {
-    int i, typ, pm = monsndx(ptr);
+    int i, typ, pm = monsndx(msummoner->data);
     struct monst *mtmp;
     int total = 0;
 
     *visible = 0;
-    if (Protection_from_shape_changers && !yours)
+    if (Protection_from_shape_changers && msummoner != &youmonst)
         return 0;
     for (i = rnd(5); i > 0; i--) {
         switch (pm) {
@@ -111,30 +112,32 @@ were_summon(const struct permonst *ptr, boolean yours,
         case PM_HUMAN_WERERAT:
             typ = rn2(3) ? PM_SEWER_RAT : rn2(3) ? PM_GIANT_RAT : PM_RABID_RAT;
             if (genbuf)
-                strcpy(genbuf, "rat");
+                *genbuf = "rat";
             break;
         case PM_WEREJACKAL:
         case PM_HUMAN_WEREJACKAL:
             typ = PM_JACKAL;
             if (genbuf)
-                strcpy(genbuf, "jackal");
+                *genbuf = "jackal";
             break;
         case PM_WEREWOLF:
         case PM_HUMAN_WEREWOLF:
             typ = rn2(5) ? PM_WOLF : PM_WINTER_WOLF;
             if (genbuf)
-                strcpy(genbuf, "wolf");
+                *genbuf = "wolf";
             break;
         default:
             continue;
         }
-        mtmp = makemon(&mons[typ], level, u.ux, u.uy, NO_MM_FLAGS);
+        mtmp = makemon(&mons[typ], msummoner == &youmonst ? 
+                       level : msummoner->dlevel,
+                       m_mx(msummoner), m_my(msummoner), MM_ADJACENTOK);
         if (mtmp) {
             total++;
-            if (canseemon(mtmp))
+            if (cansuspectmon(mtmp))
                 *visible += 1;
         }
-        if (yours && mtmp)
+        if (msummoner == &youmonst && mtmp)
             tamedog(mtmp, NULL);
     }
     return total;
@@ -143,18 +146,18 @@ were_summon(const struct permonst *ptr, boolean yours,
 void
 you_were(void)
 {
-    char qbuf[QBUFSZ];
+    const char *qbuf;
 
     if (Unchanging || (u.umonnum == u.ulycn))
         return;
     if (Polymorph_control) {
         /* `+4' => skip "were" prefix to get name of beast */
-        sprintf(qbuf, "Do you want to change into %s? ",
-                an(mons[u.ulycn].mname + 4));
+        qbuf = msgprintf("Do you want to change into %s? ",
+                         an(mons[u.ulycn].mname + 4));
         if (yn(qbuf) == 'n')
             return;
     }
-    polymon(u.ulycn);
+    polymon(u.ulycn, TRUE);
 }
 
 void
@@ -166,7 +169,8 @@ you_unwere(boolean purify)
     }
     if (!Unchanging && is_were(youmonst.data) &&
         (!Polymorph_control || yn("Remain in beast form?") == 'n'))
-        rehumanize();
+        rehumanize(DIED, NULL);
 }
 
 /*were.c*/
+

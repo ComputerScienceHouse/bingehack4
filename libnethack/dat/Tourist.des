@@ -1,3 +1,4 @@
+# Last modified by Alex Smith, 2013-09-21
 #	Copyright (c) 1989 by Jean-Christophe Collet
 #	Copyright (c) 1991,92 by M. Stephenson, P. Winner
 # NetHack may be freely redistributed.  See license for details.
@@ -46,7 +47,7 @@ REGION:(62,02,67,04),lit,"ordinary"
 # Stairs
 STAIR:(66,03),down
 # Portal arrival point
-BRANCH:(68,14,68,14),(0,0,0,0)
+BRANCH:(68,14,68,14),levregion()
 # Non diggable walls
 NON_DIGGABLE:(00,00,75,19)
 # Doors

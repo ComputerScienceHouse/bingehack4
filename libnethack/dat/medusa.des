@@ -1,3 +1,4 @@
+# Last modified by Sean Hunt, 2014-02-16
 #	Copyright (c) 1989 by Jean-Christophe Collet
 #	Copyright (c) 1990, 1991 by M. Stephenson
 # NetHack may be freely redistributed.  See license for details.
@@ -37,8 +38,8 @@ REGION:(31,07,45,07),unlit,"ordinary"
 REGION:(35,09,41,10),unlit,"ordinary",unfilled
 REGION:(31,12,45,12),unlit,"ordinary"
 # Teleport: down to up stairs island, up to Medusa's island
-TELEPORT_REGION:(01,01,05,17),(0,0,0,0),down
-TELEPORT_REGION:(26,04,50,15),(0,0,0,0),up
+TELEPORT_REGION:(01,01,05,17),levregion(),down
+TELEPORT_REGION:(26,04,50,15),levregion(),up
 # Stairs
 STAIR:(05,14),up
 STAIR:(36,10),down
@@ -48,7 +49,7 @@ DOOR:locked,(38,08)
 DOOR:locked,(38,11)
 DOOR:closed,(30,12)
 # Branch, not allowed inside Medusa's building.
-BRANCH:levregion(01,00,79,20),(30,06,46,13)
+BRANCH:levregion(00,00,78,20),(30,06,46,13)
 # Non diggable walls
 NON_DIGGABLE:(30,06,46,13)
 # Objects
@@ -137,15 +138,15 @@ REGION:(61,03,72,16),unlit,"ordinary",unfilled,true
 REGION:(71,08,72,11),unlit,"ordinary"
 REGION:(67,08,69,11),lit,"ordinary"
 # Teleport: down to up stairs island, up to Medusa's island
-TELEPORT_REGION:(02,03,05,16),(0,0,0,0),down
-TELEPORT_REGION:(61,03,72,16),(0,0,0,0),up
+TELEPORT_REGION:(02,03,05,16),levregion(),down
+TELEPORT_REGION:(61,03,72,16),levregion(),up
 # Stairs
 STAIR:(04,09),up
 STAIR:(68,10),down
 # Doors
 DOOR:locked,(71,07)
 # Branch, not allowed on Medusa's island.
-BRANCH:levregion(01,00,79,20),(59,01,73,17)
+BRANCH:levregion(00,00,78,20),(59,01,73,17)
 # Non diggable walls
 NON_DIGGABLE:(01,02,06,17)
 NON_DIGGABLE:(60,02,73,17)
@@ -380,7 +381,7 @@ DOOR:locked,(10,06)
 DOOR:locked,(10,10)
 DOOR:locked,(12,08)
 #
-BRANCH:levregion(27,00,79,20),(0,0,0,0)
+BRANCH:levregion(27,00,76,20),(0,0,0,0)
 #
 NON_DIGGABLE:(01,01,22,14)
 #

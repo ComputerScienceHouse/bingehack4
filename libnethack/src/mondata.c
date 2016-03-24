@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-12 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -56,7 +57,7 @@ poly_when_stoned(const struct permonst * ptr)
 
 /* returns TRUE if monster is drain-life resistant */
 boolean
-resists_drli(struct monst * mon)
+resists_drli(const struct monst * mon)
 {
     const struct permonst *ptr = mon->data;
     struct obj *wep = ((mon == &youmonst) ? uwep : MON_WEP(mon));
@@ -68,7 +69,7 @@ resists_drli(struct monst * mon)
 
 /* TRUE if monster is magic-missile resistant */
 boolean
-resists_magm(struct monst * mon)
+resists_magm(const struct monst * mon)
 {
     const struct permonst *ptr = mon->data;
     struct obj *o;
@@ -92,13 +93,13 @@ resists_magm(struct monst * mon)
 
 /* TRUE iff monster is resistant to light-induced blindness */
 boolean
-resists_blnd(struct monst * mon)
+resists_blnd(const struct monst * mon)
 {
     const struct permonst *ptr = mon->data;
     boolean is_you = (mon == &youmonst);
     struct obj *o;
 
-    if (is_you ? (Blind || u.usleep)
+    if (is_you ? Blind
         : (mon->mblinded || !mon->mcansee || !haseyes(ptr) ||
            /* BUG: temporary sleep sets mfrozen, but since paralysis does too,
               we can't check it */
@@ -113,8 +114,7 @@ resists_blnd(struct monst * mon)
         return TRUE;
     o = is_you ? invent : mon->minvent;
     for (; o; o = o->nobj)
-        if ((o->owornmask && objects[o->otyp].oc_oprop == BLINDED) ||
-            (o->oartifact && protects(AD_BLND, o)))
+        if (o->oartifact && protects(AD_BLND, o))
             return TRUE;
     return FALSE;
 }
@@ -161,12 +161,12 @@ can_blnd(struct monst * magr,   /* NULL == no specific aggressor */
             return TRUE;        /* no defense */
         } else
             return FALSE;       /* other objects cannot cause blindness yet */
-        if ((magr == &youmonst) && u.uswallow)
+        if ((magr == &youmonst) && Engulfed)
             return FALSE;       /* can't affect eyes while inside monster */
         break;
 
     case AT_ENGL:
-        if (is_you && (Blindfolded || u.usleep || u.ucreamed))
+        if (is_you && (Blindfolded || u_helpless(hm_asleep) || u.ucreamed))
             return FALSE;
         if (!is_you && mdef->msleeping)
             return FALSE;
@@ -176,7 +176,7 @@ can_blnd(struct monst * magr,   /* NULL == no specific aggressor */
         /* e.g. raven: all ublindf, including LENSES, protect */
         if (is_you && ublindf)
             return FALSE;
-        if ((magr == &youmonst) && u.uswallow)
+        if ((magr == &youmonst) && Engulfed)
             return FALSE;       /* can't affect eyes while inside monster */
         check_visor = TRUE;
         break;
@@ -196,7 +196,7 @@ can_blnd(struct monst * magr,   /* NULL == no specific aggressor */
     if (check_visor) {
         o = (mdef == &youmonst) ? invent : mdef->minvent;
         for (; o; o = o->nobj)
-            if ((o->owornmask & W_ARMH) &&
+            if ((o->owornmask & W_MASK(os_armh)) &&
                 (s = OBJ_DESCR(objects[o->otyp])) != NULL &&
                 !strcmp(s, "visored helmet"))
                 return FALSE;
@@ -254,7 +254,7 @@ can_track(const struct permonst * ptr)
     if (uwep && uwep->oartifact == ART_EXCALIBUR)
         return TRUE;
     else
-        return (boolean) haseyes(ptr);
+        return (boolean)(haseyes(ptr) || has_scent(ptr));
 }
 
 /* creature will slide out of armor */
@@ -324,9 +324,9 @@ dmgtype(const struct permonst * ptr, int dtyp)
 }
 
 /* returns the maximum damage a defender can do to the attacker via
- * a passive defense */
+   a passive defense */
 int
-max_passive_dmg(struct monst *mdef, struct monst *magr)
+max_passive_dmg(const struct monst *mdef, const struct monst *magr)
 {
     int i, n = 0, dmg = 0;
     uchar adtyp;
@@ -380,7 +380,6 @@ monsndx(const struct permonst *ptr)
             return u.umonnum;
 
         panic("monsndx - could not index monster (%p)", ptr);
-        return NON_PM;  /* will not get here */
     }
 
     return i;
@@ -403,10 +402,17 @@ name_to_mon(const char *in_str)
     int i;
     int mntmp = NON_PM;
     char *s, *str, *term;
-    char buf[BUFSZ];
+    /* Note: these bounds assume that we never lengthen str. */
+    char mutable_in_str[strlen(in_str) + 1];
     int len, slen;
 
-    str = strcpy(buf, in_str);
+    /* special case: debug-mode players can create monsters by number; this is
+       intended for programmatic monster creation */
+    if (wizard && sscanf(in_str, "monsndx #%d", &mntmp) == 1 &&
+        mntmp >= LOW_PM && mntmp < SPECIAL_PM)
+        return mntmp;
+
+    str = strcpy(mutable_in_str, in_str);
 
     if (!strncmp(str, "a ", 2))
         str += 2;
@@ -416,7 +422,7 @@ name_to_mon(const char *in_str)
     slen = strlen(str);
     term = str + slen;
 
-    if ((s = strstri(str, "vortices")) != 0)
+    if ((s = strstri_mutable(str, "vortices")) != 0)
         strcpy(s + 4, "ex");
     /* be careful with "ies"; "priest", "zombies" */
     else if (slen > 3 && !strcmpi(term - 3, "ies") &&
@@ -434,45 +440,40 @@ name_to_mon(const char *in_str)
             short pm_val;
         } names[] = {
             /* Alternate spellings */
-            {
-            "grey dragon", PM_GRAY_DRAGON}, {
-            "baby grey dragon", PM_BABY_GRAY_DRAGON}, {
-            "grey unicorn", PM_GRAY_UNICORN}, {
-            "grey ooze", PM_GRAY_OOZE}, {
-            "gray-elf", PM_GREY_ELF}, {
-            "mindflayer", PM_MIND_FLAYER}, {
-            "master mindflayer", PM_MASTER_MIND_FLAYER},
-                /* Hyphenated names */
-            {
-            "ki rin", PM_KI_RIN}, {
-            "uruk hai", PM_URUK_HAI}, {
-            "orc captain", PM_ORC_CAPTAIN}, {
-            "woodland elf", PM_WOODLAND_ELF}, {
-            "green elf", PM_GREEN_ELF}, {
-            "grey elf", PM_GREY_ELF}, {
-            "gray elf", PM_GREY_ELF}, {
-            "elf lord", PM_ELF_LORD}, {
-            "olog hai", PM_OLOG_HAI}, {
-            "arch lich", PM_ARCH_LICH},
-                /* Some irregular plurals */
-            {
-            "incubi", PM_INCUBUS}, {
-            "succubi", PM_SUCCUBUS}, {
-            "violet fungi", PM_VIOLET_FUNGUS}, {
-            "homunculi", PM_HOMUNCULUS}, {
-            "baluchitheria", PM_BALUCHITHERIUM}, {
-            "lurkers above", PM_LURKER_ABOVE}, {
-            "cavemen", PM_CAVEMAN}, {
-            "cavewomen", PM_CAVEWOMAN}, {
-            "djinn", PM_DJINNI}, {
-            "mumakil", PM_MUMAK}, {
-            "erinyes", PM_ERINYS},
-                /* falsely caught by -ves check above */
-            {
-            "master of thief", PM_MASTER_OF_THIEVES},
-                /* end of list */
-            {
-            0, 0}
+            { "grey dragon", PM_GRAY_DRAGON },
+            { "baby grey dragon", PM_BABY_GRAY_DRAGON },
+            { "grey unicorn", PM_GRAY_UNICORN },
+            { "grey ooze", PM_GRAY_OOZE },
+            { "gray-elf", PM_GREY_ELF },
+            { "mindflayer", PM_MIND_FLAYER },
+            { "master mindflayer", PM_MASTER_MIND_FLAYER },
+            /* Hyphenated names */
+            { "ki rin", PM_KI_RIN },
+            { "uruk hai", PM_URUK_HAI },
+            { "orc captain", PM_ORC_CAPTAIN },
+            { "woodland elf", PM_WOODLAND_ELF },
+            { "green elf", PM_GREEN_ELF },
+            { "grey elf", PM_GREY_ELF },
+            { "gray elf", PM_GREY_ELF },
+            { "elf lord", PM_ELF_LORD },
+            { "olog hai", PM_OLOG_HAI },
+            { "arch lich", PM_ARCH_LICH },
+            /* Some irregular plurals */
+            { "incubi", PM_INCUBUS },
+            { "succubi", PM_SUCCUBUS },
+            { "violet fungi", PM_VIOLET_FUNGUS },
+            { "homunculi", PM_HOMUNCULUS },
+            { "baluchitheria", PM_BALUCHITHERIUM },
+            { "lurkers above", PM_LURKER_ABOVE },
+            { "cavemen", PM_CAVEMAN },
+            { "cavewomen", PM_CAVEWOMAN },
+            { "djinn", PM_DJINNI },
+            { "mumakil", PM_MUMAK },
+            { "erinyes", PM_ERINYS },
+            /* falsely caught by -ves check above */
+            { "master of thief", PM_MASTER_OF_THIEVES },
+            /* end of list */
+            {0, 0}
         };
         const struct alt_spl *namep;
 
@@ -521,7 +522,7 @@ gender(struct monst *mtmp)
 int
 pronoun_gender(struct monst *mtmp)
 {
-    if (is_neuter(mtmp->data) || !canspotmon(mtmp))
+    if (is_neuter(mtmp->data) || !canclassifymon(mtmp))
         return 2;
     return (humanoid(mtmp->data) || (mtmp->data->geno & G_UNIQ) ||
             type_is_pname(mtmp->data)) ? (int)mtmp->female : 2;
@@ -543,7 +544,7 @@ levl_follower(struct monst *mtmp)
     /* stalking types follow, but won't when fleeing unless you hold the Amulet 
      */
     return (boolean) ((mtmp->data->mflags2 & M2_STALK) &&
-                      (!mtmp->mflee || u.uhave.amulet));
+                      (!mtmp->mflee || Uhave_amulet));
 }
 
 static const short grownups[][2] = {
@@ -658,9 +659,8 @@ locomotion(const struct permonst *ptr, const char *def)
                ptr->msize <= MZ_SMALL) ? flys[capitalize] :
             (is_flyer(ptr) && ptr->msize > MZ_SMALL) ?
             flyl[capitalize] : slithy(ptr) ? slither[capitalize] :
-            amorphous(ptr) ? ooze[capitalize] : !ptr->
-            mmove ? immobile[capitalize] : nolimbs(ptr) ? crawl[capitalize] :
-            def);
+            amorphous(ptr) ? ooze[capitalize] : !ptr->mmove ?
+            immobile[capitalize] : nolimbs(ptr) ? crawl[capitalize] : def);
 
 }
 
@@ -674,9 +674,8 @@ stagger(const struct permonst *ptr, const char *def)
                ptr->msize <= MZ_SMALL) ? flys[capitalize] :
             (is_flyer(ptr) && ptr->msize > MZ_SMALL) ?
             flyl[capitalize] : slithy(ptr) ? slither[capitalize] :
-            amorphous(ptr) ? ooze[capitalize] : !ptr->
-            mmove ? immobile[capitalize] : nolimbs(ptr) ? crawl[capitalize] :
-            def);
+            amorphous(ptr) ? ooze[capitalize] : !ptr->mmove ?
+            immobile[capitalize] : nolimbs(ptr) ? crawl[capitalize] : def);
 
 }
 
@@ -718,5 +717,5 @@ on_fire(const struct permonst *mptr, const struct attack *mattk)
     return what;
 }
 
-
 /*mondata.c*/
+

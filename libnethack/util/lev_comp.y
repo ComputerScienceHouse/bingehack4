@@ -1,14 +1,15 @@
 %{
+/* Last modified by Sean Hunt, 2014-10-17 */
 /*	Copyright (c) 1989 by Jean-Christophe Collet */
 /* NetHack may be freely redistributed.  See license for details. */
+#include "hack.h"
+#include "sp_lev.h"
+#include "lev_compiler.h"
 
 /*
  * This file contains the Level Compiler code
  * It may handle special mazes & special room-levels
  */
-
-#include "hack.h"
-#include "sp_lev.h"
 
 #define MAX_REGISTERS	10
 #define ERR		(-1)
@@ -22,28 +23,6 @@
 	(type *) memset(malloc(sizeof(type)), 0, sizeof(type))
 #define NewTab(type, size)	malloc(sizeof(type *) * size)
 #define Free(ptr)		free(ptr)
-
-extern void yyerror(const char *);
-extern void yywarning(const char *);
-extern int yylex(void);
-int yyparse(void);
-
-extern int get_floor_type(char);
-extern int get_room_type(char *);
-extern int get_trap_type(char *);
-extern int get_monster_id(char *,char);
-extern int get_object_id(char *,char);
-extern boolean check_monster_char(char);
-extern boolean check_object_char(char);
-extern char what_map_char(char);
-extern void scan_map(char *);
-extern void wallify_map(void);
-extern boolean check_subrooms(void);
-extern void check_coord(int,int,const char *);
-extern void store_part(void);
-extern void store_room(void);
-extern boolean write_level_file(char *,splev *,specialmaze *);
-extern void free_rooms(splev *);
 
 static struct reg {
 	int x1, y1;
@@ -87,7 +66,7 @@ pool *tmppool[MAX_OF_TYPE];
 
 mazepart *tmppart[10];
 room *tmproom[MAXNROFROOMS*2];
-corridor *tmpcor[MAX_OF_TYPE];
+static corridor *tmpcor[MAX_OF_TYPE];
 
 static specialmaze maze;
 static splev special_lev;
@@ -109,9 +88,9 @@ unsigned int max_x_map, max_y_map;
 
 static xchar in_room;
 
-extern int fatal_error;
-extern int want_warnings;
-extern const char *fname;
+#ifdef __clang__
+# pragma clang diagnostic ignored "-Wmissing-variable-declarations"
+#endif
 
 %}
 
@@ -120,9 +99,9 @@ extern const char *fname;
 	int	i;
 	char*	map;
 	struct {
-		xchar room;
-		xchar wall;
-		xchar door;
+		signed char room;
+		signed char wall;
+		signed char door;
 	} corpos;
 }
 
@@ -1062,7 +1041,7 @@ drawbridge_detail: DRAWBRIDGE_ID ':' coordinate ',' DIRECTION ',' door_state
 			if (current_coord.x >= 0 && current_coord.y >= 0 &&
 			    !IS_WALL(tmpmap[y][x])) {
 			    char ebuf[60];
-			    sprintf(ebuf,
+			    snprintf(ebuf, SIZE(ebuf),
 				    "Wall needed for drawbridge (%02d, %02d)",
 				    current_coord.x, current_coord.y);
 			    yyerror(ebuf);
@@ -1268,11 +1247,11 @@ lev_region	: region
 		  {
 /* This series of if statements is a hack for MSC 5.1.  It seems that its
    tiny little brain cannot compile if these are all one big if statement. */
-			if ($3 <= 0 || $3 >= COLNO)
+			if ($3 < 0 || $3 >= COLNO)
 				yyerror("Region out of level range!");
 			else if ($5 < 0 || $5 >= ROWNO)
 				yyerror("Region out of level range!");
-			else if ($7 <= 0 || $7 >= COLNO)
+			else if ($7 < 0 || $7 >= COLNO)
 				yyerror("Region out of level range!");
 			else if ($9 < 0 || $9 >= ROWNO)
 				yyerror("Region out of level range!");
@@ -1282,6 +1261,12 @@ lev_region	: region
 			current_region.y2 = $9;
 			$$ = 1;
 		  }
+        | LEV '(' ')'
+          {
+            current_region.x1 = current_region.x2 = COLNO;
+            current_region.y1 = current_region.y2 = ROWNO;
+            $$ = 1;
+          }
 		;
 
 fountain_detail : FOUNTAIN_ID ':' coordinate
@@ -1389,7 +1374,7 @@ region_detail	: REGION_ID ':' region ',' light_state ',' room_type prefilled
 				    if(IS_ROCK(tmpmap[y][x]) ||
 				       IS_DOOR(tmpmap[y][x])) nrock++;
 			    if(nrock) {
-				sprintf(ebuf,
+				snprintf(ebuf, SIZE(ebuf),
 					"Rock in room (%02d,%02d,%02d,%02d)?!",
 					current_region.x1, current_region.y1,
 					current_region.x2, current_region.y2);
@@ -1400,7 +1385,7 @@ region_detail	: REGION_ID ':' region ',' light_state ',' room_type prefilled
 		!IS_ROCK(tmpmap[current_region.y2+1][current_region.x1-1]) ||
 		!IS_ROCK(tmpmap[current_region.y1-1][current_region.x2+1]) ||
 		!IS_ROCK(tmpmap[current_region.y2+1][current_region.x2+1])) {
-				sprintf(ebuf,
+				snprintf(ebuf, SIZE(ebuf),
 				"NonRock edge in room (%02d,%02d,%02d,%02d)?!",
 					current_region.x1, current_region.y1,
 					current_region.x2, current_region.y2);
@@ -1409,7 +1394,7 @@ region_detail	: REGION_ID ':' region ',' light_state ',' room_type prefilled
 			} else if(tmpreg[nreg]->rirreg &&
 		!IS_ROOM(tmpmap[current_region.y1][current_region.x1])) {
 			    char ebuf[60];
-			    sprintf(ebuf,
+			    snprintf(ebuf, SIZE(ebuf),
 				    "Rock in irregular room (%02d,%02d)?!",
 				    current_region.x1, current_region.y1);
 			    yyerror(ebuf);
@@ -1689,3 +1674,4 @@ region		: '(' INTEGER ',' INTEGER ',' INTEGER ',' INTEGER ')'
 %%
 
 /*lev_comp.y*/
+

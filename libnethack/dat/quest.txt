@@ -1,3 +1,4 @@
+# Last modified by Alex Smith, 2013-12-23
 #	Copyright (c) 1991 by M. Stephenson
 # NetHack may be freely redistributed.  See license for details.
 #
@@ -2562,7 +2563,7 @@ achieve the destiny which awaits you."
 "Ah, %p-sama.  You have wasted your efforts returning home.
 Now that you are in possession of the Amulet, you are honor-bound to
 finish the quest you have undertaken.  There will be plenty of time
-for saki and stories when you have finished.
+for sake and stories when you have finished.
 
 "Go now, and may our prayers be a wind at your back."
 %E
@@ -3476,8 +3477,8 @@ Go now!  You are banished from this place.
  %c:	return(pl_character);
  %r:	return((char *)rank_of(u.ulevel));
  %R:	return((char *)rank_of(MIN_QUEST_LEVEL));
- %s:	return((flags.female) ? "sister" : "brother" );
- %S:	return((flags.female) ? "daughter" : "son" );
+ %s:	return((u.ufemale) ? "sister" : "brother" );
+ %S:	return((u.ufemale) ? "daughter" : "son" );
  %l:	return((char *)ldrname());
  %i:	return(intermed());
  %o:	return(artiname());

@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-10-22 */
 /* Copyright (c) Daniel Thaler, 2011. */
 /* The NetHack server may be freely redistributed under the terms of either:
  *  - the NetHack license
@@ -6,42 +7,10 @@
  */
 
 #include "nhserver.h"
+#include "netconnect.h"
 
 #include <ctype.h>
-#include <netdb.h>
-
-
-/* convert a string into either an ipv4 or an ipv6 address */
-int
-parse_ip_addr(const char *str, struct sockaddr *out, int want_v4)
-{
-    const struct addrinfo gai_hints = {
-        .ai_flags = AI_PASSIVE | AI_NUMERICHOST,
-        .ai_family = want_v4 ? AF_INET : AF_INET6,
-        .ai_socktype = SOCK_STREAM,
-        .ai_protocol = 0,
-        .ai_addr = NULL,
-        .ai_canonname = NULL,
-        .ai_next = NULL
-    };
-    struct addrinfo *gai_res = NULL;
-
-    if (getaddrinfo(str, NULL, &gai_hints, &gai_res) != 0)
-        return FALSE;
-
-    struct addrinfo *next;
-
-    memcpy(out, gai_res->ai_addr, want_v4 ? sizeof (struct sockaddr_in) :
-                                            sizeof (struct sockaddr_in6));
-    do {
-        next = gai_res->ai_next;
-        free(gai_res);
-        gai_res = next;
-    } while (gai_res);
-
-    return TRUE;
-}
-
+#include <stddef.h>
 
 static char *
 trim(char *str)
@@ -61,11 +30,23 @@ trim(char *str)
     return str;
 }
 
+#define SETTINGS_MAP_ENTRY(x) {#x, offsetof(struct settings, x)}
+struct { const char *const name; size_t offset; } settings_map[] = {
+    SETTINGS_MAP_ENTRY(logfile),
+    SETTINGS_MAP_ENTRY(workdir),
+    SETTINGS_MAP_ENTRY(dbhost),
+    SETTINGS_MAP_ENTRY(pidfile),
+    SETTINGS_MAP_ENTRY(dbport),
+    SETTINGS_MAP_ENTRY(dbuser),
+    SETTINGS_MAP_ENTRY(dbpass),
+    SETTINGS_MAP_ENTRY(dbname)
+};
 
 static int
 parse_config_line(char *line)
 {
     char *val;
+    int i;
 
     /* remove the spaces around the string */
     line = trim(line);
@@ -92,99 +73,20 @@ parse_config_line(char *line)
     line = trim(line);
     val = trim(val);
 
-    /* 
-     * set the actual option
-     */
+    /* set the actual option */
 
-    if (!strcmp(line, "pidfile")) {
-        if (!settings.pidfile)
-            settings.pidfile = strdup(val);
-    }
+    for (i = 0; i < sizeof settings_map / sizeof *settings_map; i++) {
+        if (!strcmp(line, settings_map[i].name)) {
+            char **optptr = (char **)(settings_map[i].offset +
+                                      (char *)&settings);
+            if (!*optptr)
+                *optptr = strdup(val);
 
-    else if (!strcmp(line, "logfile")) {
-        if (!settings.logfile)
-            settings.logfile = strdup(val);
-    }
-
-    else if (!strcmp(line, "port")) {
-        if (!settings.port)
-            settings.port = atoi(val);
-        if (settings.port < 1 || settings.port > 65535) {
-            fprintf(stderr,
-                    "Error: Port %d is outside the range of valid port numbers [1-65535].\n",
-                    settings.port);
-            return FALSE;
+            return TRUE;
         }
     }
 
-    else if (!strcmp(line, "ipv6addr")) {
-        struct sockaddr_in6 tmp;
-
-        if (!parse_ip_addr(val, (struct sockaddr *)&tmp, FALSE)) {
-            fprintf(stderr, "Error: %s is not a valid ipv6 address.\n", val);
-            return FALSE;
-        }
-
-        if (!settings.bind_addr_6.sin6_family != AF_INET6)
-            settings.bind_addr_6 = tmp;
-    }
-
-    else if (!strcmp(line, "ipv4addr")) {
-        struct sockaddr_in tmp;
-
-        if (!parse_ip_addr(val, (struct sockaddr *)&tmp, TRUE)) {
-            fprintf(stderr, "Error: %s is not a valid ipv4 address.\n", val);
-            return FALSE;
-        }
-
-        if (!settings.bind_addr_4.sin_family != AF_INET)
-            settings.bind_addr_4 = tmp;
-    }
-
-    else if (!strcmp(line, "disable_family")) {
-        if (!settings.disable_ipv4 && !strcmp(val, "v4"))
-            settings.disable_ipv4 = TRUE;
-        else if (!settings.disable_ipv6 && !strcmp(val, "v6"))
-            settings.disable_ipv6 = TRUE;
-        else if (strcmp(val, "v4") && strcmp(val, "v6")) {
-            fprintf(stderr,
-                    "Error: the value for disable_family is either v4 or v6, not %s.\n",
-                    val);
-        }
-    }
-
-    else if (!strcmp(line, "unixsocket")) {
-        if (strlen(val) > SUN_PATH_MAX - 1) {
-            fprintf(stderr, "Error: The unix socket filename is too long.\n");
-            return FALSE;
-        }
-
-        if (settings.bind_addr_unix.sun_family == 0) {
-            settings.bind_addr_unix.sun_family = AF_UNIX;
-            strncpy(settings.bind_addr_unix.sun_path, val, SUN_PATH_MAX - 1);
-            settings.bind_addr_unix.sun_path[SUN_PATH_MAX - 1] = '\0';
-        }
-    }
-
-    else if (!strcmp(line, "nodaemon")) {
-        if (*val == '1' || !strcmp(val, "true"))
-            settings.nodaemon = TRUE;
-        else if (*val != '0' && strcmp(val, "false")) {
-            fprintf(stderr,
-                    "Error: nodaemon may only be set to \"0\", \"1\", "
-                    "\"true\" or \"false\".\n");
-            return FALSE;
-        }
-        /* this option does not need to be set to false explicitly: that is the 
-           default value */
-    }
-
-    else if (!strcmp(line, "workdir")) {
-        if (!settings.workdir)
-            settings.workdir = strdup(val);
-    }
-
-    else if (!strcmp(line, "client_timeout")) {
+    if (!strcmp(line, "client_timeout")) {
         if (!settings.client_timeout)
             settings.client_timeout = atoi(val);
 
@@ -196,36 +98,6 @@ parse_config_line(char *line)
             return FALSE;
         }
     }
-
-    else if (!strcmp(line, "dbhost")) {
-        if (!settings.dbhost)
-            settings.dbhost = strdup(val);
-    }
-
-    else if (!strcmp(line, "dbport")) {
-        if (!settings.dbport)
-            settings.dbport = strdup(val);
-    }
-
-    else if (!strcmp(line, "dbuser")) {
-        if (!settings.dbuser)
-            settings.dbuser = strdup(val);
-    }
-
-    else if (!strcmp(line, "dbpass")) {
-        if (!settings.dbpass)
-            settings.dbpass = strdup(val);
-    }
-
-    else if (!strcmp(line, "dbname")) {
-        if (!settings.dbname)
-            settings.dbname = strdup(val);
-    }
-
-    else if (!strcmp(line, "dboptions")) {
-        if (!settings.dboptions)
-            settings.dboptions = strdup(val);
-    }
     else
         /* it's a warning, no need to return FALSE */
         fprintf(stderr, "Warning: unrecognized option \"%s\".\n", line);
@@ -235,21 +107,25 @@ parse_config_line(char *line)
 
 
 int
-read_config(char *confname)
+read_config(const char *confname)
 {
     int fd, len, remain, ret;
-    char *filename = confname;
+    const char *filename = confname;
     char *data, *line, *newline;
 
+    const char *configdir = aimake_get_option("configdir");
+    char default_filename[strlen(configdir) + strlen("/nethack4.conf") + 1];
+    strcpy(default_filename, configdir);
+    strcat(default_filename, "/nethack4.conf");
+
     if (!filename)
-        filename = DEFAULT_CONFIG_FILE;
+        filename = default_filename;
 
     fd = open(filename, O_RDONLY);
     if (fd == -1) {
         if (!confname) {
-            fprintf(stderr,
-                    "Warning: Could not open %s. %s. Default settings will be used.\n",
-                    filename, strerror(errno));
+            fprintf(stderr, "Warning: Could not open %s. %s. Default settings "
+                    "will be used.\n", filename, strerror(errno));
             return TRUE;        /* nonexistent default config need not be an
                                    error */
         }
@@ -289,12 +165,22 @@ read_config(char *confname)
     /* check for trailing junk */
     line = trim(line);
     if (strlen(line))
-        fprintf(stderr,
-                "Warning: trailing junk (\"%s\") after last config line ignored.\n",
-                line);
+        fprintf(stderr, "Warning: trailing junk (\"%s\") after last config "
+                "line ignored.\n", line);
 
     free(data);
     return TRUE;
+}
+
+
+static char *
+construct_server_filename(const char *option, const char *name)
+{
+    const char *dir = aimake_get_option(option);
+    char *rv = malloc(strlen(dir) + strlen(name) + 1);
+    strcpy(rv, dir);
+    strcat(rv, name);
+    return rv;
 }
 
 
@@ -302,22 +188,16 @@ void
 setup_defaults(void)
 {
     if (!settings.logfile)
-        settings.logfile = strdup(DEFAULT_LOG_FILE);
+        settings.logfile =
+            construct_server_filename("logdir", "/nethack4.log");
 
     if (!settings.pidfile)
-        settings.pidfile = strdup(DEFAULT_PID_FILE);
+        settings.pidfile =
+            construct_server_filename("lockdir", "/nethack4.pid");
 
     if (!settings.workdir)
-        settings.workdir = strdup(DEFAULT_WORK_DIR);
-
-    if (!settings.port)
-        settings.port = DEFAULT_PORT;
-
-    if (!settings.bind_addr_4.sin_family)
-        settings.bind_addr_4.sin_family = AF_INET;
-
-    if (!settings.bind_addr_6.sin6_family)
-        settings.bind_addr_6.sin6_family = AF_INET6;
+        settings.workdir =
+            construct_server_filename("gamesstatedir", "");
 
     if (!settings.client_timeout)
         settings.client_timeout = DEFAULT_CLIENT_TIMEOUT;
@@ -327,24 +207,11 @@ setup_defaults(void)
 void
 free_config(void)
 {
-    if (settings.logfile)
-        free(settings.logfile);
-    if (settings.pidfile)
-        free(settings.pidfile);
-    if (settings.workdir)
-        free(settings.workdir);
-    if (settings.dbhost)
-        free(settings.dbhost);
-    if (settings.dbport)
-        free(settings.dbport);
-    if (settings.dbname)
-        free(settings.dbname);
-    if (settings.dbuser)
-        free(settings.dbuser);
-    if (settings.dbpass)
-        free(settings.dbpass);
-    if (settings.dboptions)
-        free(settings.dboptions);
+    int i;
+
+    for (i = 0; i < sizeof settings_map / sizeof *settings_map; i++)
+        free(*(char **)(settings_map[i].offset + (char *)&settings));
+
     memset(&settings, 0, sizeof (settings));
 }
 

@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) Daniel Thaler, 2011. */
 /* The NetHack server may be freely redistributed under the terms of either:
  *  - the NetHack license
@@ -6,16 +7,13 @@
  */
 
 #include "nhserver.h"
+#include "common_options.h"
 #include <time.h>
 
 static void ccmd_shutdown(json_t * ignored);
-static void ccmd_start_game(json_t * params);
-static void ccmd_restore_game(json_t * params);
+static void ccmd_create_game(json_t * params);
+static void ccmd_play_game(json_t * params);
 static void ccmd_exit_game(json_t * params);
-static void ccmd_game_command(json_t * params);
-static void ccmd_view_start(json_t * params);
-static void ccmd_view_step(json_t * params);
-static void ccmd_view_finish(json_t * params);
 static void ccmd_list_games(json_t * params);
 static void ccmd_get_drawing_info(json_t * params);
 static void ccmd_get_roles(json_t * params);
@@ -33,13 +31,9 @@ static void ccmd_set_password(json_t * params);
 const struct client_command clientcmd[] = {
     {"shutdown", ccmd_shutdown, 0},
 
-    {"start_game", ccmd_start_game, 0},
-    {"restore_game", ccmd_restore_game, 0},
-    {"exit_game", ccmd_exit_game, 0},
-    {"game_command", ccmd_game_command, 0},
-    {"view_start", ccmd_view_start, 0},
-    {"view_step", ccmd_view_step, 0},
-    {"view_finish", ccmd_view_finish, 0},
+    {"create_game", ccmd_create_game, 0},
+    {"play_game", ccmd_play_game, 0},
+    {"exit_game", ccmd_exit_game, 1},
     {"list_games", ccmd_list_games, 0},
 
     {"get_drawing_info", ccmd_get_drawing_info, 1},
@@ -49,7 +43,7 @@ const struct client_command clientcmd[] = {
     {"get_obj_commands", ccmd_get_obj_commands, 1},
     {"describe_pos", ccmd_describe_pos, 1},
 
-    {"set_option", ccmd_set_option, 0},
+    {"set_option", ccmd_set_option, 1},
     {"get_options", ccmd_get_options, 1},
 
     {"get_pl_prompt", ccmd_get_pl_prompt, 0},
@@ -74,95 +68,285 @@ ccmd_shutdown(json_t * ignored)
     client_msg("shutdown", jmsg);
 }
 
-/* start_game: Start a new game
+
+/* duplicated in clientapi.c */
+static struct nh_listitem *
+read_json_list(json_t * jarr)
+{
+    struct nh_listitem *list;
+    json_t *jobj;
+    int size, i;
+    const char *txt;
+
+    size = json_array_size(jarr);
+    list = malloc(size * sizeof (struct nh_listitem));
+
+    for (i = 0; i < size; i++) {
+        jobj = json_array_get(jarr, i);
+        if (json_unpack(jobj, "{si,ss!}", "id", &list[i].id, "txt", &txt) == -1)
+            continue;
+        list[i].caption = strdup(txt);
+    }
+
+    return list;
+}
+
+
+/* duplicated in clientapi.c */
+static void
+read_json_option(json_t * jobj, struct nh_option_desc *opt)
+{
+    json_t *joptval, *joptdesc, *jelem;
+    const char *name, *helptxt, *strval;
+    int size, i;
+    struct nh_autopickup_rule *r;
+
+    name = NULL;
+
+    memset(opt, 0, sizeof (struct nh_option_desc));
+    if (json_unpack
+        (jobj, "{ss,ss,si,so,so,si!}", "name", &name, "helptxt", &helptxt,
+         "type", &opt->type, "value", &joptval, "desc", &joptdesc,
+         "birth", &opt->birth_option) == -1) {
+        memset(opt, 0, sizeof (struct nh_option_desc));
+        log_msg("broken option specification for option %s",
+                name ? name : "unknown");
+        return;
+    }
+    opt->name = strdup(name);
+    opt->helptxt = strdup(helptxt);
+
+    switch (opt->type) {
+    case OPTTYPE_BOOL:
+        opt->value.b = json_integer_value(joptval);
+        break;
+
+    case OPTTYPE_INT:
+        opt->value.i = json_integer_value(joptval);
+        json_unpack(joptdesc, "{si,si!}", "max", &opt->i.max, "min",
+                    &opt->i.min);
+        break;
+
+    case OPTTYPE_ENUM:
+        opt->value.e = json_integer_value(joptval);
+
+        size = json_array_size(joptdesc);
+        opt->e.numchoices = size;
+        opt->e.choices = read_json_list(joptdesc);
+        break;
+
+    case OPTTYPE_STRING:
+        opt->value.s = strdup(json_string_value(joptval));
+        opt->s.maxlen = json_integer_value(joptdesc);
+        break;
+
+    case OPTTYPE_AUTOPICKUP_RULES:
+        size = json_array_size(joptdesc);
+        opt->a.numclasses = size;
+        opt->a.classes = read_json_list(joptdesc);
+
+        size = json_array_size(joptval);
+        if (!size)
+            break;
+        opt->value.ar = malloc(sizeof (struct nh_autopickup_rules));
+        opt->value.ar->num_rules = size;
+        opt->value.ar->rules =
+            malloc(size * sizeof (struct nh_autopickup_rule));
+        for (i = 0; i < size; i++) {
+            r = &opt->value.ar->rules[i];
+            jelem = json_array_get(joptval, i);
+            json_unpack(jelem, "{ss,si,si,si!}", "pattern", &strval, "oclass",
+                        &r->oclass, "buc", &r->buc, "action", &r->action);
+            memset(r->pattern, 0, sizeof (r->pattern));
+            strncpy(r->pattern, strval, sizeof (r->pattern) - 1);
+            r->pattern[sizeof (r->pattern) - 1] = 0;
+        }
+
+        break;
+    }
+}
+
+
+/*
+ * create_game: Start a new game
  * parameters: name, role, race, gend, align, playmode
  */
 static void
-ccmd_start_game(json_t * params)
+ccmd_create_game(json_t * params)
 {
     char filename[1024], basename[1024], path[1024];
-    json_t *j_msg;
-    const char *name;
-    int role, race, gend, align, mode, fd, ret;
+    json_t *j_msg, *jarr, *jobj;
+    int fd, ret, count, i, debug = 0;
     long t;
 
-    if (json_unpack
-        (params, "{ss,si,si,si,si,si*}", "name", &name, "role", &role, "race",
-         &race, "gender", &gend, "alignment", &align, "mode", &mode) == -1)
-        exit_client("Bad set of parameters for start_game");
+    if (json_unpack (params, "{so!}", "options", &jarr) == -1 ||
+        !json_is_array(jarr))
+        exit_client("Bad set of parameters for create_game", 0);
 
     /* reset cached display data from a previous game */
-    reset_cached_diplaydata();
+    reset_cached_displaydata();
 
-    if (mode == MODE_WIZARD && !user_info.can_debug)
-        mode = MODE_EXPLORE;
+    struct nh_option_desc *opts;
+    count = json_array_size(jarr);
+    opts = calloc(sizeof (struct nh_option_desc), (count + 1));
+    for (i = 0; i < count; i++) {
+        jobj = json_array_get(jarr, i);
+        read_json_option(jobj, &opts[i]);
+    }
+    opts[i].name = 0;
+
+    struct nh_option_desc *modeopt = nhlib_find_option(opts, "mode");
+    struct nh_option_desc *nameopt = nhlib_find_option(opts, "name");
+    if (modeopt && modeopt->value.e == MODE_WIZARD) {
+        if (user_info.can_debug)
+            debug = 1;
+        else
+            modeopt->value.e = MODE_EXPLORE;
+    } else if (!nameopt && (!modeopt || modeopt->value.e != MODE_EXPLORE))
+        exit_client("No character name provided", 0);
+
+    const char *name = nameopt ? nameopt->value.s :
+        debug ? "wizard" : "explorer";
+
+    if (strspn(name, "abcdefghijklmnopqrstuvwxyz"
+               "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != strlen(name))
+        exit_client("Character name contains unwanted characters", 0);
 
     t = (long)time(NULL);
     snprintf(path, 1024, "%s/save/%s/", settings.workdir, user_info.username);
     snprintf(basename, 1024, "%ld_%s.nhgame", t, name);
+    basename[1000] = '\0';
     snprintf(filename, 1024, "%s%s", path, basename);
 
     mkdir(path, 0755);  /* should already exist unless something went wrong
                            while upgrading */
     fd = open(filename, O_EXCL | O_CREAT | O_RDWR, 0600);
-    if (fd == -1)
-        exit_client("Could not create the logfile");
+    if (fd == -1) {
+        log_msg("%s tried to create a new game (%d) as %s, but the file could "
+                "not be opened", user_info.username, gameid, name);
+        exit_client("Could not create the logfile", SIGABRT);
+    }
 
-    ret = nh_start_game(fd, name, role, race, gend, align, mode);
-    if (ret) {
+    ret = nh_create_game(fd, opts);
+    close(fd);
+
+    if (ret == NHCREATE_OK) {
+
+        struct nh_option_desc
+            *roleopt = nhlib_find_option(opts, "role"),
+            *raceopt = nhlib_find_option(opts, "race"),
+            *alignopt = nhlib_find_option(opts, "align"),
+            *gendopt = nhlib_find_option(opts, "gender"),
+            *modeopt = nhlib_find_option(opts, "mode");
         struct nh_roles_info *ri = nh_get_roles();
+
+        int role = roleopt->value.e;
+        int race = raceopt->value.e;
+        int gend = gendopt->value.e;
+        int align = alignopt->value.e;
+        int mode = modeopt->value.e;
+
         const char *rolename = (gend &&
-                                ri->rolenames_f[role]) ? ri->
-            rolenames_f[role] : ri->rolenames_m[role];
-        gamefd = fd;
+                                ri->rolenames_f[role]) ?
+            ri->rolenames_f[role] : ri->rolenames_m[role];
         gameid =
             db_add_new_game(user_info.uid, basename, rolename,
                             ri->racenames[race], ri->gendnames[gend],
                             ri->alignnames[align], mode, name,
                             player_info.level_desc);
-        log_msg("%s has started a new game (%d) as %s", user_info.username,
+        log_msg("%s has created a new game (%d) as %s", user_info.username,
                 gameid, name);
-        j_msg = json_pack("{si,si}", "return", ret, "gameid", gameid);
+        j_msg = json_pack("{si}", "return", gameid);
     } else {
-        close(fd);
         unlink(filename);
-        j_msg = json_pack("{si,si}", "return", ret, "gameid", -1);
+        log_msg("%s tried to create a new game (%d) as %s, but the creation %s",
+                user_info.username, gameid, name, ret == NHCREATE_FAIL ?
+                "failed" : ret == NHCREATE_INVALID ? "had incorrect options" :
+                "did not happen for an unknown reason");
+        j_msg = json_pack("{si}", "return", ret);
     }
 
-    client_msg("start_game", j_msg);
+    nhlib_free_optlist(opts);
+
+    client_msg("create_game", j_msg);
 }
 
 
+static const char *const play_status_names[] = {
+    [GAME_DETACHED] = "game detached",
+    [GAME_OVER] = "game ended",
+    [GAME_ALREADY_OVER] = "watched/replayed game ended",
+    [REPLAY_FINISHED] = "reached end of replay",
+    [RESTART_PLAY] = "connection was disrupted and needs reconnecting",
+    [CLIENT_RESTART] = "client is reloading the game",
+    [ERR_BAD_ARGS] = "game ID did not exist",
+    [ERR_BAD_FILE] = "file on disk was unreadable",
+    [ERR_IN_PROGRESS] = "locking issues",
+    [ERR_RESTORE_FAILED] = "manual recovery required",
+    [ERR_RECOVER_REFUSED] = "automatic recovery refused",
+};
 static void
-ccmd_restore_game(json_t * params)
+ccmd_play_game(json_t * params)
 {
-    int gid, fd, status;
-    char filename[1024], basename[1024];
+    int gid, fd, status, followmode;
+    char filename[1024];
+    enum getgame_result ggr;
+    struct nh_game_info unused;
+    enum nh_log_status logstatus;
 
-    if (json_unpack(params, "{si*}", "gameid", &gid) == -1)
-        exit_client("Bad set of parameters for restore_game");
+    if (json_unpack(params, "{si,si*}", "gameid", &gid,
+                    "followmode", &followmode) == -1 ||
+        (followmode != FM_PLAY && followmode != FM_REPLAY &&
+         followmode != FM_WATCH))
+        exit_client("Bad set of parameters for play_game", 0);
 
-    if (!db_get_game_filename(user_info.uid, gid, basename, 1024)) {
-        client_msg("restore_game", json_pack("{si}", "return", ERR_BAD_FILE));
+    /* TODO: For followmode == FM_PLAY, there's no check that that's actually
+       a legal thing to do! We don't want players playing each other's games. */
+
+    ggr = db_get_game_filename(gid, filename, 1024); 
+    if (ggr == GGR_NOT_FOUND) {
+        log_msg("User '%s' tried to load game %d not in the database",
+                user_info.username, gid);
+        client_msg("play_game", json_pack("{si}", "return", ERR_BAD_FILE));
         return;
     }
 
-    snprintf(filename, 1024, "%s/save/%s/%s", settings.workdir,
-             user_info.username, basename);
     fd = open(filename, O_RDWR);
     if (fd == -1) {
-        client_msg("restore_game", json_pack("{si}", "return", ERR_BAD_FILE));
+        log_msg("User '%s' tried to load unreadable file '%s'");
+        client_msg("play_game", json_pack("{si}", "return", ERR_BAD_FILE));
         return;
     }
 
-    /* reset cached display data from a previous game */
-    reset_cached_diplaydata();
+    /* Special case: if the game is incomplete according to db_get_game_filename
+       but complete according to the game engine, go into recoverquit mode. */
+    logstatus = nh_get_savegame_status(fd, &unused);
+    if (logstatus == LS_DONE && ggr == GGR_INCOMPLETE)
+        followmode = FM_RECOVERQUIT;
 
-    status = nh_restore_game(fd, NULL, FALSE);
-    if (status == ERR_REPLAY_FAILED) {
+    /* reset cached display data from a previous game */
+    reset_cached_displaydata();
+
+    const char *verb = followmode == FM_PLAY ? "play" :
+        followmode == FM_REPLAY ? "replay" :
+        followmode == FM_WATCH ? "watch" :
+        followmode == FM_RECOVERQUIT ? "recoverquit" : "?";
+
+    log_msg("User '%s' started to %s game %d, file %s",
+            user_info.username, verb, gid, filename);
+    gameid = gid;
+    gamefd = fd;
+    status = nh_play_game(fd, followmode);
+    gameid = -1;
+    gamefd = -1;
+    log_msg("User '%s' stopped %sing game %d, file %s: %s",
+            user_info.username, verb, gid, filename, play_status_names[status]);
+
+    if (status == ERR_RESTORE_FAILED) {
         log_msg("Failed to restore saved game %d, file %s", gid, filename);
         if (srv_yn_function
-            ("Restoring the game failed. Would you like to remove it from the list?",
+            ("Restoring the game failed. Would you like to remove it from the "
+             "list?",
              "yn", 'n') == 'y') {
             db_delete_game(user_info.uid, gid);
             log_msg("%s has chosen to remove game %d from the database",
@@ -170,14 +354,30 @@ ccmd_restore_game(json_t * params)
         }
     }
 
-    client_msg("restore_game", json_pack("{si}", "return", status));
+    client_msg("play_game", json_pack("{si}", "return", status));
 
-    if (status == GAME_RESTORED) {
-        gameid = gid;
-        gamefd = fd;
-        db_update_game(gameid, player_info.moves, player_info.z,
-                       player_info.level_desc);
-        log_msg("%s has restored game %d", user_info.username, gameid);
+    db_update_game(gid, player_info.moves, player_info.z,
+                   player_info.level_desc);
+
+    /* move the finished game to its final resting place */
+    if (status == GAME_OVER) {
+        char filename[1024], final_name[1024];
+        int len;
+        char buf[BUFSZ];
+
+        /* get the topten entry for the current game */
+        struct nh_topten_entry *tte = nh_get_topten(&len, buf, NULL, 0, 0, 0);
+
+        if (!db_get_game_filename(gid, filename, 1024))
+            return;
+
+        db_add_topten_entry(gid, tte->points, tte->hp, tte->maxhp, tte->deaths,
+                            tte->end_how, tte->death, tte->entrytxt);
+
+        if (!db_get_game_filename(gid, final_name, 1024))
+            return;
+
+        rename(filename, final_name);
     }
 }
 
@@ -188,190 +388,25 @@ ccmd_exit_game(json_t * params)
     int etype, status;
 
     if (json_unpack(params, "{si*}", "exit_type", &etype) == -1)
-        exit_client("Bad set of parameters for exit_game");
+        exit_client("Bad set of parameters for exit_game", 0);
 
     status = nh_exit_game(etype);
     if (status) {
         db_update_game(gameid, player_info.moves, player_info.z,
                        player_info.level_desc);
         log_msg("%s has closed game %d", user_info.username, gameid);
-        gameid = 0;
+        gameid = -1;
         close(gamefd);
         gamefd = -1;
     }
 
-    client_msg("exit_game", json_pack("{si}", "return", status));
-}
-
-
-static void
-ccmd_game_command(json_t * params)
-{
-    json_t *jarg;
-    int count, result, gid;
-    const char *cmd;
-    struct nh_cmd_arg arg;
-
-    if (json_unpack
-        (params, "{ss,so,si*}", "command", &cmd, "arg", &jarg, "count",
-         &count) == -1)
-        exit_client("Bad set of parameters for game_command");
-
-    if (json_unpack(jarg, "{si*}", "argtype", &arg.argtype) == -1)
-        exit_client("Bad parameter arg in game_command");
-
-    switch (arg.argtype) {
-    case CMD_ARG_DIR:
-        if (json_unpack(jarg, "{si*}", "d", &arg.d) == -1)
-            exit_client("Bad direction arg in game_command");
-        break;
-
-    case CMD_ARG_POS:
-        if (json_unpack(jarg, "{si,si*}", "x", &arg.pos.x, "y", &arg.pos.y) ==
-            -1)
-            exit_client("Bad position arg in game_command");
-        break;
-
-    case CMD_ARG_OBJ:
-        if (json_unpack(jarg, "{si*}", "invlet", &arg.invlet) == -1)
-            exit_client("Bad invlet arg in game_command");
-        break;
-
-    case CMD_ARG_NONE:
-    default:
-        break;
-    }
-
-    if (cmd[0] == '\0')
-        cmd = NULL;
-
-    result = nh_command(cmd, count, &arg);
-
-    gid = gameid;
-    if (result >= GAME_OVER) {
-        close(gamefd);
-        log_msg("Game %d (by %s) closed: game %s.", gameid, user_info.username,
-                result == GAME_SAVED ? "saved" : "ended");
-        gamefd = -1;
-        gameid = 0;
-    }
-
-    client_msg("game_command", json_pack("{si}", "return", result));
-    db_update_game(gameid, player_info.moves, player_info.z,
-                   player_info.level_desc);
-
-    /* move the finished game to its final resting place */
-    if (result == GAME_OVER) {
-        char basename[1024], filename[1024], final_name[1024];
-        int len;
-        char buf[BUFSZ];
-
-        /* get the topten entry for the current game */
-        struct nh_topten_entry *tte = nh_get_topten(&len, buf, NULL, 0, 0, 0);
-
-        if (!db_get_game_filename(user_info.uid, gid, basename, 1024))
-            return;
-
-        snprintf(filename, 1024, "%s/save/%s/%s", settings.workdir,
-                 user_info.username, basename);
-        snprintf(final_name, 1024, "%s/completed/%s", settings.workdir,
-                 basename);
-        rename(filename, final_name);
-        db_add_topten_entry(gid, tte->points, tte->hp, tte->maxhp, tte->deaths,
-                            tte->end_how, tte->death, tte->entrytxt);
-    }
-}
-
-
-static void
-ccmd_view_start(json_t * params)
-{
-    int ret, gid, fd;
-    struct nh_replay_info info;
-    char basename[1024], filename[1024];
-    json_t *jmsg;
-
-    if (json_unpack(params, "{si*}", "gameid", &gid) == -1)
-        exit_client("Bad set of parameters for view_start");
-
-    if (!db_get_game_filename(0, gid, basename, 1024)) {
-        log_msg("Client requested nonexistent game %d for viewing", gid);
-        jmsg = json_pack("{si}", "return", FALSE);
-        client_msg("view_start", jmsg);
-        return;
-    }
-
-    snprintf(filename, 1024, "%s/save/%s/%s", settings.workdir,
-             user_info.username, basename);
-    fd = open(filename, O_RDWR);
-    if (fd == -1) {
-        snprintf(filename, 1024, "%s/completed/%s", settings.workdir, basename);
-        fd = open(filename, O_RDWR);
-    }
-    if (fd == -1) {
-        log_msg("failed to open game %d (file %s) for viewing", gid, basename);
-        jmsg = json_pack("{si}", "return", FALSE);
-        client_msg("view_start", jmsg);
-        return;
-    }
-
-    ret = nh_view_replay_start(fd, &server_alt_windowprocs, &info);
-
-    jmsg =
-        json_pack("{si,s:{ss,si,si,si,si}}", "return", ret, "info", "nextcmd",
-                  info.nextcmd, "actions", info.actions, "max_actions",
-                  info.max_actions, "moves", info.moves, "max_moves",
-                  info.max_moves);
-    client_msg("view_start", jmsg);
-}
-
-
-static void
-ccmd_view_step(json_t * params)
-{
-    enum replay_control action;
-    int count, ret;
-    struct nh_replay_info info;
-    json_t *jmsg;
-
-    if (json_unpack
-        (params, "{si,si,s:{si,si,si,si*}*}", "action", &action, "count",
-         &count, "info", "actions", &info.actions, "max_actions",
-         &info.max_actions, "moves", &info.moves, "max_moves",
-         &info.max_moves) == -1)
-        exit_client("Bad set of parameters for view_step");
-
-    info.nextcmd[0] = '\0';
-    ret = nh_view_replay_step(&info, action, count);
-
-    jmsg =
-        json_pack("{si,s:{ss,si,si,si,si}}", "return", ret, "info", "nextcmd",
-                  info.nextcmd, "actions", info.actions, "max_actions",
-                  info.max_actions, "moves", info.moves, "max_moves",
-                  info.max_moves);
-    client_msg("view_step", jmsg);
-}
-
-
-static void
-ccmd_view_finish(json_t * params)
-{
-    void *iter;
-
-    iter = json_object_iter(params);
-    if (iter)
-        exit_client("non-empty parameter list for view_finish");
-
-    nh_view_replay_finish();
-
-    client_msg("view_finish", json_object());
+    client_msg("exit_game", json_pack("{sb}", "return", status));
 }
 
 
 static void
 ccmd_list_games(json_t * params)
 {
-    char filename[1024];
     int completed, limit, show_all, count, i, fd;
     struct gamefile_info *files;
     enum nh_log_status status;
@@ -379,25 +414,23 @@ ccmd_list_games(json_t * params)
     json_t *jarr, *jobj;
 
     if (json_unpack
-        (params, "{si,si*}", "completed", &completed, "limit", &limit) == -1)
-        exit_client("Bad parameters for list_games");
-    if (json_unpack(params, "{si*}", "show_all", &show_all) == -1)
+        (params, "{sb,si*}", "completed", &completed, "limit", &limit) == -1)
+        exit_client("Bad parameters for list_games", 0);
+    if (json_unpack(params, "{sb*}", "show_all", &show_all) == -1)
         show_all = 0;
+
+    if (limit > 100)
+        limit = 100; /* try to prevent DOS to some extent */
 
     /* step 1: get a list of files from the db. */
     files =
-        db_list_games(completed, show_all ? 0 : user_info.uid, limit, &count);
+        db_list_games(completed, show_all ? -user_info.uid : user_info.uid,
+                      limit, &count);
 
     jarr = json_array();
     /* step 2: get extra info for each file. */
     for (i = 0; i < count; i++) {
-        if (completed)
-            snprintf(filename, 1024, "%s/completed/%s", settings.workdir,
-                     files[i].filename);
-        else
-            snprintf(filename, 1024, "%s/save/%s/%s", settings.workdir,
-                     user_info.username, files[i].filename);
-        fd = open(filename, O_RDWR);
+        fd = open(files[i].filename, O_RDWR);
         if (fd == -1) {
             log_msg("Game file %s could not be opened in ccmd_list_games.",
                     files[i].filename);
@@ -405,25 +438,12 @@ ccmd_list_games(json_t * params)
         }
 
         status = nh_get_savegame_status(fd, &gi);
-        jobj =
-            json_pack("{si,si,si,ss,ss,ss,ss,ss}", "gameid", files[i].gid,
-                      "status", status, "playmode", gi.playmode, "plname",
-                      gi.name, "plrole", gi.plrole, "plrace", gi.plrace,
-                      "plgend", gi.plgend, "plalign", gi.plalign);
-        if (status == LS_SAVED) {
-            json_object_set_new(jobj, "level_desc", json_string(gi.level_desc));
-            json_object_set_new(jobj, "moves", json_integer(gi.moves));
-            json_object_set_new(jobj, "depth", json_integer(gi.depth));
-            json_object_set_new(jobj, "has_amulet",
-                                json_integer(gi.has_amulet));
-        } else if (status == LS_DONE) {
-            json_object_set_new(jobj, "death", json_string(gi.death));
-            json_object_set_new(jobj, "moves", json_integer(gi.moves));
-            json_object_set_new(jobj, "depth", json_integer(gi.depth));
-        }
+        jobj = json_pack(
+            "{si,si,si,ss,ss,ss,ss,ss,ss}", "gameid", files[i].gid, "status",
+            status, "playmode", gi.playmode, "plname", gi.name, "plrole",
+            gi.plrole, "plrace", gi.plrace, "plgend", gi.plgend, "plalign",
+            gi.plalign, "game_state", gi.game_state);
         json_array_append_new(jarr, jobj);
-
-        free((void *)files[i].username);
         free((void *)files[i].filename);
 
         close(fd);
@@ -435,7 +455,7 @@ ccmd_list_games(json_t * params)
 
 
 static json_t *
-json_symarray(struct nh_symdef *array, int len)
+json_symarray(const struct nh_symdef *array, int len)
 {
     int i;
     json_t *jarr, *jobj;
@@ -459,7 +479,7 @@ ccmd_get_drawing_info(json_t * params)
 
     iter = json_object_iter(params);
     if (iter)
-        exit_client("non-empty parameter list for get_drawing_info");
+        exit_client("non-empty parameter list for get_drawing_info", 0);
 
     di = nh_get_drawing_info();
     jobj =
@@ -507,15 +527,13 @@ ccmd_get_roles(json_t * params)
 
     iter = json_object_iter(params);
     if (iter)
-        exit_client("non-empty parameter list for get_roles");
+        exit_client("non-empty parameter list for get_roles", 0);
 
     ri = nh_get_roles();
     jmsg =
-        json_pack("{si,si,si,si,si,si,si,si}", "num_roles", ri->num_roles,
+        json_pack("{si,si,si,si}", "num_roles", ri->num_roles,
                   "num_races", ri->num_races, "num_genders", ri->num_genders,
-                  "num_aligns", ri->num_aligns, "def_role", ri->def_role,
-                  "def_race", ri->def_race, "def_gend", ri->def_gend,
-                  "def_align", ri->def_align);
+                  "num_aligns", ri->num_aligns);
 
     /* rolenames_m */
     jarr = json_array();
@@ -584,7 +602,7 @@ ccmd_get_topten(json_t * params)
     if (json_unpack
         (params, "{ss,si,si,si*}", "player", &player, "top", &top, "around",
          &around, "own", &own) == -1)
-        exit_client("Bad parameters for get_topten");
+        exit_client("Bad parameters for get_topten", 0);
 
     if (player && !player[0])
         player = NULL;
@@ -624,7 +642,7 @@ ccmd_get_commands(json_t * params)
 
     iter = json_object_iter(params);
     if (iter)
-        exit_client("non-empty parameter list for get_commands");
+        exit_client("non-empty parameter list for get_commands", 0);
 
     cmdlist = nh_get_commands(&cmdcount);
 
@@ -648,7 +666,7 @@ ccmd_get_obj_commands(json_t * params)
     struct nh_cmd_desc *cmdlist;
 
     if (json_unpack(params, "{si*}", "invlet", &invlet) == -1)
-        exit_client("Bad parameters for get_obj_commands");
+        exit_client("Bad parameters for get_obj_commands", 0);
     cmdlist = nh_get_object_commands(&cmdcount, invlet);
 
     jarr = json_array();
@@ -672,35 +690,20 @@ ccmd_describe_pos(json_t * params)
 
     if (json_unpack(params, "{si,si,si*}", "x", &x, "y", &y, "is_in", &is_in) ==
         -1)
-        exit_client("Bad parameters for describe_pos");
+        exit_client("Bad parameters for describe_pos", 0);
 
     nh_describe_pos(x, y, &db, is_in ? &is_in : NULL);
     jmsg =
-        json_pack("{ss,ss,ss,ss,ss,ss,si,si}", "bgdesc", db.bgdesc, "trapdesc",
-                  db.trapdesc, "objdesc", db.objdesc, "mondesc", db.mondesc,
-                  "invisdesc", db.invisdesc, "effectdesc", db.effectdesc,
-                  "objcount", db.objcount, "in", is_in);
+        json_pack("{ss,ss,ss,ss,ss,ss,si,sb,sb}", "bgdesc", db.bgdesc,
+                  "trapdesc", db.trapdesc, "objdesc", db.objdesc, "mondesc",
+                  db.mondesc, "invisdesc", db.invisdesc, "effectdesc",
+                  db.effectdesc, "objcount", db.objcount, "in", is_in,
+                  "feature_described", db.feature_described);
     client_msg("describe_pos", jmsg);
 }
 
 
-static const struct nh_option_desc *
-find_option(const char *optname, const struct nh_option_desc *list1,
-            const struct nh_option_desc *list2)
-{
-    int i;
-    const struct nh_option_desc *option = NULL;
-
-    for (i = 0; list1[i].name && !option; i++)
-        if (!strcmp(optname, list1[i].name))
-            option = &list1[i];
-    for (i = 0; list2[i].name && !option; i++)
-        if (!strcmp(optname, list2[i].name))
-            option = &list2[i];
-    return option;
-}
-
-
+/* duplicated in clientapi.c */
 static json_t *
 json_list(const struct nh_listitem *list, int len)
 {
@@ -715,11 +718,13 @@ json_list(const struct nh_listitem *list, int len)
 }
 
 
+/* duplicated in clientapi.c */
 static json_t *
 json_option(const struct nh_option_desc *option)
 {
     int i;
     json_t *jopt, *joptval, *joptdesc, *jobj;
+    json_error_t jerr;
     struct nh_autopickup_rule *r;
 
     switch (option->type) {
@@ -741,9 +746,11 @@ json_option(const struct nh_option_desc *option)
 
     case OPTTYPE_STRING:
         joptval = json_string(option->value.s);
+        if (!joptval)
+            joptval = json_string("");
         joptdesc = json_integer(option->s.maxlen);
         break;
-
+        
     case OPTTYPE_AUTOPICKUP_RULES:
         joptdesc = json_list(option->a.classes, option->a.numclasses);
         joptval = json_array();
@@ -763,9 +770,16 @@ json_option(const struct nh_option_desc *option)
     }
 
     jopt =
-        json_pack("{ss,ss,si,so,so}", "name", option->name, "helptxt",
-                  option->helptxt, "type", option->type, "value", joptval,
-                  "desc", joptdesc);
+        json_pack_ex(&jerr, 0, "{ss,ss,si,so,so,si}", "name", option->name,
+                     "helptxt", option->helptxt, "type", option->type,
+                     "value", joptval, "desc", joptdesc,
+                     "birth", option->birth_option);
+
+    if (!jopt)
+        log_msg("Could not encode option %s: %s", option->name,
+                *jerr.text ? jerr.text : !joptval ? "missing joptval" :
+                !joptdesc ? "missing joptdesc" : "unknown error");
+
     return jopt;
 }
 
@@ -773,46 +787,45 @@ json_option(const struct nh_option_desc *option)
 static void
 ccmd_set_option(json_t * params)
 {
-    const char *optname, *optstr, *pattern;
+    const char *optname, *pattern;
     json_t *jmsg, *joval, *jopt;
-    int isstr, i, ret;
-    const struct nh_option_desc *gameopt, *birthopt, *option;
+    int  i, ret;
+    struct nh_option_desc *opts;
+    const struct nh_option_desc *option;
     union nh_optvalue value;
     struct nh_autopickup_rules ar = { NULL, 0 };
     struct nh_autopickup_rule *r;
 
     if (json_unpack
-        (params, "{ss,so,si*}", "name", &optname, "value", &joval, "isstr",
-         &isstr) == -1)
-        exit_client("Bad parameters for set_option");
+        (params, "{ss,so*}", "name", &optname, "value", &joval) == -1)
+        exit_client("Bad parameters for set_option", 0);
 
     /* find the option_desc for the options that should be set; the option type
        is required in order to decode the option value. */
-    gameopt = nh_get_options(GAME_OPTIONS);
-    birthopt =
-        nh_get_options(gameid ? ACTIVE_BIRTH_OPTIONS : CURRENT_BIRTH_OPTIONS);
-    option = find_option(optname, gameopt, birthopt);
+    opts = nh_get_options();
+    option = nhlib_const_find_option(opts, optname);
     if (!option) {
         jmsg = json_pack("{si,so}", "return", FALSE, "option", json_object());
         client_msg("set_option", jmsg);
+        nhlib_free_optlist(opts);
         return;
     }
 
     /* decode the option value depending on the option type */
-    if (isstr || option->type == OPTTYPE_STRING) {
+    if (option->type == OPTTYPE_STRING) {
         if (!json_is_string(joval))
-            exit_client("could not decode option string");
+            exit_client("could not decode option string", 0);
         value.s = (char *)json_string_value(joval);
 
     } else if (option->type == OPTTYPE_INT || option->type == OPTTYPE_ENUM ||
                option->type == OPTTYPE_BOOL) {
         if (!json_is_integer(joval))
-            exit_client("could not decode option value");
+            exit_client("could not decode option value", 0);
         value.i = json_integer_value(joval);
 
     } else if (option->type == OPTTYPE_AUTOPICKUP_RULES) {
         if (!json_is_array(joval))
-            exit_client("could not decode option");
+            exit_client("could not decode option", 0);
 
         ar.num_rules = json_array_size(joval);
         ar.rules = malloc(sizeof (struct nh_autopickup_rule) * ar.num_rules);
@@ -824,52 +837,55 @@ ccmd_set_option(json_t * params)
                     (json_array_get(joval, i), "{ss,si,si,si}", "pattern",
                      &pattern, "oclass", &r->oclass, "buc", &r->buc, "action",
                      &r->action) == -1)
-                    exit_client("Error unpacking autopickup rule");
+                    exit_client("Error unpacking autopickup rule", 0);
+                memset(r->pattern, 0, sizeof (r->pattern));
                 strncpy(r->pattern, pattern, sizeof (r->pattern) - 1);
+                r->pattern[sizeof (r->pattern) - 1] = 0;
             }
         } else
             value.ar = NULL;
     }
 
-    ret = nh_set_option(optname, value, isstr);
+    ret = nh_set_option(optname, value);
 
     if (option->type == OPTTYPE_AUTOPICKUP_RULES)
         free(ar.rules);
 
-    gameopt = nh_get_options(GAME_OPTIONS);
-    birthopt =
-        nh_get_options(gameid ? ACTIVE_BIRTH_OPTIONS : CURRENT_BIRTH_OPTIONS);
-    option = find_option(optname, gameopt, birthopt);
+    nhlib_free_optlist(opts);
+    opts = nh_get_options();
+    option = nhlib_const_find_option(opts, optname);
 
     jopt = json_option(option);
-    optstr = nh_get_option_string(option);
 
-    if (ret == TRUE)
-        db_set_option(user_info.uid, optname, option->type, optstr);
     /* return the altered option struct and the string representation to the
        client. The intent is to save some network round trips and make a
        separate get_option_string message unneccessary */
     jmsg = json_pack("{si,so}", "return", ret, "option", jopt);
     client_msg("set_option", jmsg);
+
+    nhlib_free_optlist(opts);
 }
 
 
 static void
 ccmd_get_options(json_t * params)
 {
-    int list, i;
-    const struct nh_option_desc *options;
+    int i;
+    struct nh_option_desc *options;
     json_t *jmsg, *jarr;
 
-    if (json_unpack(params, "{si*}", "list", &list) == -1)
-        exit_client("Bad parameters for get_options");
+    void *iter = json_object_iter(params);
+    if (iter)
+        exit_client("non-empty parameter list for get_options", 0);
 
     jarr = json_array();
-    options = nh_get_options(list);
-    for (i = 0; options[i].name; i++)
+    options = nh_get_options();
+    for (i = 0; options[i].name; i++) {
         json_array_append_new(jarr, json_option(&options[i]));
+    }
     jmsg = json_pack("{so}", "options", jarr);
     client_msg("get_options", jmsg);
+    nhlib_free_optlist(options);
 }
 
 
@@ -882,7 +898,7 @@ ccmd_get_pl_prompt(json_t * params)
     if (json_unpack
         (params, "{si,si,si,si*}", "role", &rolenum, "race", &racenum, "gend",
          &gendnum, "align", &alignnum) == -1)
-        exit_client("Bad parameters for get_pl_prompt");
+        exit_client("Bad parameters for get_pl_prompt", 0);
 
     bp = nh_build_plselection_prompt(buf, 1024, rolenum, racenum, gendnum,
                                      alignnum);
@@ -900,7 +916,7 @@ ccmd_get_root_pl_prompt(json_t * params)
     if (json_unpack
         (params, "{si,si,si,si*}", "role", &rolenum, "race", &racenum, "gend",
          &gendnum, "align", &alignnum) == -1)
-        exit_client("Bad parameters for get_root_pl_prompt");
+        exit_client("Bad parameters for get_root_pl_prompt", 0);
 
     bp = nh_root_plselection_prompt(buf, 1024, rolenum, racenum, gendnum,
                                     alignnum);

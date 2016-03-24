@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-21 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -164,28 +165,31 @@ const struct shclass shtypes[] = {
 };
 
 
-/* make an object of the appropriate type for a shop square */
+/* Make an object of the appropriate type for a shop square.
+
+   Uses the level generation RNG. */
 static void
 mkshobj_at(const struct shclass *shp, struct level *lev, int sx, int sy)
 {
     struct monst *mtmp;
     int atype;
     const struct permonst *ptr;
+    enum rng rng = rng_for_level(&lev->z);
 
-    if (rn2(100) < depth(&lev->z) && !MON_AT(lev, sx, sy) &&
-        (ptr = mkclass(&lev->z, S_MIMIC, 0)) &&
-        (mtmp = makemon(ptr, lev, sx, sy, NO_MM_FLAGS)) != 0) {
+    if (rn2_on_rng(100, rng) < depth(&lev->z) && !MON_AT(lev, sx, sy) &&
+        (ptr = mkclass(&lev->z, S_MIMIC, 0, rng)) &&
+        (mtmp = makemon(ptr, lev, sx, sy, MM_ALLLEVRNG)) != 0) {
         /* note: makemon will set the mimic symbol to a shop item */
-        if (rn2(10) >= depth(&lev->z)) {
+        if (rn2_on_rng(10, rng) >= depth(&lev->z)) {
             mtmp->m_ap_type = M_AP_OBJECT;
             mtmp->mappearance = STRANGE_OBJECT;
         }
     } else {
-        atype = get_shop_item(shp - shtypes);
+        atype = get_shop_item(shp - shtypes, rng);
         if (atype < 0)
-            mksobj_at(-atype, lev, sx, sy, TRUE, TRUE);
+            mksobj_at(-atype, lev, sx, sy, TRUE, TRUE, rng);
         else
-            mkobj_at(atype, lev, sx, sy, TRUE);
+            mkobj_at(atype, lev, sx, sy, TRUE, rng);
     }
 }
 
@@ -206,10 +210,10 @@ nameshk(struct monst *shk, const char *const *nlp, struct level *lev)
         shk->female = FALSE;
     } else {
         /* We want variation from game to game, without needing the save and
-           restore support which would be necessary for randomization; try not
-           to make too many assumptions about time_t's internals; use ledger_no 
-           rather than depth to keep mine town distinct. */
-        int nseed = (int)((long)u.ubirthday / 257L);
+           restore support which would be necessary for randomization; thus use
+           ubirthday for deterministic random numbers, and use ledger_no rather
+           than depth to keep mine town distinct. */
+        int nseed = ((unsigned)u.ubirthday / 257U);
 
         name_wanted = ledger_no(&lev->z) + (nseed % 13) - (nseed % 5);
         if (name_wanted < 0)
@@ -254,7 +258,7 @@ nameshk(struct monst *shk, const char *const *nlp, struct level *lev)
     ESHK(shk)->shknam[PL_NSIZ - 1] = 0;
 }
 
-/* create a new shopkeeper in the given room */
+/* create a new shopkeeper in the given room; uses level creation RNG */
 static int
 shkinit(const struct shclass *shp, struct level *lev, struct mkroom *sroom)
 {
@@ -301,10 +305,10 @@ shkinit(const struct shclass *shp, struct level *lev, struct mkroom *sroom)
         rloc(m_at(lev, sx, sy), FALSE); /* insurance */
 
     /* now initialize the shopkeeper monster structure */
-    if (!(shk = makemon(&mons[PM_SHOPKEEPER], lev, sx, sy, NO_MM_FLAGS)))
+    if (!(shk = makemon(&mons[PM_SHOPKEEPER], lev, sx, sy, MM_ALLLEVRNG)))
         return -1;
-    shk->isshk = shk->mpeaceful = 1;
-    set_malign(shk);
+    shk->isshk = 1;
+    msethostility(shk, FALSE, TRUE);
     shk->msleeping = 0;
     shk->mtrapseen = ~0;        /* we know all the traps already */
     ESHK(shk)->shoproom = (sroom - lev->rooms) + ROOMOFFSET;
@@ -321,9 +325,13 @@ shkinit(const struct shclass *shp, struct level *lev, struct mkroom *sroom)
     ESHK(shk)->visitct = 0;
     ESHK(shk)->following = 0;
     ESHK(shk)->billct = 0;
-    mkmonmoney(shk, 1000L + 30L * (long)rnd(100));      /* initial capital */
+    ESHK(shk)->bill_inactive = FALSE;
+
+    /* initial capital */
+    mkmonmoney(shk, 1030L + 30L * mklev_rn2(100, lev), rng_for_level(&lev->z));
+
     if (shp->shknms == shkrings)
-        mongets(shk, TOUCHSTONE);
+        mongets(shk, TOUCHSTONE, rng_for_level(&lev->z));
     nameshk(shk, shp->shknms, lev);
 
     return sh;
@@ -340,7 +348,6 @@ stock_room(int shp_indx, struct level *lev, struct mkroom *sroom)
      * door get objects).
      */
     int sx, sy, sh;
-    char buf[BUFSZ];
     int rmno = (sroom - lev->rooms) + ROOMOFFSET;
     const struct shclass *shp = &shtypes[shp_indx];
 
@@ -355,11 +362,13 @@ stock_room(int shp_indx, struct level *lev, struct mkroom *sroom)
 
     if (lev->locations[sx][sy].doormask == D_NODOOR) {
         lev->locations[sx][sy].doormask = D_ISOPEN;
-        newsym(sx, sy);
+        if (lev == level)
+            newsym(sx, sy);
     }
     if (lev->locations[sx][sy].typ == SDOOR) {
-        cvt_sdoor_to_door(&lev->locations[sx][sy], &lev->z);    /* .typ = DOOR */
-        newsym(sx, sy);
+        cvt_sdoor_to_door(&lev->locations[sx][sy], &lev->z);   /* .typ = DOOR */
+        if (lev == level)
+            newsym(sx, sy);
     }
     if (lev->locations[sx][sy].doormask & D_TRAPPED)
         lev->locations[sx][sy].doormask = D_LOCKED;
@@ -375,8 +384,7 @@ stock_room(int shp_indx, struct level *lev, struct mkroom *sroom)
             n--;
         else if (inside_shop(lev, sx, sy - 1))
             n++;
-        sprintf(buf, "Closed for inventory");
-        make_engr_at(lev, m, n, buf, 0L, DUST);
+        make_engr_at(lev, m, n, "Closed for inventory", 0L, DUST);
     }
 
     for (sx = sroom->lx; sx <= sroom->hx; sx++)
@@ -398,8 +406,6 @@ stock_room(int shp_indx, struct level *lev, struct mkroom *sroom)
      * Special monster placements (if any) should go here: that way,
      * monsters will sit on top of objects and not the other way around.
      */
-
-    lev->flags.has_shop = TRUE;
 }
 
 
@@ -423,16 +429,18 @@ saleable(struct monst *shkp, struct obj *obj)
 
 /* positive value: class; negative value: specific object type */
 int
-get_shop_item(int type)
+get_shop_item(int type, enum rng rng)
 {
     const struct shclass *shp = shtypes + type;
     int i, j;
 
     /* select an appropriate object type at random */
-    for (j = rnd(100), i = 0; (j -= shp->iprobs[i].iprob) > 0; i++)
+    for (j = 1 + rn2_on_rng(100, rng), i = 0;
+         (j -= shp->iprobs[i].iprob) > 0; i++)
         continue;
 
     return shp->iprobs[i].itype;
 }
 
 /*shknam.c*/
+

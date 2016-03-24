@@ -1,9 +1,12 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-04-05 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #ifndef DUNGEON_H
 # define DUNGEON_H
+
+# include "global.h"
 
 typedef struct d_flags {        /* dungeon/level type flags */
     unsigned town:1;    /* is this a town? (levels only) */
@@ -44,10 +47,10 @@ typedef struct stairway {       /* basic stairway identifier */
 # define LR_DOWNTELE 6
 
 typedef struct dest_area {      /* non-stairway level change indentifier */
-    xchar lx, ly;       /* "lower" left corner (near [0,0]) */
-    xchar hx, hy;       /* "upper" right corner (near [COLNO,ROWNO]) */
-    xchar nlx, nly;     /* outline of invalid area */
-    xchar nhx, nhy;     /* opposite corner of invalid area */
+    schar lx, ly;       /* "lower" left corner (near [0,0]) */
+    schar hx, hy;       /* "upper" right corner (near [COLNO,ROWNO]) */
+    schar nlx, nly;     /* outline of invalid area */
+    schar nhx, nhy;     /* opposite corner of invalid area */
 } dest_area;
 
 typedef struct dungeon {        /* basic dungeon identifier */
@@ -91,12 +94,17 @@ typedef struct branch {
 /* dungeon overview information, generated and used by dooverview */
 struct overview_info {
     char fountains, sinks, thrones, trees, temples;
-    char altars;        /* no of altars outside of temple */
-    char altaralign;    /* any combinaton of AM_CHAOTIC, AM_NEUTRAL, AM_LAWFUL */
+    char altars;              /* number of non-high altars */
+    char high_altars;         /* number of high altars */
+    boolean lawful_altar;     /* lawful altar present */
+    boolean neutral_altar;    /* neutral altar present */
+    boolean chaotic_altar;    /* chaotic altar present */
+    boolean unaligned_altar;  /* altar to Moloch present */
     char shopcount;
-    schar shoptype;     /* -1: multiple shops */
+    schar shoptype;    /* -1: multiple shops */
     boolean branch, portal;     /* branch, magic portal on this level */
     struct d_level branch_dst, portal_dst;      /* where to? */
+    boolean branch_dst_known, portal_dst_known; /* destination known? */
 };
 
 
@@ -138,10 +146,10 @@ struct overview_info {
 # define Inhell                 In_hell(&u.uz)  /* now gehennom */
 # define In_endgame(x)          ((x)->dnum == astral_level.dnum)
 
-# define within_bounded_area(X,Y,LX,LY,HX,HY) \
-                ((X) >= (LX) && (X) <= (HX) && (Y) >= (LY) && (Y) <= (HY))
+# define within_bounded_area(X,Y,LX,LY,HX,HY)                   \
+    ((X) >= (LX) && (X) <= (HX) && (Y) >= (LY) && (Y) <= (HY))
 
-# define isok(x, y) ((x) >= 1 && (x) <= COLNO-1 && (y) >= 0 && (y) <= ROWNO-1)
+# define isok(x, y) ((x) >= 0 && (x) <= COLNO-1 && (y) >= 0 && (y) <= ROWNO-1)
 
 /* monster and object migration codes */
 
@@ -158,3 +166,4 @@ struct overview_info {
 # define MIGR_NEAR_PLAYER       9       /* mon: followers; obj: trap door */
 
 #endif /* DUNGEON_H */
+

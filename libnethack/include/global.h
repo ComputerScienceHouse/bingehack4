@@ -1,27 +1,22 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-05-22 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #ifndef GLOBAL_H
 # define GLOBAL_H
 
-# if defined(__linux__) && defined(__GNUC__) && !defined(_GNU_SOURCE)
-/* ensure _GNU_SOURCE is defined before including any system headers */
-#  define _GNU_SOURCE
-# endif
-
 # include <stdio.h>
-# include <setjmp.h>
 # include <stdarg.h>
-# include <assert.h>
 
 # include "nethack_types.h"
+# include "compilers.h"
 
 /*
  * Files expected to exist in the playground directory.
  */
 
-# define RECORD        "record"  /* file containing list of topscorers */
+# define RECORD        "record" /* file containing list of topscorers */
 # define LOGFILE       "logfile"/* records all game endings regardless of score
                                    for debugging purposes */
 # define XLOGFILE      "xlogfile"       /* records game endings in detail */
@@ -40,6 +35,9 @@
 typedef signed char schar;
 typedef unsigned char uchar;
 typedef signed char boolean;    /* 0 or 1 */
+
+/* For timing purposes */
+typedef long long microseconds; /* since the epoch, 1 Jan 1970 */
 
 /*
  * type xchar: small integers in the range 0 - 127, usually coordinates
@@ -70,12 +68,15 @@ typedef schar xchar;
  * Please don't change the order.  It does matter.
  */
 
-# ifdef UNIX
-#  include "unixconf.h"
-# endif
-
-# ifdef WIN32
+# ifdef AIMAKE_BUILDOS_MSWin32
 #  include "ntconf.h"
+# else
+#  if defined(AIMAKE_BUILDOS_darwin) || defined(AIMAKE_BUILDOS_linux) || \
+      defined(AIMAKE_BUILDOS_freebsd)
+#   include "unixconf.h"
+#  else
+#   error Could not detect your OS. Update the logic in global.h.
+#  endif 
 # endif
 
 /* Displayable name of this port; don't redefine if defined in *conf.h */
@@ -91,12 +92,6 @@ typedef schar xchar;
 #  endif
 # endif
 
-# ifdef _MSC_VER
-#  define NORETURN __declspec(noreturn)
-# else
-#  define NORETURN __attribute__((noreturn))
-# endif
-
 /* Used for consistency checks of various data files; declare it here so
    that utility programs which include config.h but not hack.h can see it. */
 struct version_info {
@@ -104,6 +99,20 @@ struct version_info {
     unsigned int feature_set;   /* bitmask of config settings */
     unsigned int entity_count;  /* # of monsters and objects */
 };
+
+
+/* Debugging support that is normally compiled out, but can be enabled for an
+   individual developer to aid in debugging (e.g. via aimake.local).
+
+   It's reasonable to add support for other debugger APIs here. */
+# ifdef VALGRIND_ANNOTATIONS
+#  include <valgrind/valgrind.h>
+#  define DEBUG_LOG(...)           VALGRIND_PRINTF(__VA_ARGS__)
+#  define DEBUG_LOG_BACKTRACE(...) VALGRIND_PRINTF_BACKTRACE(__VA_ARGS__)
+# else
+#  define DEBUG_LOG(...)           ((void)0)
+#  define DEBUG_LOG_BACKTRACE(...) ((void)0)
+# endif
 
 
 /*
@@ -119,10 +128,9 @@ struct version_info {
 # define MAX_SUBROOMS   24      /* max # of subrooms in a given room */
 # define DOORMAX        120     /* max number of doors per level */
 
-# define PL_CSIZ        32      /* sizeof pl_character */
 # define PL_FSIZ        32      /* fruit name */
 # define PL_PSIZ        63      /* player-given names for pets, other monsters, 
-                                           objects */
+                                   objects */
 
 # define MAXDUNGEON     16      /* current maximum number of dungeons */
 # define MAXLEVEL       32      /* max number of levels in one dungeon */
@@ -134,4 +142,7 @@ struct version_info {
 # define MAXMONNO       120     /* extinct monst after this number created */
 # define MHPMAX         500     /* maximum monster hp */
 
+# define MAXSPELL       52      /* maximum spell index */
+
 #endif /* GLOBAL_H */
+

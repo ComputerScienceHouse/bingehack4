@@ -1,15 +1,20 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-04-02 */
 /* Copyright (c) Daniel Thaler, 2011 */
 /* NetHack may be freely redistributed.  See license for details. */
 
-#include "nhcurses.h"
-#include <ctype.h>
-
 #ifdef WIN32
-# include <windows.h>
+# define boolean save_boolean /* rpcndr.h defines "boolean" */
+# include <windows.h> /* must be before compilers.h */
+# undef boolean
 #else
 # include <sys/time.h>
 #endif
+
+#include "tilesequence.h"
+#include "nhcurses.h"
+#include "brandings.h"
+#include <ctype.h>
 
 #define sgn(x) ((x) >= 0 ? 1 : -1)
 
@@ -17,51 +22,55 @@ struct coord {
     int x, y;
 };
 
-static struct nh_dbuf_entry (*display_buffer)[COLNO] = NULL;
-static const int xdir[DIR_SELF + 1] = { -1, -1, 0, 1, 1, 1, 0, -1, 0, 0 };
-static const int ydir[DIR_SELF + 1] = { 0, -1, -1, -1, 0, 1, 1, 1, 0, 0 };
-
-/* GetTickCount() returns milliseconds since the system was started, with a
- * resolution of around 15ms. gettimeofday() returns a value since the start of
- * the epoch.
- * The difference doesn't matter here, since the value is only used to control
- * blinking.
- */
-#ifdef WIN32
-# define get_milliseconds GetTickCount
-#else
-static int
-get_milliseconds(void)
-{
-    struct timeval tv;
-
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec * 1000 + tv.tv_usec / 1000;
-}
-#endif
-
-
+static struct nh_dbuf_entry display_buffer[ROWNO][COLNO];
+static struct nh_dbuf_entry onscreen_display_buffer[ROWNO][COLNO];
+static nh_bool fully_refresh_display_buffer = 1;
+static const int mxdir[DIR_SELF + 1] = { -1, -1, 0, 1, 1, 1, 0, -1, 0, 0 };
+static const int mydir[DIR_SELF + 1] = { 0, -1, -1, -1, 0, 1, 1, 1, 0, 0 };
 
 int
-get_map_key(int place_cursor)
+get_map_key(nh_bool place_cursor, nh_bool report_clicks,
+            enum keyreq_context context)
 {
     int key = ERR;
 
-    if (settings.blink)
-        wtimeout(mapwin, 666);  /* wait 2/3 of a second before switching */
+    static int consecutive = 0;
+    static int last_x = 0;
+    static int last_y = 0;
+
+    if (context == krc_interrupt_long_action) {
+        consecutive++;
+        int timeout = settings.animation == ANIM_SLOW ? 5000 : 700;
+        wtimeout(mapwin, timeout / (consecutive + 10));
+    } else
+        consecutive = 0;
 
     if (player.x && place_cursor) {     /* x == 0 is not a valid coordinate */
-        wmove(mapwin, player.y, player.x - 1);
-        curs_set(1);
+        wmove(mapwin, player.y, player.x);
+        nh_curs_set(1);
     }
 
-    while (1) {
-        key = nh_wgetch(mapwin);
-        draw_map(player.x, player.y);
-        doupdate();
-        if (key != ERR)
-            break;
+    if (player.x != last_x || player.y != last_y)
+        consecutive = 0;
 
+    last_x = player.x;
+    last_y = player.y;
+
+    while (1) {
+        key = nh_wgetch(mapwin, context);
+
+        if (key == KEY_UNHOVER || key >= KEY_MAX + 256) {
+            /* A mouse action on the map. */
+
+            if (key == KEY_UNHOVER || !report_clicks ||
+                key >= KEY_MAX + 256 + (ROWNO * COLNO * 2))
+                continue;
+        }
+
+        draw_map(player.x, player.y);
+
+        if (key != ERR || context == krc_interrupt_long_action)
+            break;
     };
     wtimeout(mapwin, -1);
 
@@ -72,69 +81,215 @@ get_map_key(int place_cursor)
 void
 curses_update_screen(struct nh_dbuf_entry dbuf[ROWNO][COLNO], int ux, int uy)
 {
-    display_buffer = dbuf;
+    memcpy(display_buffer, dbuf, sizeof (struct nh_dbuf_entry) * ROWNO * COLNO);
     draw_map(ux, uy);
 
-    if (ux > 0) {
-        wmove(mapwin, uy, ux - 1);
-        curs_set(1);
+    if (ux >= 0) {
+        wmove(mapwin, uy, ux);
+        nh_curs_set(1);
     } else
-        curs_set(0);
+        nh_curs_set(0);
     wnoutrefresh(mapwin);
 }
 
+void
+mark_mapwin_for_full_refresh(void)
+{
+    fully_refresh_display_buffer = 1;
+}
+
+nh_bool
+branding_is_at(short branding, int x, int y)
+{
+    return !!(display_buffer[y][x].branding & branding);
+}
+
+nh_bool
+monflag_is_at(short monflag, int x, int y)
+{
+    return !!(display_buffer[y][x].monflags & monflag);
+}
+
+nh_bool
+apikey_is_at(const char *apikey, int x, int y)
+{
+    struct nh_dbuf_entry *dbyx = &(display_buffer[y][x]);
+    if (!strcmp(apikey, default_drawing->bgelements[dbyx->bg].symname))
+        return TRUE;
+    if (dbyx->trap && !strcmp(
+            apikey, default_drawing->traps[dbyx->trap - 1].symname))
+        return TRUE;
+    if (dbyx->obj && !strcmp(
+            apikey, default_drawing->objects[dbyx->obj - 1].symname))
+        return TRUE;
+    if (dbyx->mon && !(dbyx->monflags & MON_WARNING) && !strcmp(
+            apikey, default_drawing->monsters[dbyx->mon - 1].symname))
+        return TRUE;
+    if (dbyx->mon && (dbyx->monflags & MON_WARNING) && !strcmp(apikey,
+            default_drawing->monsters[dbyx->mon - 1 -
+                                      default_drawing->num_monsters].symname))
+        return TRUE;
+    return FALSE;
+}
 
 void
 draw_map(int cx, int cy)
 {
-    int x, y, symcount, attr, cursx, cursy;
-    unsigned int frame;
-    struct curses_symdef syms[4];
+    int x, y, cursx, cursy, mapwinw, mapwinh;
 
-    if (!display_buffer || !mapwin)
+    if (!mapwin)
         return;
 
     getyx(mapwin, cursy, cursx);
+    getmaxyx(mapwin, mapwinh, mapwinw);
 
-    frame = 0;
-    if (settings.blink)
-        frame = get_milliseconds() / 666;
+    for (y = 0; y < mapwinh && y < ROWNO; y++) {
+        for (x = 0; x < mapwinw && x < COLNO; x++) {
+            struct nh_dbuf_entry *dbyx = &(display_buffer[y][x]);
 
-    for (y = 0; y < ROWNO; y++) {
-        for (x = 1; x < COLNO; x++) {
-            int bg_color = 0;
+            if (!fully_refresh_display_buffer &&
+                memcmp(dbyx, &(onscreen_display_buffer[y][x]),
+                       sizeof *dbyx) == 0)
+                continue; /* no need to redraw an unchanged tile */
+
+            unsigned long long substitution = dbe_substitution(dbyx);
+
+            onscreen_display_buffer[y][x] = *dbyx;
 
             /* set the position for each character to prevent incorrect
                positioning due to charset issues (IBM chars on a unicode term
                or vice versa) */
-            wmove(mapwin, y, x - 1);
+            wmove(mapwin, y, x);
 
-            symcount = mapglyph(&display_buffer[y][x], syms, &bg_color);
-            attr = A_NORMAL;
-            if (!(COLOR_PAIRS >= 113 || (COLORS < 16 && COLOR_PAIRS >= 57))) {
-                /* we don't have background colors available */
-                bg_color = 0;
-                if (((display_buffer[y][x].monflags & MON_TAME) &&
-                     settings.hilite_pet) ||
-                    ((display_buffer[y][x].monflags & MON_DETECTED) &&
-                     settings.use_inverse))
-                    attr |= A_REVERSE;
-            } else if (bg_color == 0) {
-                /* we do have background colors available */
-                if ((display_buffer[y][x].monflags & MON_DETECTED) &&
-                    settings.use_inverse)
-                    bg_color = CLR_MAGENTA;
-                if ((display_buffer[y][x].monflags & MON_PEACEFUL) &&
-                    settings.hilite_pet)
-                    bg_color = CLR_BROWN;
-                if ((display_buffer[y][x].monflags & MON_TAME) &&
-                    settings.hilite_pet)
-                    bg_color = CLR_BLUE;
+            /* a fallback for if rendering fails */
+            {
+                static const char errmsg_line1[] =
+                    "Your selected interface cannot render this tileset.";
+                static const char errmsg_line2[] =
+                    "Select a different tileset with the 'tileset' option.";
+
+                const char *errmsg = NULL;
+                int errlen = 0;
+
+                init_cchar(0);
+
+                if (y == 9) {
+                    errmsg = errmsg_line1;
+                    errlen = sizeof errmsg_line1 - 1;
+                } else if (y == 11) {
+                    errmsg = errmsg_line2;
+                    errlen = sizeof errmsg_line2 - 1;
+                }
+                if (errmsg) {
+                    int xmod = (COLNO - errlen) / 2;
+                    if (x - xmod >= 0 && x - xmod < errlen)
+                        init_cchar(errmsg[x - xmod]);
+                    else if (x - xmod == -1 || x - xmod == errlen)
+                        init_cchar(' ');
+                }
             }
-            print_sym(mapwin, &syms[frame % symcount], attr, bg_color);
+
+            /* make the map mouse-active for left clicks, middle/right clicks
+               (which are interchangeable, because some terminals don't allow
+               right clicks), and hovers */
+            wset_mouse_event(mapwin, uncursed_mbutton_left, KEY_MAX + 256 + 
+                             (ROWNO * COLNO * 0) + x + y * COLNO, KEY_CODE_YES);
+            wset_mouse_event(mapwin, uncursed_mbutton_middle, KEY_MAX + 256 + 
+                             (ROWNO * COLNO * 1) + x + y * COLNO, KEY_CODE_YES);
+            wset_mouse_event(mapwin, uncursed_mbutton_right, KEY_MAX + 256 + 
+                             (ROWNO * COLNO * 1) + x + y * COLNO, KEY_CODE_YES);
+            wset_mouse_event(mapwin, uncursed_mbutton_hover, KEY_MAX + 256 + 
+                             (ROWNO * COLNO * 2) + x + y * COLNO, KEY_CODE_YES);
+            
+            /* draw the tile first, because doing that doesn't move the cursor;
+               backgrounds are special because they can be composed from
+               multiple tiles (e.g. furthest background + fountain) */
+            print_background_tile(mapwin, dbyx);
+
+            /* low-priority general brandings */
+            print_low_priority_brandings(mapwin, dbyx);
+            /* traps */
+            if (dbyx->trap)
+                print_tile(mapwin, default_drawing->traps + dbyx->trap-1,
+                           NULL, TILESEQ_TRAP_OFF, substitution);
+            /* objects */
+            if (dbyx->obj) {
+                /* Special cases: corpses and statues are substituted monsters,
+                   not objects. Check to ensure that they have a valid monster
+                   number before rendering it, because otherwise we can get
+                   crashes. (The server should be checking this for validity, as
+                   should the client API, but they aren't, and a redundant check
+                   here will nonetheless never hurt.) */
+                if (substitution & (NHCURSES_SUB_CORPSE | NHCURSES_SUB_STATUE |
+                                    NHCURSES_SUB_FIGURINE)
+                    && dbyx->obj_mn > 0
+                    && dbyx->obj_mn <= default_drawing->num_monsters)
+                    print_tile(mapwin, default_drawing->monsters +
+                               dbyx->obj_mn-1, NULL,
+                               TILESEQ_MON_OFF, substitution);
+                else
+                    print_tile(mapwin, default_drawing->objects + dbyx->obj-1,
+                               NULL, TILESEQ_OBJ_OFF, substitution);
+            }
+            /* invisible monster symbol; just use the tile number directly, no
+               need to go via an API name because there is only one */
+            if (dbyx->invis)
+                print_tile(mapwin, &(struct curses_symdef){
+                        .symname = invismonexplain},
+                           NULL, TILESEQ_INVIS_OFF, substitution);
+            /* monsters */
+            if (dbyx->mon && dbyx->mon <= default_drawing->num_monsters)
+                print_tile(mapwin, default_drawing->monsters + dbyx->mon-1,
+                           NULL, TILESEQ_MON_OFF, substitution &
+                           ~(NHCURSES_SUB_CORPSE | NHCURSES_SUB_STATUE |
+                             NHCURSES_SUB_FIGURINE));
+            /* warnings */
+            if (dbyx->mon > default_drawing->num_monsters &&
+                (dbyx->monflags & MON_WARNING))
+                print_tile(mapwin, default_drawing->warnings +
+                               dbyx->mon-1-default_drawing->num_monsters,
+                           NULL, TILESEQ_WARN_OFF, substitution);
+            /* high-priority brandings */
+            print_high_priority_brandings(mapwin, dbyx);
+            /* effects */
+            if (dbyx->effect) {
+                int id = NH_EFFECT_ID(dbyx->effect);
+                switch (NH_EFFECT_TYPE(dbyx->effect)) {
+                case E_EXPLOSION:
+                    print_tile(mapwin,
+                               default_drawing->explsyms + (id % NUMEXPCHARS),
+                               default_drawing->expltypes + (id / NUMEXPCHARS),
+                               TILESEQ_EXPLODE_OFF, substitution);
+                    break;
+                case E_SWALLOW:
+                    print_tile(mapwin,
+                               default_drawing->swallowsyms + (id & 0x7),
+                               NULL, TILESEQ_SWALLOW_OFF, substitution);
+                    break;
+                case E_ZAP:
+                    print_tile(mapwin,
+                               default_drawing->zapsyms + (id & 0x3),
+                               default_drawing->zaptypes + (id >> 2),
+                               TILESEQ_ZAP_OFF, substitution);
+                    break;
+                case E_MISC:
+                    print_tile(mapwin,
+                               default_drawing->effects + id,
+                               NULL, TILESEQ_EFFECT_OFF, substitution);
+                    break;
+                }
+            }
+
+            print_cchar(mapwin);
         }
     }
 
+    wset_mouse_event(mapwin, uncursed_mbutton_left, 0, ERR);
+    wset_mouse_event(mapwin, uncursed_mbutton_middle, 0, ERR);
+    wset_mouse_event(mapwin, uncursed_mbutton_right, 0, ERR);
+    wset_mouse_event(mapwin, uncursed_mbutton_hover, 0, ERR);
+
+    fully_refresh_display_buffer = 0;
     wmove(mapwin, cursy, cursx);
     wnoutrefresh(mapwin);
 }
@@ -157,82 +312,91 @@ compare_coord_dist(const void *p1, const void *p2)
     return dist1 - dist2;
 }
 
-static void
-place_desc_message(WINDOW * win, int *x, int *y, char *b)
+struct nh_getpos_result
+curses_getpos(int xorig, int yorig, nh_bool force, const char *goal)
 {
-    if (*b) {
-        b[78] = 0;
-        if (strlen(b) >= 40 && *x >= 40) {
-            (*y)++;
-            *x = 0;
-        }
-        if (*y <= 1)
-            mvwaddstr(statuswin, *y, *x, b);
-        (*x) += (strlen(b) >= 38 ? 80 : 40);
-        if (*x > 40) {
-            (*y)++;
-            *x = 0;
-        }
-    }
-}
-
-int
-curses_getpos(int *x, int *y, nh_bool force, const char *goal)
-{
-    int result = 0;
+    int result = NHCR_ACCEPTED;
     int cx, cy;
     int key, dx, dy;
     int sidx;
     static const char pick_chars[] = " \r\n.,;:";
-    static const int pick_vals[] = {1, 1, 1, 1, 2, 3, 4};
+    static const int pick_vals[] = {
+        NHCR_ACCEPTED,
+        NHCR_ACCEPTED,
+        NHCR_ACCEPTED,
+        NHCR_ACCEPTED,
+        NHCR_CONTINUE,
+        NHCR_MOREINFO_CONTINUE,
+        NHCR_MOREINFO};
     const char *cp;
     char printbuf[BUFSZ];
-    char *matching = NULL;
     enum nh_direction dir;
-    struct coord *monpos = NULL;
-    /* Actually, the initial valus for moncount and monidx are irrelevant
-       because they're never used while monpos == NULL. But a typical compiler
-       can't figure that out, because the control flow is too complex. */
+
     int moncount = 0, monidx = 0;
-    int firstmove = 1;
+    nh_bool first_monidx_change = TRUE;
 
-    werase(statuswin);
-    mvwaddstr(statuswin, 0, 0,
-              "Move the cursor with the direction keys. Press "
-              "the letter of a dungeon symbol");
-    mvwaddstr(statuswin, 1, 0,
-              "to select it or use m to move to a nearby "
-              "monster. Finish with one of .,;:");
-    wrefresh(statuswin);
+    int i, j;
 
-    cx = *x >= 1 ? *x : player.x;
-    cy = *y >= 0 ? *y : player.y;
-    wmove(mapwin, cy, cx - 1);
+    for (i = 0; i < ROWNO; i++)
+        for (j = 0; j < COLNO; j++)
+            if (display_buffer[i][j].mon &&
+                (j != player.x || i != player.y))
+                moncount++;
+
+    struct coord monpos[moncount * sizeof (struct coord)];
+    monidx = 0;
+    for (i = 0; i < ROWNO; i++)
+        for (j = 0; j < COLNO; j++)
+            if (display_buffer[i][j].mon &&
+                (j != player.x || i != player.y)) {
+                monpos[monidx].x = j;
+                monpos[monidx].y = i;
+                monidx++;
+            }
+    qsort(monpos, moncount, sizeof (struct coord),
+          compare_coord_dist);
+    monidx = 0;
+
+    ui_flags.maphoverx = -1;
+    ui_flags.maphovery = -1;
+
+    cx = xorig >= 0 && xorig < COLNO ? xorig : player.x;
+    cy = yorig >= 0 && yorig < ROWNO ? yorig : player.y;
+    wmove(mapwin, cy, cx);
 
     while (1) {
-        if (!firstmove) {
-            struct nh_desc_buf descbuf;
-            int mx = 0, my = 0;
-
-            nh_describe_pos(cx, cy, &descbuf, NULL);
-
-            werase(statuswin);
-            place_desc_message(statuswin, &mx, &my, descbuf.effectdesc);
-            place_desc_message(statuswin, &mx, &my, descbuf.invisdesc);
-            place_desc_message(statuswin, &mx, &my, descbuf.mondesc);
-            place_desc_message(statuswin, &mx, &my, descbuf.objdesc);
-            place_desc_message(statuswin, &mx, &my, descbuf.trapdesc);
-            place_desc_message(statuswin, &mx, &my, descbuf.bgdesc);
-            wrefresh(statuswin);
-
-            wmove(mapwin, cy, cx - 1);
-        }
-        firstmove = 0;
         dx = dy = 0;
-        key = get_map_key(FALSE);
-        if (key == KEY_ESC) {
+        nh_curs_set(1);
+        key = get_map_key(FALSE, TRUE, krc_getpos);
+        if (key == KEY_ESCAPE || key == '\x1b') {
             cx = cy = -10;
-            result = -1;
+            result = NHCR_CLIENT_CANCEL;
+            break;
+        }
+        if (key == KEY_SIGNAL) {
+            cx = cy = -10;
+            result = NHCR_SERVER_CANCEL;
+            break;
+        }
+
+        if (key >= KEY_MAX + 256) {
+            nh_bool rightclick = FALSE;
+            /* The user clicked on the map. For a left click, we'll accept the
+               new location (NHCR_ACCEPTED). For a right click, we'll move the
+               cursor there, but not accept it. */
+            key -= KEY_MAX + 256;
+            if (key > ROWNO * COLNO) {
+                key -= ROWNO * COLNO;
+                rightclick = TRUE;
+            }
+
+            cx = key % COLNO;
+            cy = key / COLNO;
+
+            if (rightclick)
+                goto nxtc;
+
+            result = NHCR_ACCEPTED;
             break;
         }
 
@@ -242,71 +406,57 @@ curses_getpos(int *x, int *y, nh_bool force, const char *goal)
             break;
         }
 
-        dir = key_to_dir(key);
+        int range;
+        dir = key_to_dir(key, &range);
         if (dir != DIR_NONE) {
-            dx = xdir[dir];
-            dy = ydir[dir];
-        } else if ((dir = key_to_dir(tolower((char)key))) != DIR_NONE) {
-            /* a shifted movement letter */
-            dx = xdir[dir] * 8;
-            dy = ydir[dir] * 8;
+            dx = mxdir[dir] * range;
+            dy = mydir[dir] * range;
         }
 
         if (dx || dy) {
             /* truncate at map edge */
-            if (cx + dx < 1)
-                dx = 1 - cx;
+            if (cx + dx < 0)
+                dx = 0;
             if (cx + dx > COLNO - 1)
-                dx = COLNO - 1 - cx;
+                dx = 0;
             if (cy + dy < 0)
-                dy = -cy;
+                dy = 0;
             if (cy + dy > ROWNO - 1)
-                dy = ROWNO - 1 - cy;
+                dy = 0;
             cx += dx;
             cy += dy;
             goto nxtc;
         }
 
-        if (key == 'm') {
-            if (!monpos) {
-                int i, j;
-
-                moncount = 0;
-                for (i = 0; i < ROWNO; i++)
-                    for (j = 0; j < COLNO; j++)
-                        if (display_buffer[i][j].mon &&
-                            (j != player.x || i != player.y))
-                            moncount++;
-                monpos = malloc(moncount * sizeof (struct coord));
-                monidx = 0;
-                for (i = 0; i < ROWNO; i++)
-                    for (j = 0; j < COLNO; j++)
-                        if (display_buffer[i][j].mon &&
-                            (j != player.x || i != player.y)) {
-                            monpos[monidx].x = j;
-                            monpos[monidx].y = i;
-                            monidx++;
-                        }
-                monidx = 0;
-                qsort(monpos, moncount, sizeof (struct coord),
-                      compare_coord_dist);
-            }
-
+        if (key == 'm' || key == 'M') {
             if (moncount) {     /* there is at least one monster to move to */
+                if (!first_monidx_change) {
+                    if (key == 'm') {
+                        monidx = (monidx + 1) % moncount;
+                    } else {
+                        monidx--;
+                        if (monidx < 0)
+                            monidx += moncount;
+                    }
+                }
+
+                first_monidx_change = FALSE;
+
                 cx = monpos[monidx].x;
                 cy = monpos[monidx].y;
-                monidx = (monidx + 1) % moncount;
             }
         } else {
             int k = 0, tx, ty;
             int pass, lo_x, lo_y, hi_x, hi_y;
 
-            matching = malloc(default_drawing->num_bgelements);
+            char matching[default_drawing->num_bgelements];
             memset(matching, 0, default_drawing->num_bgelements);
+
             for (sidx = default_drawing->bg_feature_offset;
                  sidx < default_drawing->num_bgelements; sidx++)
                 if (key == default_drawing->bgelements[sidx].ch)
                     matching[sidx] = (char)++k;
+
             if (k) {
                 for (pass = 0; pass <= 1; pass++) {
                     /* pass 0: just past current pos to lower right; pass 1:
@@ -314,7 +464,7 @@ curses_getpos(int *x, int *y, nh_bool force, const char *goal)
                     lo_y = (pass == 0) ? cy : 0;
                     hi_y = (pass == 0) ? ROWNO - 1 : cy;
                     for (ty = lo_y; ty <= hi_y; ty++) {
-                        lo_x = (pass == 0 && ty == lo_y) ? cx + 1 : 1;
+                        lo_x = (pass == 0 && ty == lo_y) ? cx + 1 : 0;
                         hi_x = (pass == 1 && ty == hi_y) ? cx : COLNO - 1;
                         for (tx = lo_x; tx <= hi_x; tx++) {
                             k = display_buffer[ty][tx].bg;
@@ -323,36 +473,45 @@ curses_getpos(int *x, int *y, nh_bool force, const char *goal)
                                 cy = ty;
                                 goto nxtc;
                             }
-                        }       /* column */
+                        }   /* column */
                     }   /* row */
-                }       /* pass */
-                sprintf(printbuf, "Can't find dungeon feature '%c'.",
-                        (char)key);
-                curses_msgwin(printbuf);
+                }   /* pass */
+
+                snprintf(printbuf, ARRAY_SIZE(printbuf),
+                         "Can't find dungeon feature '%c'.", (char)key);
+                curses_msgwin(printbuf, krc_notification);
             } else {
-                sprintf(printbuf, "Unknown direction%s.",
-                        !force ? " (ESC to abort)" : "");
-                curses_msgwin(printbuf);
+                snprintf(printbuf, ARRAY_SIZE(printbuf),
+                         "Unknown targeting key%s.",
+                         !force ? " (ESC to abort)" : "");
+                curses_msgwin(printbuf, krc_notification);
             }
         }
-        if (force)
-            goto nxtc;
-        cx = -1;
-        cy = 0;
-        result = 0;     /* not -1 */
-        break;
+        /* fall through; an invalid command at the direction screen shouldn't
+           cause us to abort (that's what ESC is for) */
 
     nxtc:
-        wmove(mapwin, cy, cx - 1);
-        wrefresh(mapwin);
-    }
+        wmove(mapwin, cy, cx);
+        wnoutrefresh(mapwin);
 
-    *x = cx;
-    *y = cy;
-    if (monpos)
-        free(monpos);
-    if (matching)
-        free(matching);
+        /* If we get here, then the user must have pressed a key that didn't
+           close the getpos prompt; and it must have been an actual key (or
+           onscreen keyboard key), not a map mouse event (which would either
+           have been handled by get_map_key or else closed the prompt). Thus, we
+           hijack the map hover locations for the cursor location, rather than
+           the mouse location, as the user's clearly trying to do things with
+           keyboard controls.
+
+           Exception: Right-clicks on the map move the cursor to the click
+           location, so although that codepath reaches here, this code is still
+           correct, if for a different reason. */
+        ui_flags.maphoverx = cx;
+        ui_flags.maphovery = cy;
+    } /* while (1) */
+
+    ui_flags.maphoverx = -1;
+    ui_flags.maphovery = -1;
+
     curses_update_status(NULL); /* clear the help message */
-    return result;
+    return (struct nh_getpos_result){.x = cx, .y = cy, .howclosed = result};
 }

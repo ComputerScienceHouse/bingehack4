@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-21 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -61,7 +62,7 @@ clear_fcorr(struct monst *grd, boolean forceshow)
             level->locations[fcx][fcy].lit = FALSE;
             block_point(fcx, fcy);
         }
-        map_location(fcx, fcy, 1);      /* bypass vision */
+        map_location(fcx, fcy, 1, FALSE);      /* bypass vision */
         EGD(grd)->fcbeg++;
     }
     if (grd->mhp <= 0) {
@@ -95,7 +96,8 @@ grddead(struct monst *grd)
         /* see comment by newpos in gd_move() */
         remove_monster(level, grd->mx, grd->my);
         newsym(grd->mx, grd->my);
-        place_monster(grd, 0, 0);
+        grd->mx = COLNO;
+        grd->my = ROWNO;
         EGD(grd)->ogx = grd->mx;
         EGD(grd)->ogy = grd->my;
         dispose = clear_fcorr(grd, TRUE);
@@ -150,7 +152,7 @@ find_guard_dest(struct monst *guard, xchar * rx, xchar * ry)
             for (x = u.ux - dd; x <= u.ux + dd; lx = x, x++) {
                 if (y != u.uy - dd && y != u.uy + dd && x != u.ux - dd)
                     x = u.ux + dd;
-                if (x < 1 || x > COLNO - 1)
+                if (x < 0 || x > COLNO - 1)
                     continue;
                 if (guard &&
                     ((x == guard->mx && y == guard->my) ||
@@ -200,12 +202,11 @@ invault(void)
     vaultroom -= ROOMOFFSET;
 
     guard = findgd();
-    if (++u.uinvault % 30 == 0 && !guard) {     /* if time ok and no guard now. 
-                                                 */
-        char buf[BUFSZ];
+    if (++u.uinvault % 30 == 0 && !guard) {  /* if time ok and no guard now. */
         int x, y, gx, gy;
         xchar rx, ry;
         long umoney;
+        const char *buf;
 
         /* first find the goal for the guard */
         if (!find_guard_dest(NULL, &rx, &ry))
@@ -216,8 +217,8 @@ invault(void)
         /* next find a good place for a door in the wall */
         x = u.ux;
         y = u.uy;
-        if (level->locations[x][y].typ != ROOM) { /* player dug a door
-                                                     and is in it */
+        if (level->locations[x][y].typ != ROOM) {       /* player dug a door
+                                                           and is in it */
             if (level->locations[x + 1][y].typ == ROOM)
                 x = x + 1;
             else if (level->locations[x][y + 1].typ == ROOM)
@@ -271,8 +272,7 @@ invault(void)
         if (!(guard = makemon(&mons[PM_GUARD], level, x, y, NO_MM_FLAGS)))
             return;
         guard->isgd = 1;
-        guard->mpeaceful = 1;
-        set_malign(guard);
+        msethostility(guard, FALSE, TRUE);
         EGD(guard)->gddone = 0;
         EGD(guard)->ogx = x;
         EGD(guard)->ogy = y;
@@ -280,13 +280,15 @@ invault(void)
         EGD(guard)->vroom = vaultroom;
         EGD(guard)->warncnt = 0;
 
-        reset_faint();  /* if fainted - wake up */
+        /* We used to reset fainted status here, but that doesn't really make
+           sense; instead, that's treated like normal helplessness */
         if (canspotmon(guard))
             pline("Suddenly one of the Vault's guards enters!");
-        else if (flags.soundok)
+        else if (canhear())
             You_hear("someone else enter the Vault.");
         else
             messages = FALSE;
+
         newsym(guard->mx, guard->my);
         if (youmonst.m_ap_type == M_AP_OBJECT || u.uundetected || u.uburied) {
             if (youmonst.m_ap_type == M_AP_OBJECT &&
@@ -299,7 +301,7 @@ invault(void)
             mongone(guard);
             return;
         }
-        if (u.uswallow) {
+        if (Engulfed) {
             if ((!u.ustuck->minvis || perceives(guard->data)))
                 verbalize("How did that %s get in here?", m_monnam(u.ustuck));
             if (messages)
@@ -307,7 +309,7 @@ invault(void)
             mongone(guard);
             return;
         }
-        if (Strangled || is_silent(youmonst.data) || multi < 0) {
+        if (Strangled || is_silent(youmonst.data) || u_helpless(hm_all)) {
             /* [we ought to record whether this this message has already been
                given in order to vary it upon repeat visits, but discarding the 
                monster and its egd data renders that hard] */
@@ -316,26 +318,22 @@ invault(void)
             return;
         }
 
-        stop_occupation();      /* if occupied, stop it *now* */
-        if (multi > 0) {
-            nomul(0, NULL);
-            unmul(NULL);
-        }
+        action_interrupted();
+
         trycount = 5;
         do {
-            getlin("\"Hello stranger, who are you?\" -", buf);
-            mungspaces(buf);
+            buf = getlin("\"Hello stranger, who are you?\" -", FALSE);
+            buf = msgmungspaces(buf);
         } while (!letter(buf[0]) && --trycount > 0);
 
         if (u.ualign.type == A_LAWFUL &&
             /* ignore trailing text, in case player includes character's rank */
-            strncmpi(buf, plname, (int)strlen(plname)) != 0) {
+            strncmpi(buf, u.uplname, (int)strlen(u.uplname)) != 0) {
             adjalign(-1);       /* Liar! */
         }
 
-        if (!strcmpi(buf, "Croesus") || !strcmpi(buf, "Kroisos")
-            || !strcmpi(buf, "Creosote")
-            ) {
+        if (!strcmpi(buf, "Croesus") || !strcmpi(buf, "Kroisos") ||
+            !strcmpi(buf, "Creosote")) {
             if (!mvitals[PM_CROESUS].died) {
                 verbalize("Oh, yes, of course.  Sorry to have disturbed you.");
                 mongone(guard);
@@ -464,9 +462,9 @@ wallify_vault(struct monst *grd)
         }
 
     if (movedgold || fixed) {
-        if (canseemon(grd))
+        if (mon_visible(grd))
             pline("%s whispers an incantation.", Monnam(grd));
-        else if (flags.soundok)
+        else
             You_hear("a %s chant.", in_fcorridor(grd, grd->mx, grd->my)
                      ? "nearby" : "distant");
         if (movedgold)
@@ -535,11 +533,11 @@ gd_move(struct monst *grd)
                 mnexto(grd);
                 level->locations[m][n].typ = egrd->fakecorr[0].ftyp;
                 newsym(m, n);
-                grd->mpeaceful = 0;
+                msethostility(grd, TRUE, FALSE);
                 return -1;
             }
             /* not fair to get mad when (s)he's fainted or paralyzed */
-            if (!is_fainted() && multi >= 0)
+            if (!u_helpless(hm_all))
                 egrd->warncnt++;
             return 0;
         }
@@ -551,7 +549,7 @@ gd_move(struct monst *grd)
                 rloc(grd, FALSE);
                 level->locations[m][n].typ = egrd->fakecorr[0].ftyp;
                 newsym(m, n);
-                grd->mpeaceful = 0;
+                msethostility(grd, TRUE, FALSE);
             letknow:
                 if (!cansee(grd->mx, grd->my) || !mon_visible(grd))
                     You_hear("the shrill sound of a guard's whistle.");
@@ -593,7 +591,7 @@ gd_move(struct monst *grd)
                 return 0;
             } else {
                 verbalize("So be it, rogue!");
-                grd->mpeaceful = 0;
+                msethostility(grd, TRUE, FALSE);
                 return -1;
             }
         }
@@ -754,15 +752,12 @@ proceed:
     }
 newpos:
     if (egrd->gddone) {
-        /* The following is a kludge.  We need to keep */
-        /* the guard around in order to be able to make */
-        /* the fake corridor disappear as the player */
-        /* moves out of it, but we also need the guard */
-        /* out of the way.  We send the guard to never- */
-        /* never land.  We set ogx ogy to mx my in order */
-        /* to avoid a check at the top of this function.  */
-        /* At the end of the process, the guard is killed */
-        /* in restfakecorr().  */
+        /* The following is a kludge.  We need to keep the guard around in order
+           to be able to make the fake corridor disappear as the player moves
+           out of it, but we also need the guard out of the way.  We send the
+           guard to never-never land.  We set ogx ogy to mx my in order to avoid
+           a check at the top of this function.  At the end of the process, the
+           guard is killed in restfakecorr().  */
     cleanup:
         x = grd->mx;
         y = grd->my;
@@ -771,7 +766,8 @@ newpos:
         wallify_vault(grd);
         remove_monster(level, grd->mx, grd->my);
         newsym(grd->mx, grd->my);
-        place_monster(grd, 0, 0);
+        grd->mx = COLNO;
+        grd->my = ROWNO;
         egrd->ogx = grd->mx;
         egrd->ogy = grd->my;
         restfakecorr(grd);
@@ -799,7 +795,6 @@ paygd(void)
     long umoney = money_cnt(invent);
     struct obj *coins, *nextcoins;
     int gx, gy;
-    char buf[BUFSZ];
 
     if (!umoney || !grd)
         return;
@@ -818,14 +813,16 @@ paygd(void)
         pline("%s remits your gold to the vault.", Monnam(grd));
         gx = level->rooms[EGD(grd)->vroom].lx + rn2(2);
         gy = level->rooms[EGD(grd)->vroom].ly + rn2(2);
-        sprintf(buf, "To Croesus: here's the gold recovered from %s the %s.",
-                plname, mons[u.umonster].mname);
-        make_grave(level, gx, gy, buf);
+        make_grave(level, gx, gy,
+                   msgprintf(
+                       "To Croesus: here's the gold recovered from %s the %s.",
+                       u.uplname, mons[u.umonster].mname));
     }
-
+    
     for (coins = invent; coins; coins = nextcoins) {
         nextcoins = coins->nobj;
         if (objects[coins->otyp].oc_class == COIN_CLASS) {
+            unwield_silently(coins);
             freeinv(coins);
             place_object(coins, level, gx, gy);
             stackobj(coins);
@@ -861,3 +858,4 @@ gd_sound(void)
 }
 
 /*vault.c*/
+

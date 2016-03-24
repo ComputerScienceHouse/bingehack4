@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /*      Copyright 1991, M. Stephenson             */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -10,27 +11,17 @@
 #include "qtext.h"
 
 #define QTEXT_FILE      "quest.dat"
-/* #define DEBUG *//* uncomment for debugging */
 
 static void Fread(void *, int, int, dlb *);
 static struct qtmsg *construct_qtlist(long);
-static const char *intermed(void);
-static const char *neminame(void);
-static const char *guardname(void);
-static const char *homebase(void);
 static struct qtmsg *msg_in(struct qtmsg *, int);
-static void convert_arg(char);
-static void convert_line(void);
+static const char *convert_arg(char c);
+static const char *convert_line(const char *in_line);
 static void deliver_by_pline(struct qtmsg *);
 static void deliver_by_window(struct qtmsg *);
-static const char *ldrname(void);
 
-static char in_line[80], cvt_buf[64], out_line[128];
 static struct qtlists qt_list;
 static dlb *msg_file;
-
-/* used by ldrname() and neminame(), then copied into cvt_buf */
-static char nambuf[sizeof cvt_buf];
 
 
 static void
@@ -55,7 +46,7 @@ construct_qtlist(long hdr_offset)
     Fread(&n_msgs, sizeof (int), 1, msg_file);
     msg_list = malloc((unsigned)(n_msgs + 1) * sizeof (struct qtmsg));
 
-    /* 
+    /*
      * Load up the list.
      */
     Fread(msg_list, n_msgs * sizeof (struct qtmsg), 1, msg_file);
@@ -75,7 +66,7 @@ load_qtlist(void)
     if (!msg_file)
         panic("CANNOT OPEN QUEST TEXT FILE %s.", QTEXT_FILE);
 
-    /* 
+    /*
      * Read in the number of classes, then the ID's & offsets for
      * each header.
      */
@@ -83,7 +74,7 @@ load_qtlist(void)
     Fread(&qt_classes[0][0], sizeof (char) * LEN_HDR, n_classes, msg_file);
     Fread(qt_offsets, sizeof (long), n_classes, msg_file);
 
-    /* 
+    /*
      * Now construct the message lists for quick reference later
      * on when we are actually paging the messages out.
      */
@@ -133,55 +124,10 @@ quest_info(int typ)
     return 0;
 }
 
-/* return your role leader's name */
-const char *
-ldrname(void)
-{
-    int i = urole.ldrnum;
-
-    sprintf(nambuf, "%s%s", type_is_pname(&mons[i]) ? "" : "the ",
-            mons[i].mname);
-    return nambuf;
-}
-
-/* return your intermediate target string */
-static const char *
-intermed(void)
-{
-    return urole.intermed;
-}
-
 boolean
 is_quest_artifact(struct obj * otmp)
 {
     return (boolean) (otmp->oartifact == urole.questarti);
-}
-
-/* return your role nemesis' name */
-static const char *
-neminame(void)
-{
-    int i = urole.neminum;
-
-    sprintf(nambuf, "%s%s", type_is_pname(&mons[i]) ? "" : "the ",
-            mons[i].mname);
-    return nambuf;
-}
-
-/* return your role leader's guard monster name */
-static const char *
-guardname(void)
-{
-    int i = urole.guardnum;
-
-    return mons[i].mname;
-}
-
-/* return your role leader's location */
-static const char *
-homebase(void)
-{
-    return urole.homebase;
 }
 
 static struct qtmsg *
@@ -196,178 +142,157 @@ msg_in(struct qtmsg *qtm_list, int msgnum)
     return NULL;
 }
 
-static void
+static const char *
 convert_arg(char c)
 {
-    const char *str;
-
     switch (c) {
-
     case 'p':
-        str = plname;
-        break;
+        return msg_from_string(u.uplname);
     case 'c':
-        str = (flags.female && urole.name.f) ? urole.name.f : urole.name.m;
-        break;
+        return (u.ufemale && urole.name.f) ? urole.name.f : urole.name.m;
     case 'r':
-        str = rank_of(u.ulevel, Role_switch, flags.female);
-        break;
+        return rank_of(u.ulevel, Role_switch, u.ufemale);
     case 'R':
-        str = rank_of(MIN_QUEST_LEVEL, Role_switch, flags.female);
-        break;
+        return rank_of(MIN_QUEST_LEVEL, Role_switch, u.ufemale);
     case 's':
-        str = (flags.female) ? "sister" : "brother";
-        break;
+        return (u.ufemale) ? "sister" : "brother";
     case 'S':
-        str = (flags.female) ? "daughter" : "son";
-        break;
+        return (u.ufemale) ? "daughter" : "son";
     case 'l':
-        str = ldrname();
-        break;
-    case 'i':
-        str = intermed();
-        break;
-    case 'o':
-        str = the(artiname(urole.questarti));
-        break;
-    case 'n':
-        str = neminame();
-        break;
-    case 'g':
-        str = guardname();
-        break;
-    case 'G':
-        str = align_gtitle(u.ualignbase[A_ORIGINAL]);
-        break;
-    case 'H':
-        str = homebase();
-        break;
-    case 'a':
-        str = align_str(u.ualignbase[A_ORIGINAL]);
-        break;
-    case 'A':
-        str = align_str(u.ualign.type);
-        break;
-    case 'd':
-        str = align_gname(u.ualignbase[A_ORIGINAL]);
-        break;
-    case 'D':
-        str = align_gname(A_LAWFUL);
-        break;
-    case 'C':
-        str = "chaotic";
-        break;
-    case 'N':
-        str = "neutral";
-        break;
-    case 'L':
-        str = "lawful";
-        break;
-    case 'x':
-        str = Blind ? "sense" : "see";
-        break;
-    case 'Z':
-        str = dungeons[0].dname;
-        break;
-    case '%':
-        str = "%";
-        break;
-    default:
-        str = "";
-        break;
+    case 'n': {
+        int i = c == 'l' ? urole.ldrnum : urole.neminum;;
+        return msgcat(type_is_pname(&mons[i]) ? "" : "the ",
+                      mons[i].mname);
     }
-    strcpy(cvt_buf, str);
+    case 'i':
+        return urole.intermed;
+    case 'o':
+        return the(artiname(urole.questarti));
+    case 'g':
+        return mons[urole.guardnum].mname;
+    case 'G':
+        return align_gtitle(u.ualignbase[A_ORIGINAL]);
+    case 'H':
+        return urole.homebase;
+    case 'a':
+        return align_str(u.ualignbase[A_ORIGINAL]);
+    case 'A':
+        return align_str(u.ualign.type);
+    case 'd':
+        return align_gname(u.ualignbase[A_ORIGINAL]);
+    case 'D':
+        return align_gname(A_LAWFUL);
+    case 'C':
+        return "chaotic";
+    case 'N':
+        return "neutral";
+    case 'L':
+        return "lawful";
+    case 'x':
+        return Blind ? "sense" : "see";
+    case 'Z':
+        return msg_from_string(gamestate.dungeons[0].dname);
+    case '%':
+        return "%";
+    default:
+        return "";
+    }
 }
 
-static void
-convert_line(void)
+static const char *
+convert_line(const char *in_line)
 {
-    char *c, *cc;
-    char xbuf[BUFSZ];
+    /* xcrypt needs us to allocate a buffer for it */
+    char decrypted_line[strlen(in_line)+1];
+    xcrypt(in_line, decrypted_line);
+    const char *rv = "";
+    char *c;
 
-    cc = out_line;
-    for (c = xcrypt(in_line, xbuf); *c; c++) {
+    /* Tokenize the decrypted line; we stop at \r, \n, or \0, and do
+       special handling of "%" characters.
 
-        *cc = 0;
+       The algorithm used here is quadratic (when linear is possible), but
+       given that the lines are only 80 characters long, I feel that a clear
+       algorithm is superior to a low computational complexity algorithm. */
+
+    for (c = xcrypt(in_line, decrypted_line);; c++) {
+
         switch (*c) {
 
         case '\r':
         case '\n':
-            *(++cc) = 0;
-            return;
+        case '\0':
+            return rv;
 
         case '%':
-            if (*(c + 1)) {
-                convert_arg(*(++c));
+            if (c[1]) {
+                const char *conversion = convert_arg(*(++c));
                 switch (*(++c)) {
 
                     /* insert "a"/"an" prefix */
                 case 'A':
-                    strcat(cc, An(cvt_buf));
-                    cc += strlen(cc);
-                    continue;   /* for */
+                    rv = msgcat(rv, An(conversion));
+                    break;
                 case 'a':
-                    strcat(cc, an(cvt_buf));
-                    cc += strlen(cc);
-                    continue;   /* for */
+                    rv = msgcat(rv, an(conversion));
+                    break;
 
                     /* capitalize */
                 case 'C':
-                    cvt_buf[0] = highc(cvt_buf[0]);
+                    rv = msgcat(rv, msgupcasefirst(conversion));
                     break;
 
                     /* pluralize */
                 case 'P':
-                    cvt_buf[0] = highc(cvt_buf[0]);
+                    /* Note: makeplural doesn't work on arbitrarily capitalized
+                       strings */
+                    rv = msgcat(rv, msgupcasefirst(makeplural(conversion)));
+                    break;
                 case 'p':
-                    strcpy(cvt_buf, makeplural(cvt_buf));
+                    rv = msgcat(rv, makeplural(conversion));
                     break;
 
                     /* append possessive suffix */
                 case 'S':
-                    cvt_buf[0] = highc(cvt_buf[0]);
+                    conversion = msgupcasefirst(conversion);
+                    /* fall through */
                 case 's':
-                    strcpy(cvt_buf, s_suffix(cvt_buf));
+                    rv = msgcat(rv, s_suffix(conversion));
                     break;
 
                     /* strip any "the" prefix */
                 case 't':
-                    if (!strncmpi(cvt_buf, "the ", 4)) {
-                        strcat(cc, &cvt_buf[4]);
-                        cc += strlen(cc);
-                        continue;       /* for */
-                    }
+                    if (!strncmpi(conversion, "the ", 4))
+                        rv = msgcat(rv, conversion + 4);
+                    else
+                        rv = msgcat(rv, conversion);
                     break;
 
                 default:
                     --c;        /* undo switch increment */
+                    rv = msgcat(rv, conversion);
                     break;
                 }
-                strcat(cc, cvt_buf);
-                cc += strlen(cvt_buf);
                 break;
             }
             /* else fall through */
         default:
-            *cc++ = *c;
+            rv = msgkitten(rv, *c);
             break;
         }
     }
-    if (cc >= out_line + sizeof out_line)
-        panic("convert_line: overflow");
-    *cc = 0;
-    return;
 }
 
 static void
 deliver_by_pline(struct qtmsg *qt_msg)
 {
     long size;
+    char in_line[81]; /* to match the fgets call below */
 
     for (size = 0; size < qt_msg->size; size += (long)strlen(in_line)) {
         dlb_fgets(in_line, 80, msg_file);
-        convert_line();
-        pline(out_line);
+        const char *out_line = convert_line(in_line);
+        pline("%s", out_line);
     }
 
 }
@@ -375,19 +300,42 @@ deliver_by_pline(struct qtmsg *qt_msg)
 static void
 deliver_by_window(struct qtmsg *qt_msg)
 {
-    long size;
-    struct menulist menu;
+    char in_line[81];
+    boolean new_para = TRUE;
+    const char *msg = "";
+    int size;
 
-    init_menulist(&menu);
+    /* Don't show this in replay mode, because it would require a keystroke to
+       dismiss. (The other uses of display_buffer are #verhistory and #license,
+       both of which are zero-time; thus, this is the only way to produce an
+       /uninteractible/ buffer, which is something we want to avoid.) */
+    if (program_state.followmode == FM_REPLAY)
+        return;
 
     for (size = 0; size < qt_msg->size; size += (long)strlen(in_line)) {
         dlb_fgets(in_line, 80, msg_file);
-        convert_line();
-        add_menutext(&menu, out_line);
+        const char *out_line = convert_line(in_line);
+
+        /* We want to strip lone newlines, but leave sequences intact, or
+           special formatting.
+
+           TODO: This is a huge kluge. Be better at this. */
+        if (!*out_line) {
+            if (!new_para)
+                msg = msgcat(msg, "\n \n");
+            new_para = TRUE;
+        } else {
+            if (out_line[0] == ' ' && !new_para)
+                msg = msgkitten(msg, '\n');
+            else if (!new_para)
+                msg = msgkitten(msg, ' ');
+            new_para = FALSE;
+        }
+
+        msg = msgcat(msg, out_line);
     }
-    display_menu(menu.items, menu.icount, NULL, PICK_NONE, PLHINT_ANYWHERE,
-                 NULL);
-    free(menu.items);
+
+    display_buffer(msg, TRUE);
 }
 
 void
@@ -426,21 +374,23 @@ qt_pager(int msgnum)
     return;
 }
 
+/* Note: this now only returns a suggestion; it no longer takes genocide into
+   account, so that the caller can handle the RNG implications */
 const struct permonst *
-qt_montype(const d_level * dlev)
+qt_montype(const d_level *dlev, enum rng rng)
 {
     int qpm;
 
-    if (rn2(5)) {
+    if (rn2_on_rng(5, rng)) {
         qpm = urole.enemy1num;
-        if (qpm != NON_PM && rn2(5) && !(mvitals[qpm].mvflags & G_GENOD))
+        if (qpm != NON_PM && rn2_on_rng(5, rng))
             return &mons[qpm];
-        return mkclass(dlev, urole.enemy1sym, 0);
+        return mkclass(dlev, urole.enemy1sym, 0, rng);
     }
     qpm = urole.enemy2num;
-    if (qpm != NON_PM && rn2(5) && !(mvitals[qpm].mvflags & G_GENOD))
+    if (qpm != NON_PM && rn2_on_rng(5, rng))
         return &mons[qpm];
-    return mkclass(dlev, urole.enemy2sym, 0);
+    return mkclass(dlev, urole.enemy2sym, 0, rng);
 }
 
 /*questpgr.c*/

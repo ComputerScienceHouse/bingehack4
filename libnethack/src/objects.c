@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-06-15 */
 /* Copyright (c) Mike Threepoint, 1989.                           */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -58,7 +59,8 @@ const struct objclass const_objects[] = {
            0, ILLOBJ_CLASS, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
 
 /* weapons ... */
-#define WEAPON(name,app,kn,mg,bi,prob,wt,cost,sdam,ldam,hitbon,typ,sub,metal,color) \
+#define WEAPON(name,app,kn,mg,bi,prob,wt,cost,sdam,ldam,hitbon,typ,sub,metal, \
+               color) \
         OBJECT( \
             OBJ(name,app), BITS(kn,mg,1,0,0,1,0,0,bi,0,typ,sub,metal), 0, \
             WEAPON_CLASS, prob, 0, \
@@ -275,24 +277,30 @@ const struct objclass const_objects[] = {
 /* armor ... */
 /* IRON denotes ferrous metals, including steel.
  * Only IRON weapons and armor can rust.
- * Only COPPER (including brass) corrodes.
+ * Only COPPER (including brass), and IRON, corrode.
  * Some creatures are vulnerable to SILVER.
  */
-#define ARMOR(name,desc,kn,mgc,blk,power,prob,delay,wt,cost,ac,can,sub,metal,c) \
+#define ARMOR(name,desc,kn,mgc,blk,power,prob,delay,wt,cost,ac,can,sub,metal, \
+              c) \
         OBJECT( \
-                OBJ(name,desc), BITS(kn,0,1,0,mgc,1,0,0,blk,0,0,sub,metal), power, \
-                ARMOR_CLASS, prob, delay, wt, cost, \
-                0, 0, 10 - ac, can, wt, c )
+                OBJ(name,desc), BITS(kn,0,1,0,mgc,1,0,0,blk,0,0,sub,metal), \
+                power, ARMOR_CLASS, prob, delay, wt, cost, 0, 0, 10 - ac, can, \
+                wt, c )
 #define HELM(name,desc,kn,mgc,power,prob,delay,wt,cost,ac,can,metal,c) \
-        ARMOR(name,desc,kn,mgc,0,power,prob,delay,wt,cost,ac,can,ARM_HELM,metal,c)
+        ARMOR(name,desc,kn,mgc,0,power,prob,delay,wt,cost,ac,can,ARM_HELM, \
+              metal,c)
 #define CLOAK(name,desc,kn,mgc,power,prob,delay,wt,cost,ac,can,metal,c) \
-        ARMOR(name,desc,kn,mgc,0,power,prob,delay,wt,cost,ac,can,ARM_CLOAK,metal,c)
+        ARMOR(name,desc,kn,mgc,0,power,prob,delay,wt,cost,ac,can,ARM_CLOAK, \
+              metal,c)
 #define SHIELD(name,desc,kn,mgc,blk,power,prob,delay,wt,cost,ac,can,metal,c) \
-        ARMOR(name,desc,kn,mgc,blk,power,prob,delay,wt,cost,ac,can,ARM_SHIELD,metal,c)
+        ARMOR(name,desc,kn,mgc,blk,power,prob,delay,wt,cost,ac,can,ARM_SHIELD, \
+              metal,c)
 #define GLOVES(name,desc,kn,mgc,power,prob,delay,wt,cost,ac,can,metal,c) \
-        ARMOR(name,desc,kn,mgc,0,power,prob,delay,wt,cost,ac,can,ARM_GLOVES,metal,c)
+        ARMOR(name,desc,kn,mgc,0,power,prob,delay,wt,cost,ac,can,ARM_GLOVES, \
+              metal,c)
 #define BOOTS(name,desc,kn,mgc,power,prob,delay,wt,cost,ac,can,metal,c) \
-        ARMOR(name,desc,kn,mgc,0,power,prob,delay,wt,cost,ac,can,ARM_BOOTS,metal,c)
+        ARMOR(name,desc,kn,mgc,0,power,prob,delay,wt,cost,ac,can,ARM_BOOTS, \
+              metal,c)
 
 /* helmets */
     HELM("elven leather helm", "leather hat",
@@ -330,7 +338,8 @@ const struct objclass const_objects[] = {
  *          the same defined in monst.c.
  */
 #define DRGN_ARMR(name,mgc,power,cost,ac,color) \
-        ARMOR(name,NULL,1,mgc,1,power,0,5,40,cost,ac,0,ARM_SUIT,DRAGON_HIDE,color)
+        ARMOR(name,NULL,1,mgc,1,power,0,5,40,cost,ac,0,ARM_SUIT,DRAGON_HIDE, \
+              color)
 /* 3.4.1: dragon scale mail reclassified as "magic" since magic is
    needed to create them */
     DRGN_ARMR("gray dragon scale mail", 1, ANTIMAGIC, 1200, 1, CLR_GRAY),
@@ -557,26 +566,28 @@ const struct objclass const_objects[] = {
 
 /* tools ... */
 /* tools with weapon characteristics come last */
-#define TOOL(name,desc,kn,mrg,mgc,chg,prob,wt,cost,mat,color) \
-        OBJECT( OBJ(name,desc), \
-           BITS(kn,mrg,chg,0,mgc,chg,0,0,0,0,0,P_NONE,mat), \
-           0, TOOL_CLASS, prob, 0, \
-           wt, cost, 0, 0, 0, 0, wt, color )
-#define LIGHTSOURCE(name,desc,kn,mrg,mgc,chg,prob,wt,cost,mat,color) \
-       OBJECT( OBJ(name,desc), \
-               BITS(kn,mrg,1,0,mgc,chg,0,0,0,0,0,P_NONE,mat), \
-               0, TOOL_CLASS, prob, 0, \
-               wt, cost, 0, 0, 0, 0, wt, color )
-#define CONTAINER(name,desc,kn,mgc,chg,prob,wt,cost,mat,color) \
-        OBJECT( OBJ(name,desc), \
-           BITS(kn,0,chg,1,mgc,chg,0,0,0,0,0,P_NONE,mat), \
-           0, TOOL_CLASS, prob, 0, \
-           wt, cost, 0, 0, 0, 0, wt, color )
+#define TOOLX(name,desc,kn,mrg,mgc,chg,prob,wt,cost,mat,color,power)    \
+    OBJECT( OBJ(name,desc),                                             \
+            BITS(kn,mrg,chg,0,mgc,chg,0,0,0,0,0,P_NONE,mat),            \
+            power, TOOL_CLASS, prob, 0,                                 \
+            wt, cost, 0, 0, 0, 0, wt, color )
+#define TOOL(name,desc,kn,mrg,mgc,chg,prob,wt,cost,mat,color)   \
+    TOOLX(name,desc,kn,mrg,mgc,chg,prob,wt,cost,mat,color,0)
+#define LIGHTSOURCE(name,desc,kn,mrg,mgc,chg,prob,wt,cost,mat,color)    \
+    OBJECT( OBJ(name,desc),                                             \
+            BITS(kn,mrg,1,0,mgc,chg,0,0,0,0,0,P_NONE,mat),              \
+            0, TOOL_CLASS, prob, 0,                                     \
+            wt, cost, 0, 0, 0, 0, wt, color )
+#define CONTAINER(name,desc,kn,mgc,chg,prob,wt,cost,mat,color)  \
+    OBJECT( OBJ(name,desc),                                     \
+            BITS(kn,0,chg,1,mgc,chg,0,0,0,0,0,P_NONE,mat),      \
+            0, TOOL_CLASS, prob, 0,                             \
+            wt, cost, 0, 0, 0, 0, wt, color )
 #define WEPTOOL(name,desc,kn,mgc,bi,prob,wt,cost,sdam,ldam,hitbon,sub,mat,clr) \
-        OBJECT( OBJ(name,desc), \
-           BITS(kn,0,1,0,mgc,1,0,0,bi,0,hitbon,sub,mat), \
-           0, TOOL_CLASS, prob, 0, \
-           wt, cost, sdam, ldam, hitbon, 0, wt, clr )
+    OBJECT( OBJ(name,desc),                                             \
+            BITS(kn,0,1,0,mgc,1,0,0,bi,0,hitbon,sub,mat),               \
+            0, TOOL_CLASS, prob, 0,                                     \
+            wt, cost, sdam, ldam, hitbon, 0, wt, clr )
 /* containers */
     CONTAINER("large box", NULL, 1, 0, 0, 40, 350, 8, WOOD, HI_WOOD),
     CONTAINER("chest", NULL, 1, 0, 0, 35, 600, 16, WOOD, HI_WOOD),
@@ -607,8 +618,8 @@ const struct objclass const_objects[] = {
     TOOL("crystal ball", "glass orb",
          0, 0, 1, 1, 15, 150, 60, GLASS, HI_GLASS),
     TOOL("lenses", NULL, 1, 0, 0, 0, 5, 3, 80, GLASS, HI_GLASS),
-    TOOL("blindfold", NULL, 1, 0, 0, 0, 50, 2, 20, CLOTH, CLR_BLACK),
-    TOOL("towel", NULL, 1, 0, 0, 0, 50, 2, 50, CLOTH, CLR_MAGENTA),
+    TOOLX("blindfold", NULL, 1, 0, 0, 0, 50, 2, 20, CLOTH, CLR_BLACK, BLINDED),
+    TOOLX("towel", NULL, 1, 0, 0, 0, 50, 2, 50, CLOTH, CLR_MAGENTA, BLINDED),
     TOOL("saddle", NULL, 1, 0, 0, 0, 5, 200, 150, LEATHER, HI_LEATHER),
     TOOL("leash", NULL, 1, 0, 0, 0, 65, 12, 20, LEATHER, HI_LEATHER),
     TOOL("stethoscope", NULL, 1, 0, 0, 0, 25, 4, 75, IRON, HI_METAL),
@@ -618,8 +629,8 @@ const struct objclass const_objects[] = {
     TOOL("figurine", NULL, 1, 0, 1, 0, 25, 50, 80, MINERAL, HI_MINERAL),
     TOOL("magic marker", NULL, 1, 0, 1, 1, 15, 2, 50, PLASTIC, CLR_RED),
 /* traps */
-    TOOL("land mine", NULL, 1, 0, 0, 0, 0, 300, 180, IRON, CLR_RED),
-    TOOL("beartrap", NULL, 1, 0, 0, 0, 0, 200, 60, IRON, HI_METAL),
+    TOOL("land mine", "explosive trap", 0, 0, 0, 0, 0, 300, 180, IRON, CLR_RED),
+    TOOL("beartrap", "toothed trap", 0, 0, 0, 0, 0, 200, 60, IRON, HI_METAL),
 /* instruments */
     TOOL("tin whistle", "whistle", 0, 0, 0, 0, 100, 3, 10, METAL, HI_METAL),
     TOOL("magic whistle", "whistle", 0, 0, 1, 0, 30, 3, 10, METAL, HI_METAL),
@@ -778,85 +789,116 @@ const struct objclass const_objects[] = {
     SCROLL("blank paper", "unlabeled", 0, 28, 60),
 #undef SCROLL
 
-/* spellbooks ... */
-#define SPELL(name,desc,sub,prob,delay,level,mgc,dir,color) OBJECT( \
-        OBJ(name,desc), BITS(0,0,0,0,mgc,0,0,0,0,0,dir,sub,PAPER), 0, \
-            SPBOOK_CLASS, prob, delay, \
-            50, level*100, 0, 0, 0, level, 20, color )
-    SPELL("dig", "parchment", P_MATTER_SPELL, 20, 6, 5, 1, RAY, HI_PAPER),
-    SPELL("magic missile", "vellum", P_ATTACK_SPELL, 45, 2, 2, 1, RAY,
-          HI_PAPER),
-    SPELL("fireball", "ragged", P_ATTACK_SPELL, 20, 4, 4, 1, RAY, HI_PAPER),
-    SPELL("cone of cold", "dog eared", P_ATTACK_SPELL, 10, 7, 4, 1, RAY,
-          HI_PAPER),
-    SPELL("sleep", "mottled", P_ENCHANTMENT_SPELL, 50, 1, 1, 1, RAY, HI_PAPER),
-    SPELL("finger of death", "stained", P_ATTACK_SPELL, 5, 10, 7, 1, RAY,
-          HI_PAPER),
-    SPELL("light", "cloth", P_DIVINATION_SPELL, 45, 1, 1, 1, NODIR, HI_CLOTH),
+/*
+ * spellbooks ...
+ * note: the number of "ordinary" spellbooks must not exceed MAXSPELL-SPID_COUNT
+ * (otherwise we have problems assigning letters); each spell has a distinct
+ * default letter that's either lowercase, or an uppercase letter that isn't in
+ * the last SPID_COUNT (those letters are reserved for supernatural abilities)
+ *
+ * Currently used: aABcCdDeEfFgGhHiIjkKlLmMnoOpPrRsStTuUvwxz
+ *         unused: bJNqQy
+ *       reserved: VWXYZ
+ *
+ * Reasoning:
+ * - most spells get the first letter of their name
+ * - in case of clashes, we use the first letter of a subsequent word, if any
+ * - if there are still clashes (e.g. 'c' spells, 'detect *', 1-word spells)
+ *   we use a later letter from the word, or a letter that fits thematically
+ *   (e.g. z - sleep)
+ * - force bolt gets 'a' because that's where it is for starting wizards in all
+ *   previous versions
+ * - effects that are more likely to be spammed get first pick of the lowercase
+ *   letters
+ *
+ * The user can override these letters in-game with the + command.
+ */
+#define SPELL(name,desc,sub,prob,delay,level,mgc,dir,color,deflet)      \
+    OBJECT( OBJ(name,desc), BITS(0,0,0,0,mgc,0,0,0,0,0,dir,sub,PAPER), 0, \
+            SPBOOK_CLASS, prob, delay,                                  \
+            50, level*100, 0, 0, deflet, level, 20, color )
+    SPELL("dig", "parchment", P_MATTER_SPELL, 20, 6, 5, 1,
+          RAY, HI_PAPER, 'd'),
+    SPELL("magic missile", "vellum", P_ATTACK_SPELL, 45, 2, 2, 1,
+          RAY, HI_PAPER, 'm'),
+    SPELL("fireball", "ragged", P_ATTACK_SPELL, 20, 4, 4, 1,
+          RAY, HI_PAPER, 'f'),
+    SPELL("cone of cold", "dog eared", P_ATTACK_SPELL, 10, 7, 4, 1,
+          RAY, HI_PAPER, 'o'),
+    SPELL("sleep", "mottled", P_ENCHANTMENT_SPELL, 50, 1, 1, 1,
+          RAY, HI_PAPER, 'z'),
+    SPELL("finger of death", "stained", P_ATTACK_SPELL, 5, 10, 7, 1,
+          RAY, HI_PAPER, 'F'),
+    SPELL("light", "cloth", P_DIVINATION_SPELL, 45, 1, 1, 1,
+          NODIR, HI_CLOTH, 'l'),
     SPELL("detect monsters", "leather-bound", P_DIVINATION_SPELL, 43, 1, 1, 1,
-          NODIR, HI_LEATHER),
-    SPELL("healing", "white", P_HEALING_SPELL, 40, 2, 1, 1, IMMEDIATE,
-          CLR_WHITE),
-    SPELL("knock", "pink", P_MATTER_SPELL, 35, 1, 1, 1, IMMEDIATE,
-          CLR_BRIGHT_MAGENTA),
-    SPELL("force bolt", "red", P_ATTACK_SPELL, 35, 2, 1, 1, IMMEDIATE, CLR_RED),
+          NODIR, HI_LEATHER, 'n'),
+    SPELL("healing", "white", P_HEALING_SPELL, 40, 2, 1, 1,
+          IMMEDIATE, CLR_WHITE, 'h'),
+    SPELL("knock", "pink", P_MATTER_SPELL, 35, 1, 1, 1,
+          IMMEDIATE, CLR_BRIGHT_MAGENTA, 'k'),
+    SPELL("force bolt", "red", P_ATTACK_SPELL, 35, 2, 1, 1,
+          IMMEDIATE, CLR_RED, 'a'),
     SPELL("confuse monster", "orange", P_ENCHANTMENT_SPELL, 30, 2, 2, 1,
-          IMMEDIATE, CLR_ORANGE),
-    SPELL("cure blindness", "yellow", P_HEALING_SPELL, 25, 2, 2, 1, IMMEDIATE,
-          CLR_YELLOW),
-    SPELL("drain life", "velvet", P_ATTACK_SPELL, 10, 2, 2, 1, IMMEDIATE,
-          CLR_MAGENTA),
+          IMMEDIATE, CLR_ORANGE, 'u'),
+    SPELL("cure blindness", "yellow", P_HEALING_SPELL, 25, 2, 2, 1,
+          IMMEDIATE, CLR_YELLOW, 'B'),
+    SPELL("drain life", "velvet", P_ATTACK_SPELL, 10, 2, 2, 1,
+          IMMEDIATE, CLR_MAGENTA, 'D'),
     SPELL("slow monster", "light green", P_ENCHANTMENT_SPELL, 30, 2, 2, 1,
-          IMMEDIATE, CLR_BRIGHT_GREEN),
-    SPELL("wizard lock", "dark green", P_MATTER_SPELL, 30, 3, 2, 1, IMMEDIATE,
-          CLR_GREEN),
-    SPELL("create monster", "turquoise", P_CLERIC_SPELL, 35, 3, 2, 1, NODIR,
-          CLR_BRIGHT_CYAN),
-    SPELL("detect food", "cyan", P_DIVINATION_SPELL, 30, 3, 2, 1, NODIR,
-          CLR_CYAN),
-    SPELL("cause fear", "light blue", P_ENCHANTMENT_SPELL, 25, 3, 3, 1, NODIR,
-          CLR_BRIGHT_BLUE),
-    SPELL("clairvoyance", "dark blue", P_DIVINATION_SPELL, 15, 3, 3, 1, NODIR,
-          CLR_BLUE),
-    SPELL("cure sickness", "indigo", P_HEALING_SPELL, 32, 3, 3, 1, NODIR,
-          CLR_BLUE),
+          IMMEDIATE, CLR_BRIGHT_GREEN, 's'),
+    SPELL("wizard lock", "dark green", P_MATTER_SPELL, 30, 3, 2, 1,
+          IMMEDIATE, CLR_GREEN, 'w'),
+    SPELL("create monster", "turquoise", P_CLERIC_SPELL, 35, 3, 2, 1,
+          NODIR, CLR_BRIGHT_CYAN, 'O'),
+    SPELL("detect food", "cyan", P_DIVINATION_SPELL, 30, 3, 2, 1,
+          NODIR, CLR_CYAN, 'E'),
+    SPELL("cause fear", "light blue", P_ENCHANTMENT_SPELL, 25, 3, 3, 1,
+          NODIR, CLR_BRIGHT_BLUE, 'c'),
+    SPELL("clairvoyance", "dark blue", P_DIVINATION_SPELL, 15, 3, 3, 1,
+          NODIR, CLR_BLUE, 'v'),
+    SPELL("cure sickness", "indigo", P_HEALING_SPELL, 32, 3, 3, 1,
+          NODIR, CLR_BLUE, 'K'),
     SPELL("charm monster", "magenta", P_ENCHANTMENT_SPELL, 20, 3, 3, 1,
-          IMMEDIATE, CLR_MAGENTA),
-    SPELL("haste self", "purple", P_ESCAPE_SPELL, 33, 4, 3, 1, NODIR,
-          CLR_MAGENTA),
-    SPELL("detect unseen", "violet", P_DIVINATION_SPELL, 20, 4, 3, 1, NODIR,
-          CLR_MAGENTA),
-    SPELL("levitation", "tan", P_ESCAPE_SPELL, 20, 4, 4, 1, NODIR, CLR_BROWN),
-    SPELL("extra healing", "plaid", P_HEALING_SPELL, 27, 5, 3, 1, IMMEDIATE,
-          CLR_GREEN),
-    SPELL("restore ability", "light brown", P_HEALING_SPELL, 25, 5, 4, 1, NODIR,
-          CLR_BROWN),
-    SPELL("invisibility", "dark brown", P_ESCAPE_SPELL, 25, 5, 4, 1, NODIR,
-          CLR_BROWN),
-    SPELL("detect treasure", "gray", P_DIVINATION_SPELL, 20, 5, 4, 1, NODIR,
-          CLR_GRAY),
-    SPELL("remove curse", "wrinkled", P_CLERIC_SPELL, 25, 5, 3, 1, NODIR,
-          HI_PAPER),
-    SPELL("magic mapping", "dusty", P_DIVINATION_SPELL, 18, 7, 5, 1, NODIR,
-          HI_PAPER),
-    SPELL("identify", "bronze", P_DIVINATION_SPELL, 20, 6, 3, 1, NODIR,
-          HI_COPPER),
-    SPELL("turn undead", "copper", P_CLERIC_SPELL, 16, 8, 6, 1, IMMEDIATE,
-          HI_COPPER),
-    SPELL("polymorph", "silver", P_MATTER_SPELL, 10, 8, 6, 1, IMMEDIATE,
-          HI_SILVER),
-    SPELL("teleport away", "gold", P_ESCAPE_SPELL, 15, 6, 6, 1, IMMEDIATE,
-          HI_GOLD),
-    SPELL("create familiar", "glittering", P_CLERIC_SPELL, 10, 7, 6, 1, NODIR,
-          CLR_WHITE),
-    SPELL("cancellation", "shining", P_MATTER_SPELL, 15, 8, 7, 1, IMMEDIATE,
-          CLR_WHITE),
-    SPELL("protection", "dull", P_CLERIC_SPELL, 18, 3, 1, 1, NODIR, HI_PAPER),
-    SPELL("jumping", "thin", P_ESCAPE_SPELL, 20, 3, 1, 1, IMMEDIATE, HI_PAPER),
-    SPELL("stone to flesh", "thick", P_HEALING_SPELL, 15, 1, 3, 1, IMMEDIATE,
-          HI_PAPER),
+          IMMEDIATE, CLR_MAGENTA, 'e'),
+    SPELL("haste self", "purple", P_ESCAPE_SPELL, 33, 4, 3, 1,
+          NODIR, CLR_MAGENTA, 'H'),
+    SPELL("detect unseen", "violet", P_DIVINATION_SPELL, 20, 4, 3, 1,
+          NODIR, CLR_MAGENTA, 'U'),
+    SPELL("levitation", "tan", P_ESCAPE_SPELL, 20, 4, 4, 1,
+          NODIR, CLR_BROWN, 'L'),
+    SPELL("extra healing", "plaid", P_HEALING_SPELL, 27, 5, 3, 1,
+          IMMEDIATE, CLR_GREEN, 'x'),
+    SPELL("restore ability", "light brown", P_HEALING_SPELL, 25, 5, 4, 1,
+          NODIR, CLR_BROWN, 'R'),
+    SPELL("invisibility", "dark brown", P_ESCAPE_SPELL, 25, 5, 4, 1,
+          NODIR, CLR_BROWN, 'i'),
+    SPELL("detect treasure", "gray", P_DIVINATION_SPELL, 20, 5, 4, 1,
+          NODIR, CLR_GRAY, 'G'),
+    SPELL("remove curse", "wrinkled", P_CLERIC_SPELL, 25, 5, 3, 1,
+          NODIR, HI_PAPER, 'r'),
+    SPELL("magic mapping", "dusty", P_DIVINATION_SPELL, 18, 7, 5, 1,
+          NODIR, HI_PAPER, 'M'),
+    SPELL("identify", "bronze", P_DIVINATION_SPELL, 20, 6, 3, 1,
+          NODIR, HI_COPPER, 'I'),
+    SPELL("turn undead", "copper", P_CLERIC_SPELL, 16, 8, 6, 1,
+          IMMEDIATE, HI_COPPER, 'T'),
+    SPELL("polymorph", "silver", P_MATTER_SPELL, 10, 8, 6, 1,
+          IMMEDIATE, HI_SILVER, 'P'),
+    SPELL("teleport away", "gold", P_ESCAPE_SPELL, 15, 6, 6, 1,
+          IMMEDIATE, HI_GOLD, 't'),
+    SPELL("create familiar", "glittering", P_CLERIC_SPELL, 10, 7, 6, 1,
+          NODIR, CLR_WHITE, 'A'),
+    SPELL("cancellation", "shining", P_MATTER_SPELL, 15, 8, 7, 1,
+          IMMEDIATE, CLR_WHITE, 'C'),
+    SPELL("protection", "dull", P_CLERIC_SPELL, 18, 3, 1, 1,
+          NODIR, HI_PAPER, 'p'),
+    SPELL("jumping", "thin", P_ESCAPE_SPELL, 20, 3, 1, 1,
+          IMMEDIATE, HI_PAPER, 'j'),
+    SPELL("stone to flesh", "thick", P_HEALING_SPELL, 15, 1, 3, 1,
+          IMMEDIATE, HI_PAPER, 'S'),
 /* blank spellbook must come last because it retains its description */
-    SPELL("blank paper", "plain", P_NONE, 18, 0, 0, 0, 0, HI_PAPER),
+    SPELL("blank paper", "plain", P_NONE, 18, 0, 0, 0, 0, HI_PAPER, 0),
 /* a special, one of a kind, spellbook */
     OBJECT(OBJ("Book of the Dead", "papyrus"),
            BITS(0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, P_NONE, PAPER), 0,
@@ -912,10 +954,11 @@ const struct objclass const_objects[] = {
         OBJ(name,desc), \
             BITS(0,1,0,0,0,0,0,0,0,HARDGEM(mohs),0,-P_SLING,glass), 0, \
             GEM_CLASS, prob, 0, 1, gval, 3, 3, 0, 0, nutr, color )
-#define ROCK(name,desc,kn,prob,wt,gval,sdam,ldam,mgc,nutr,mohs,glass,color) OBJECT( \
-        OBJ(name,desc), \
+#define ROCK(name,desc,kn,prob,wt,gval,sdam,ldam,mgc,nutr,mohs,glass,color) \
+        OBJECT( OBJ(name,desc), \
             BITS(kn,1,0,0,mgc,0,0,0,0,HARDGEM(mohs),0,-P_SLING,glass), 0, \
             GEM_CLASS, prob, 0, wt, gval, sdam, ldam, 0, 0, nutr, color )
+    /* makedefs and mkobj assume that all true gems come first */
     GEM("dilithium crystal", "white", 2, 1, 4500, 15, 5, GEMSTONE, CLR_WHITE),
     GEM("diamond", "white", 3, 1, 4000, 15, 10, GEMSTONE, CLR_WHITE),
     GEM("ruby", "red", 4, 1, 3500, 15, 9, GEMSTONE, CLR_RED),
@@ -1023,3 +1066,4 @@ init_objlist(void)
 #endif /* !OBJECTS_PASS_2_ */
 
 /*objects.c*/
+

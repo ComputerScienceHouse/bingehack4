@@ -1,21 +1,18 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
+#include "common_options.h"
 #include <ctype.h>
 
 #define WINTYPELEN 16
 
-static int change_inv_order(char *op);
-static struct nh_autopickup_rules *copy_autopickup_rules(
-  const struct nh_autopickup_rules *in);
+static int change_inv_order(const char *op);
+static struct nh_option_desc *new_opt_struct(void);
 
 /* -------------------------------------------------------------------------- */
-
-/* output array for parse_autopickup_rules. */
-static struct nh_autopickup_rule ap_rules_array[AUTOPICKUP_MAX_RULES];
-static struct nh_autopickup_rules ap_rules_static;
 
 #define listlen(list) (sizeof(list)/sizeof(list[0]))
 
@@ -46,14 +43,27 @@ static const struct nh_listitem pickup_burden_list[] = {
 static const struct nh_enum_option pickup_burden_spec =
     { pickup_burden_list, listlen(pickup_burden_list) };
 
-static const struct nh_listitem runmode_list[] = {
-    {RUN_CRAWL, "crawl"},
-    {RUN_STEP, "step"},
-    {RUN_LEAP, "leap"},
-    {RUN_TPORT, "teleport"}
+static const struct nh_listitem movecommand_list[] = {
+    {uim_nointeraction, "nointeraction"},
+    {uim_onlyitems, "onlyitems"},
+    {uim_displace, "displace"},
+    {uim_pacifist, "pacifist"},
+    {uim_attackhostile, "attackhostile"},
+    {uim_traditional, "traditional"},
+    {uim_standard, "standard"},
+    {uim_indiscriminate, "indiscriminate"},
+    {uim_forcefight, "forcefight"}
 };
-static const struct nh_enum_option runmode_spec =
-    { runmode_list, listlen(runmode_list) };
+static const struct nh_enum_option movecommand_spec =
+    { movecommand_list, listlen(movecommand_list) };
+
+static const struct nh_listitem mode_list[] = {
+    {MODE_NORMAL, "normal"},
+    {MODE_EXPLORE, "explore"},
+    {MODE_WIZARD, "debug"}
+};
+static const struct nh_enum_option mode_spec =
+    { mode_list, listlen(mode_list) };
 
 static const struct nh_listitem align_list[] = {
     {0, "lawful"},
@@ -80,7 +90,6 @@ static struct nh_enum_option role_spec = { NULL, 0 };
 static const struct nh_listitem pettype_list[] = {
     {'c', "cat"},
     {'d', "dog"},
-    {'h', "horse"},
     {'n', "no pet"},
     {0, "random"}
 };
@@ -117,106 +126,131 @@ static struct nh_autopickup_rule def_ap_ruleset[] = {
     {"", WAND_SYM, B_DONT_CARE, AP_GRAB},
     {"", POTION_SYM, B_DONT_CARE, AP_GRAB},
 };
-static const struct nh_autopickup_rules def_autopickup =
+static struct nh_autopickup_rules def_autopickup =
     { def_ap_ruleset, SIZE(def_ap_ruleset) };
 
 
-#define VTRUE (void*)TRUE
-#define VFALSE (void*)FALSE
-
+/*
+ * This is statically allocated, which means a pointer to it must never
+ * escape this file (since nh_option_desc is supposed to be dynamically
+ * allocated.
+ *
+ * The only valid use of this, therefore, is to copy it to a new
+ * dynamically-allocated copy and go from there.
+ */
 static const struct nh_option_desc const_options[] = {
-    {"autodig", "dig if moving and wielding digging tool", OPTTYPE_BOOL,
-     {VFALSE}},
-    {"autopickup", "automatically pick up objects you move over", OPTTYPE_BOOL,
-     {VTRUE}},
+    {"autodig", "dig if moving and wielding digging tool",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = FALSE}},
+    {"autodigdown", "autodig downwards tries to create a pit or hole",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = FALSE}},
+    {"autopickup", "automatically pick up objects you move over",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = TRUE}},
     {"autopickup_rules",
      "rules to decide what to autopickup if autopickup is on",
-     OPTTYPE_AUTOPICKUP_RULES, {(void *)&def_autopickup}},
+     nh_birth_ingame, OPTTYPE_AUTOPICKUP_RULES, {.ar = &def_autopickup}},
     {"autoquiver",
      "when firing with an empty quiver, select something suitable",
-     OPTTYPE_BOOL, {VFALSE}},
-    {"comment", "has no effect", OPTTYPE_STRING, {""}},
-    {"confirm", "ask before hitting tame or peaceful monsters", OPTTYPE_BOOL,
-     {VTRUE}},
-    {"disclose", "whether to disclose information at end of game", OPTTYPE_ENUM,
-     {(void *)DISCLOSE_PROMPT_DEFAULT_YES}},
-    {"fruit", "the name of a fruit you enjoy eating", OPTTYPE_STRING,
-     {"slime mold"}},
-    {"lit_corridor", "show a dark corridor as lit if in sight", OPTTYPE_BOOL,
-     {VFALSE}},
-    {"menustyle", "user interface for object selection", OPTTYPE_ENUM,
-     {(void *)MENU_FULL}},
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = FALSE}},
+    {"corridorbranch", "branching corridors do not stop farmove",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = TRUE}},
+    {"disclose", "whether to disclose information at end of game",
+     nh_birth_ingame, OPTTYPE_ENUM, {.e = DISCLOSE_PROMPT_DEFAULT_YES}},
+    {"fruit", "the name of a fruit you enjoy eating",
+     nh_birth_ingame, OPTTYPE_STRING, {.s = NULL}},
+    {"menustyle", "user interface for object selection",
+     nh_birth_ingame, OPTTYPE_ENUM, {.e = MENU_FULL}},
+    {"movecommand", "what the movement keys do", nh_birth_ingame,
+     OPTTYPE_ENUM, {.e = uim_standard}},
+    {"multistage_equip", "equipping items can imply unequipping others",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = TRUE}},
     {"packorder", "the inventory order of the items in your pack",
-     OPTTYPE_STRING, {"$\")[%?+!=/(*`0_"}},
-    {"pickup_burden", "maximum burden picked up before prompt", OPTTYPE_ENUM,
-     {(void *)MOD_ENCUMBER}},
-    {"pickup_thrown", "autopickup items you threw or fired", OPTTYPE_BOOL,
-     {VTRUE}},
+     nh_birth_ingame, OPTTYPE_STRING, {.s = NULL}},
+    {"pickup_burden", "maximum burden picked up before prompt",
+     nh_birth_ingame, OPTTYPE_ENUM, {.e = MOD_ENCUMBER}},
+    {"pickup_thrown", "autopickup items you threw or fired",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = TRUE}},
     {"prayconfirm", "use confirmation prompt when #pray command issued",
-     OPTTYPE_BOOL, {VTRUE}},
-    {"pushweapon",
-     "when wielding a new weapon, put your previous weapon into the secondary weapon slot",
-     OPTTYPE_BOOL, {VFALSE}},
-    {"runmode", "display frequency when `running' or `travelling'",
-     OPTTYPE_ENUM, {(void *)RUN_LEAP}},
-    {"safe_pet", "prevent you from (knowingly) attacking your pet(s)",
-     OPTTYPE_BOOL, {VTRUE}},
-    {"show_uncursed", "always show uncursed status", OPTTYPE_BOOL, {VFALSE}},
-    {"showrace", "show yourself by your race rather than by role", OPTTYPE_BOOL,
-     {VFALSE}},
-    {"sortpack", "group similar kinds of objects in inventory", OPTTYPE_BOOL,
-     {VTRUE}},
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = TRUE}},
+    {"pushweapon", "offhand the old weapon when wielding a new one",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = FALSE}},
+    {"show_uncursed", "always show uncursed status",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = FALSE}},
+    {"showrace", "show yourself by your race rather than by role",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = FALSE}},
+    {"sortpack", "group similar kinds of objects in inventory",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = TRUE}},
     {"sparkle", "display sparkly effect for resisted magical attacks",
-     OPTTYPE_BOOL, {VTRUE}},
-    {"tombstone", "print tombstone when you die", OPTTYPE_BOOL, {VTRUE}},
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = TRUE}},
+    {"tombstone", "print tombstone when you die",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = TRUE}},
     {"travel_interrupt", "interrupt travel (_) when a hostile is in sight",
-     OPTTYPE_BOOL, {VTRUE}},
-    {"verbose", "print more commentary during the game", OPTTYPE_BOOL, {VTRUE}},
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = TRUE}},
+    {"verbose", "print more commentary during the game",
+     nh_birth_ingame, OPTTYPE_BOOL, {.b = TRUE}},
 
-    {NULL, NULL, OPTTYPE_BOOL, {NULL}}
-};
+    {"name", "character name",
+     nh_birth_lasting, OPTTYPE_STRING, {.s = NULL}},
+    {"mode", "game mode",
+     nh_birth_lasting, OPTTYPE_ENUM, {.e = MODE_NORMAL}},
+    {"seed", "if nonblank, replay a given dungeon (non-scoring)",
+     nh_birth_lasting, OPTTYPE_STRING, {.s = NULL}},
+    {"timezone", "time zone to use for time-dependent effects",
+     nh_birth_lasting, OPTTYPE_ENUM, {.e = 0}},
+    {"elbereth", "difficulty: the E-word repels monsters",
+     nh_birth_lasting, OPTTYPE_BOOL, {.b = TRUE}},
+    {"reincarnation", "Special Rogue-like levels",
+     nh_birth_lasting, OPTTYPE_BOOL, {.b = TRUE}},
+    {"seduction", "certain monsters may seduce you",
+     nh_birth_lasting, OPTTYPE_BOOL, {.b = TRUE}},
+    {"bones", "allow bones levels",
+     nh_birth_lasting, OPTTYPE_BOOL, {.b = TRUE}},
+    {"permablind", "spend the whole game blind",
+     nh_birth_lasting, OPTTYPE_BOOL, {.b = FALSE}},
+    {"permahallu", "spend the whole game hallucinating",
+     nh_birth_lasting, OPTTYPE_BOOL, {.b = FALSE}},
+    {"polyinit", "play in monster form (non-scoring)",
+     nh_birth_lasting, OPTTYPE_ENUM, {.e = -1}},
 
+    {"legacy", "print introductory message",
+     nh_birth_creation, OPTTYPE_BOOL, {.b = TRUE}},
+    {"align", "your starting alignment",
+     nh_birth_creation, OPTTYPE_ENUM, {.e = ROLE_NONE}},
+    {"gender", "your starting gender",
+     nh_birth_creation, OPTTYPE_ENUM, {.e = ROLE_NONE}},
+    {"race", "your starting race",
+     nh_birth_creation, OPTTYPE_ENUM, {.e = ROLE_NONE}},
+    {"role", "your starting role",
+     nh_birth_creation, OPTTYPE_ENUM, {.e = ROLE_NONE}},
+    {"catname", "the name of your (first) cat",
+     nh_birth_creation, OPTTYPE_STRING, {.s = NULL}},
+    {"dogname", "the name of your (first) dog",
+     nh_birth_creation, OPTTYPE_STRING, {.s = NULL}},
+    {"horsename", "the name of your (first) horse",
+     nh_birth_creation, OPTTYPE_STRING, {.s = NULL}},
+    {"pettype", "your preferred initial pet type",
+     nh_birth_creation, OPTTYPE_ENUM, {.e = 0}},
 
-static const struct nh_option_desc const_birth_options[] = {
-    {"elbereth", "difficulty: the E-word repels monsters", OPTTYPE_BOOL,
-     {VTRUE}},
-    {"reincarnation", "Special Rogue-like levels", OPTTYPE_BOOL, {VTRUE}},
-    {"seduction", "certain monsters may seduce you", OPTTYPE_BOOL, {VTRUE}},
-    {"bones", "allow bones levels", OPTTYPE_BOOL, {VTRUE}},
-    {"permablind", "spend the whole game blind", OPTTYPE_BOOL, {FALSE}},
-    {"permahallu", "spend the whole game hallucinating", OPTTYPE_BOOL, {FALSE}},
-    {"legacy", "print introductory message", OPTTYPE_BOOL, {VTRUE}},
-    {"align", "your starting alignment", OPTTYPE_ENUM, {(void *)ROLE_NONE}},
-    {"gender", "your starting gender", OPTTYPE_ENUM, {(void *)ROLE_NONE}},
-    {"race", "your starting race", OPTTYPE_ENUM, {(void *)ROLE_NONE}},
-    {"role", "your starting role", OPTTYPE_ENUM, {(void *)ROLE_NONE}},
-    {"catname", "the name of your (first) cat", OPTTYPE_STRING, {NULL}},
-    {"dogname", "the name of your (first) dog", OPTTYPE_STRING, {NULL}},
-    {"horsename", "the name of your (first) horse", OPTTYPE_STRING, {NULL}},
-    {"pettype", "your preferred initial pet type", OPTTYPE_ENUM, {0}},
-
-    {NULL, NULL, OPTTYPE_BOOL, {NULL}}
+    {NULL, NULL, nh_birth_ingame, OPTTYPE_BOOL, {.s = NULL}}
 };
 
 
 /* associate boolean options with variables directly */
-static const struct nh_boolopt_map boolopt_map[] = {
+static const struct nhlib_boolopt_map boolopt_map[] = {
     {"autodig", &flags.autodig},
+    {"autodigdown", &flags.autodigdown},
     {"autopickup", &flags.pickup},
     {"autoquiver", &flags.autoquiver},
-    {"confirm", &flags.confirm},
-    {"female", &flags.female},
+    {"corridorbranch", &flags.corridorbranch},
+    {"multistage_equip", &flags.cblock},
     {"legacy", &flags.legacy},
-    {"lit_corridor", &flags.lit_corridor},
-    {"pickup_thrown", &iflags.pickup_thrown},
+    {"pickup_thrown", &flags.pickup_thrown},
     {"prayconfirm", &flags.prayconfirm},
     {"pushweapon", &flags.pushweapon},
-    {"safe_pet", &flags.safe_dog},
-    {"show_uncursed", &iflags.show_uncursed},
-    {"showrace", &iflags.showrace},
+    {"show_uncursed", &flags.show_uncursed},
+    {"showrace", &flags.showrace},
     {"sortpack", &flags.sortpack},
     {"sparkle", &flags.sparkle},
-    {"travel_interrupt", &iflags.travel_interrupt},
+    {"travel_interrupt", &flags.travel_interrupt},
     {"tombstone", &flags.tombstone},
     {"verbose", &flags.verbose},
 
@@ -238,59 +272,42 @@ static const char def_inv_order[MAXOCLASSES] = {
 };
 
 
-struct nh_option_desc *ui_options;
-struct nh_boolopt_map *ui_boolopt_map;
-
-boolean(*ui_option_callback) (struct nh_option_desc *);
-
-/* most environment variables will eventually be printed in an error
- * message if they don't work, and most error message paths go through
- * BUFSZ buffers, which could be overflowed by a maliciously long
- * environment variable.  if a variable can legitimately be long, or
- * if it's put in a smaller buffer, the responsible code will have to
- * bounds-check itself.
- */
+/* Most environment variables will eventually be printed in an error message if
+   they don't work. Error messages now tend to be bounds-checked correctly, but
+   we nonetheless don't want to parrot maliciously long messages back to the
+   user because it spams their terminals. */
 char *
 nh_getenv(const char *ev)
 {
     char *getev = getenv(ev);
 
-    if (getev && strlen(getev) <= (BUFSZ / 2))
+    if (getev && strlen(getev) <= 128) /* same as 4.2 */
         return getev;
     else
         return NULL;
 }
 
 
-static struct nh_option_desc *
-find_option(struct nh_option_desc *optlist, const char *name)
-{
-    int i;
-
-    for (i = 0; optlist[i].name; i++)
-        if (!strcmp(name, optlist[i].name))
-            return &optlist[i];
-
-    return NULL;
-}
-
-
 static void
 build_role_spec(void)
 {
+    if (role_spec.choices)
+        return;
+
     int i;
     struct nh_listitem *choices;
 
     /* build list of roles */
-    for (i = 0; roles[i].name.m || roles[i].name.f; i++) ; /* just count em */
+    for (i = 0; roles[i].name.m || roles[i].name.f; i++)
+        ; /* just count em */
     role_spec.numchoices = i + 2;
     choices = malloc((i + 2) * sizeof (struct nh_listitem));
     for (i = 0; roles[i].name.m || roles[i].name.f; i++) {
         choices[i].id = i;
         if (roles[i].name.m)
-            choices[i].caption = (char *)roles[i].name.m;
+            choices[i].caption = roles[i].name.m;
         else
-            choices[i].caption = (char *)roles[i].name.f;
+            choices[i].caption = roles[i].name.f;
     }
     choices[i].id = ROLE_NONE;
     choices[i].caption = "ask";
@@ -303,16 +320,20 @@ build_role_spec(void)
 static void
 build_race_spec(void)
 {
+    if (race_spec.choices)
+        return;
+
     int i;
     struct nh_listitem *choices;
 
     /* build list of races */
-    for (i = 0; races[i].noun; i++) ;   /* just count em */
+    for (i = 0; races[i].noun; i++)
+        ;   /* just count em */
     race_spec.numchoices = i + 2;
     choices = malloc((i + 2) * sizeof (struct nh_listitem));
     for (i = 0; races[i].noun; i++) {
         choices[i].id = i;
-        choices[i].caption = (char *)races[i].noun;
+        choices[i].caption = races[i].noun;
     }
     choices[i].id = ROLE_NONE;
     choices[i].caption = "ask";
@@ -323,505 +344,325 @@ build_race_spec(void)
 }
 
 
-void
-init_opt_struct(void)
+struct nh_option_desc *
+new_opt_struct(void)
 {
-    options = clone_optlist(const_options);
-    birth_options = clone_optlist(const_birth_options);
+    struct nh_option_desc *options = nhlib_clone_optlist(const_options);
 
     build_role_spec();
     build_race_spec();
 
     /* initialize option definitions */
-    find_option(options, "comment")->s.maxlen = BUFSZ;
-    find_option(options, "disclose")->e = disclose_spec;
-    find_option(options, "fruit")->s.maxlen = PL_FSIZ;
-    find_option(options, "menustyle")->e = menustyle_spec;
-    find_option(options, "pickup_burden")->e = pickup_burden_spec;
-    find_option(options, "packorder")->s.maxlen = MAXOCLASSES;
-    find_option(options, "runmode")->e = runmode_spec;
-    find_option(options, "autopickup_rules")->a = autopickup_spec;
+    nhlib_find_option(options, "disclose")->e = disclose_spec;
+    nhlib_find_option(options, "menustyle")->e = menustyle_spec;
+    nhlib_find_option(options, "movecommand")->e = movecommand_spec;
+    nhlib_find_option(options, "pickup_burden")->e = pickup_burden_spec;
+    nhlib_find_option(options, "autopickup_rules")->a = autopickup_spec;
 
-    find_option(birth_options, "align")->e = align_spec;
-    find_option(birth_options, "gender")->e = gender_spec;
-    find_option(birth_options, "role")->e = role_spec;
-    find_option(birth_options, "race")->e = race_spec;
-    find_option(birth_options, "pettype")->e = pettype_spec;
-    find_option(birth_options, "catname")->s.maxlen = PL_PSIZ;
-    find_option(birth_options, "dogname")->s.maxlen = PL_PSIZ;
-    find_option(birth_options, "horsename")->s.maxlen = PL_PSIZ;
+    nhlib_find_option(options, "name")->s.maxlen = PL_NSIZ;
+    nhlib_find_option(options, "seed")->s.maxlen = RNG_SEED_SIZE_BASE64;
+    nhlib_find_option(options, "mode")->e = mode_spec;
+    nhlib_find_option(options, "timezone")->e = timezone_spec;
+    nhlib_find_option(options, "polyinit")->e = polyinit_spec;
+    nhlib_find_option(options, "align")->e = align_spec;
+    nhlib_find_option(options, "gender")->e = gender_spec;
+    nhlib_find_option(options, "role")->e = role_spec;
+    nhlib_find_option(options, "race")->e = race_spec;
+    nhlib_find_option(options, "pettype")->e = pettype_spec;
+    nhlib_find_option(options, "catname")->s.maxlen = PL_PSIZ;
+    nhlib_find_option(options, "dogname")->s.maxlen = PL_PSIZ;
+    nhlib_find_option(options, "horsename")->s.maxlen = PL_PSIZ;
 
-    /* If no config file exists, these values will not get set until they have
-       already been used during game startup.  (-1) is a much better default,
-       as 0 will always cause a lawful male Archologist to be created */
-    flags.init_align = flags.init_gend = flags.init_race = flags.init_role = -1;
-}
+    struct nh_option_desc *fruit = nhlib_find_option(options, "fruit");
+    const char *def_fruit = "slime mold";
+    fruit->s.maxlen = PL_FSIZ;
+    fruit->value.s = malloc(strlen(def_fruit)+1);
+    strcpy(fruit->value.s, def_fruit);
 
+    struct nh_option_desc *packorder = nhlib_find_option(options, "packorder");
+    const char *def_packorder = "$\")[%?+!=/(*`0_";
+    packorder->s.maxlen = MAXOCLASSES;
+    packorder->value.s = malloc(strlen(def_packorder)+1);
+    strcpy(packorder->value.s, def_packorder);
 
-void
-cleanup_opt_struct(void)
-{
-    free((void *)role_spec.choices);
-    role_spec.choices = NULL;
-    free((void *)race_spec.choices);
-    race_spec.choices = NULL;
-    free_optlist(options);
-    options = NULL;
-    free_optlist(birth_options);
-    birth_options = NULL;
+    return options;
 }
 
 
 void
 initoptions(void)
 {
-    int i;
+    flags.mon_generation = 1;
 
-    iflags.mon_generation = TRUE;
-
-    iflags.travelcc.x = iflags.travelcc.y = -1;
-    flags.warnlevel = 1;
-    flags.warntype = 0L;
+    flags.travelcc.x = flags.travelcc.y = -1;
 
     /* init flags.inv_order this way, as setting it via the option requires a
        preexisting order */
     memcpy(flags.inv_order, def_inv_order, sizeof flags.inv_order);
 
     fruitadd(obj_descr[SLIME_MOLD].oc_name);
-    strncpy(pl_fruit, obj_descr[SLIME_MOLD].oc_name, PL_FSIZ);
-
-    /* init from option definitions */
-    for (i = 0; birth_options[i].name; i++)
-        nh_set_option(birth_options[i].name, birth_options[i].value, FALSE);
-
-    for (i = 0; options[i].name; i++)
-        nh_set_option(options[i].name, options[i].value, FALSE);
-
-    if (!active_birth_options)
-        /* at this point the user may no longer change their birth options.
-           active_birth_options will recieve birth option changes made during
-           log replay, so that we can show the user what birth options the
-           loaded game was started with */
-        active_birth_options = clone_optlist(birth_options);
-    else
-        /* the switch to alternate birth options has already happened, so make
-           sure those settings are active instead. */
-        for (i = 0; active_birth_options[i].name; i++)
-            nh_set_option(active_birth_options[i].name,
-                          active_birth_options[i].value, FALSE);
-}
-
-
-static boolean
-option_value_ok(struct nh_option_desc *option, union nh_optvalue value)
-{
-    int i;
-
-    switch (option->type) {
-    case OPTTYPE_BOOL:
-        if (value.b == ! !value.b)
-            return TRUE;
-        break;
-
-    case OPTTYPE_INT:
-        if (value.i >= option->i.min && value.i <= option->i.max)
-            return TRUE;
-        break;
-
-    case OPTTYPE_ENUM:
-        for (i = 0; i < option->e.numchoices; i++)
-            if (value.e == option->e.choices[i].id)
-                return TRUE;
-        break;
-
-    case OPTTYPE_STRING:
-        if (!value.s)
-            break;
-
-        if (strlen(value.s) > option->s.maxlen)
-            break;
-
-        if (!*value.s)
-            value.s = NULL;
-
-        return TRUE;
-
-    case OPTTYPE_AUTOPICKUP_RULES:
-        if (value.ar && value.ar->num_rules > AUTOPICKUP_MAX_RULES)
-            break;
-        return TRUE;
-    }
-
-    return FALSE;
-}
-
-
-static union nh_optvalue
-string_to_optvalue(struct nh_option_desc *option, char *str)
-{
-    union nh_optvalue value;
-    int i;
-
-    value.i = -99999;
-
-    switch (option->type) {
-    case OPTTYPE_BOOL:
-        if (!strcmp(str, "TRUE") || !strcmp(str, "true") || !strcmp(str, "1"))
-            value.b = TRUE;
-        else if (!strcmp(str, "FALSE") || !strcmp(str, "false") ||
-                 !strcmp(str, "0"))
-            value.b = FALSE;
-        else
-            value.i = 2;        /* intentionally invalid */
-
-        break;
-
-    case OPTTYPE_INT:
-        sscanf(str, "%d", &value.i);
-        break;
-
-    case OPTTYPE_ENUM:
-        for (i = 0; i < option->e.numchoices; i++)
-            if (!strcmp(str, option->e.choices[i].caption))
-                value.e = option->e.choices[i].id;
-        break;
-
-    case OPTTYPE_STRING:
-        if (*str)
-            value.s = str;
-        else
-            value.s = NULL;
-        break;
-
-    case OPTTYPE_AUTOPICKUP_RULES:
-        value.ar = parse_autopickup_rules(str);
-        break;
-    }
-
-    return value;
-}
-
-
-/* copy values carefully: copying pointers to strings on the stack is not good
- * return TRUE if the new value differs from the current value */
-static boolean
-copy_option_value(struct nh_option_desc *option, union nh_optvalue value)
-{
-    struct nh_autopickup_rules *aold, *anew;
-    int i;
-
-    switch (option->type) {
-    case OPTTYPE_STRING:
-        if (option->value.s == value.s ||
-            (option->value.s && value.s && !strcmp(option->value.s, value.s)))
-            return FALSE;       /* setting the option to it's current value;
-                                   nothing to copy */
-
-        if (option->value.s)
-            free(option->value.s);
-        option->value.s = NULL;
-        if (value.s) {
-            option->value.s = malloc(strlen(value.s) + 1);
-            strcpy(option->value.s, value.s);
-        }
-        break;
-
-    case OPTTYPE_AUTOPICKUP_RULES:
-        aold = option->value.ar;
-        anew = value.ar;
-
-        if (!aold && !anew)
-            return FALSE;
-
-        /* check rule set equality */
-        if (aold && anew && aold->num_rules == anew->num_rules) {
-            /* compare each individual rule */
-            for (i = 0; i < aold->num_rules; i++)
-                if (strcmp(aold->rules[i].pattern, anew->rules[i].pattern) ||
-                    aold->rules[i].oclass != anew->rules[i].oclass ||
-                    aold->rules[i].buc != anew->rules[i].buc ||
-                    aold->rules[i].action != anew->rules[i].action)
-                    break;      /* rule difference found */
-            if (i == aold->num_rules)
-                return FALSE;
-        }
-
-        if (aold) {
-            free(aold->rules);
-            free(aold);
-        }
-
-        option->value.ar = copy_autopickup_rules(value.ar);
-        break;
-
-    case OPTTYPE_BOOL:
-        if (option->value.b == value.b)
-            return FALSE;
-        option->value.b = value.b;
-        break;
-
-    case OPTTYPE_ENUM:
-        if (option->value.e == value.e)
-            return FALSE;
-        option->value.e = value.e;
-        break;
-
-    case OPTTYPE_INT:
-        if (option->value.i == value.i)
-            return FALSE;
-        option->value.i = value.i;
-        break;
-    }
-
-    return TRUE;
-
-}
-
-
-static boolean
-set_option(const char *name, union nh_optvalue value, boolean isstring)
-{
-    boolean is_ui = FALSE;
-    struct nh_option_desc *option = NULL;
-
-    if (options)
-        option = find_option(options, name);
-
-    if (!option && !program_state.game_running && birth_options)
-        option = find_option(birth_options, name);
-
-    if (!option && ui_options) {
-        option = find_option(ui_options, name);
-        is_ui = TRUE;
-    }
-
-    if (!option)
-        return FALSE;
-
-    /* if this option change affects game options (!is_ui) and happens during a 
-       replay (program_state.viewing) and the change isn't triggered by the
-       replay (!program_state.restoring) */
-    if (!is_ui && program_state.viewing && !program_state.restoring)
-        return FALSE;   /* Nope, sorry. That would mess up the replay */
-
-    if (isstring)
-        value = string_to_optvalue(option, value.s);
-
-    if (!option_value_ok(option, value))
-        return FALSE;
-
-    if (copy_option_value(option, value) && !is_ui)
-        log_option(option);     /* prev value != new value */
-
-    if (option->type == OPTTYPE_BOOL) {
-        int i;
-        boolean *bvar = NULL;
-        const struct nh_boolopt_map *boolmap = boolopt_map;
-
-        if (is_ui)
-            boolmap = ui_boolopt_map;
-
-        for (i = 0; boolmap[i].optname && !bvar; i++)
-            if (!strcmp(option->name, boolmap[i].optname))
-                bvar = boolmap[i].addr;
-
-        if (!bvar)
-            /* shouldn't happen */
-            return FALSE;
-
-        *bvar = option->value.b;
-        if (is_ui && ui_option_callback)
-            /* allow the ui to "see" changes to booleans, but the return value
-               doesn't mattter as the option was set here. */
-            ui_option_callback(option);
-        return TRUE;
-    } else if (is_ui)
-        return ui_option_callback(option);
-    /* regular non-boolean options */
-    else if (!strcmp("comment", option->name)) {
-        /* do nothing */
-    } else if (!strcmp("disclose", option->name)) {
-        flags.end_disclose = option->value.e;
-    } else if (!strcmp("fruit", option->name)) {
-        strncpy(pl_fruit, option->value.s, PL_FSIZ);
-        if (objects)    /* don't do fruitadd before the game is running */
-            fruitadd(pl_fruit);
-    } else if (!strcmp("menustyle", option->name)) {
-        flags.menu_style = option->value.e;
-    } else if (!strcmp("packorder", option->name)) {
-        if (!change_inv_order(option->value.s))
-            return FALSE;
-    } else if (!strcmp("pickup_burden", option->name)) {
-        flags.pickup_burden = option->value.e;
-    } else if (!strcmp("runmode", option->name)) {
-        iflags.runmode = option->value.e;
-    } else if (!strcmp("autopickup_rules", option->name)) {
-        if (iflags.ap_rules) {
-            free(iflags.ap_rules->rules);
-            free(iflags.ap_rules);
-            iflags.ap_rules = NULL;
-        }
-        iflags.ap_rules = copy_autopickup_rules(option->value.ar);
-    }
-    /* birth options */
-    else if (!strcmp("align", option->name)) {
-        flags.init_align = option->value.e;
-    } else if (!strcmp("gender", option->name)) {
-        flags.init_gend = option->value.e;
-    } else if (!strcmp("race", option->name)) {
-        flags.init_race = option->value.e;
-    } else if (!strcmp("role", option->name)) {
-        flags.init_role = option->value.e;
-    }
-
-    else if (!strcmp("catname", option->name)) {
-        strncpy(catname, option->value.s, PL_PSIZ);
-    } else if (!strcmp("dogname", option->name)) {
-        strncpy(dogname, option->value.s, PL_PSIZ);
-    } else if (!strcmp("horsename", option->name)) {
-        strncpy(horsename, option->value.s, PL_PSIZ);
-    } else if (!strcmp("pettype", option->name)) {
-        preferred_pet = (char)option->value.e;
-    }
-
-    else
-        /* unrecognized option */
-        return FALSE;
-
-    /* assume that any recognized option has been handled. */
-    return TRUE;
+    strncpy(gamestate.fruits.curname, obj_descr[SLIME_MOLD].oc_name, PL_FSIZ);
 }
 
 
 boolean
-nh_set_option(const char *name, union nh_optvalue value, boolean isstring)
+set_option(const char *name, union nh_optvalue value,
+           struct newgame_options *ngo)
+{
+    struct nh_option_desc *option = NULL, *options = new_opt_struct();
+    boolean ret = FALSE;
+
+    /* can't change options for other players */
+    if (program_state.followmode != FM_PLAY)
+        goto free;
+
+    if (options)
+        option = nhlib_find_option(options, name);
+
+    if (!option || (option->birth_option && program_state.game_running))
+        goto free;
+
+    if (!nhlib_option_value_ok(option, value))
+        goto free;
+
+    nhlib_copy_option_value(option, value);
+
+    if (option->type == OPTTYPE_BOOL) {
+        boolean *bvar = nhlib_find_boolopt(boolopt_map, option->name);
+
+        if (!bvar) {
+            impossible("no boolean for option '%s'", option->name);
+            goto free;
+        }
+        *bvar = option->value.b;
+
+        ret = TRUE;
+        goto free;
+    } else if (!strcmp("disclose", option->name)) {
+        flags.end_disclose = option->value.e;
+    } else if (!strcmp("fruit", option->name)) {
+        strncpy(gamestate.fruits.curname, option->value.s, PL_FSIZ-1);
+        gamestate.fruits.curname[PL_FSIZ - 1] = '\0';
+        if (objects)    /* don't do fruitadd before the game is running */
+            fruitadd(gamestate.fruits.curname);
+    } else if (!strcmp("menustyle", option->name)) {
+        flags.menu_style = option->value.e;
+    } else if (!strcmp("movecommand", option->name)) {
+        flags.interaction_mode = option->value.e;
+    } else if (!strcmp("packorder", option->name)) {
+        if (!change_inv_order(option->value.s))
+            goto free;
+    } else if (!strcmp("pickup_burden", option->name)) {
+        flags.pickup_burden = option->value.e;
+    } else if (!strcmp("autopickup_rules", option->name)) {
+        if (flags.ap_rules) {
+            free(flags.ap_rules->rules);
+            free(flags.ap_rules);
+            flags.ap_rules = NULL;
+        }
+        flags.ap_rules = nhlib_copy_autopickup_rules(option->value.ar);
+    }
+    /* birth options */
+    else if (!strcmp("mode", option->name)) {
+        flags.debug = (option->value.e == MODE_WIZARD);
+        flags.explore = (option->value.e == MODE_EXPLORE);
+    } else if (!strcmp("align", option->name)) {
+        u.initalign = option->value.e;
+    } else if (!strcmp("gender", option->name)) {
+        u.initgend = option->value.e;
+    } else if (!strcmp("race", option->name)) {
+        u.initrace = option->value.e;
+    } else if (!strcmp("role", option->name)) {
+        u.initrole = option->value.e;
+    }
+
+    else if (!strcmp("name", option->name)) {
+        strncpy(u.uplname, option->value.s, PL_NSIZ-1);
+        (u.uplname)[PL_NSIZ - 1] = '\0';
+    } else if (!strcmp("seed", option->name)) {
+        /* note: does not NUL-terminate a max-length string, this is
+           intentional */
+        strncpy(flags.setseed, option->value.s, RNG_SEED_SIZE_BASE64);
+    } else if (!strcmp("catname", option->name)) {
+        if (!ngo)
+            panic("catname set outside newgame sequence");
+        strncpy(ngo->catname, option->value.s, PL_PSIZ-1);
+        ngo->catname[PL_PSIZ - 1] = '\0';
+    } else if (!strcmp("dogname", option->name)) {
+        if (!ngo)
+            panic("dogname set outside newgame sequence");
+        strncpy(ngo->dogname, option->value.s, PL_PSIZ-1);
+        ngo->dogname[PL_PSIZ - 1] = '\0';
+    } else if (!strcmp("horsename", option->name)) {
+        if (!ngo)
+            panic("horsename set outside newgame sequence");
+        strncpy(ngo->horsename, option->value.s, PL_PSIZ-1);
+        ngo->horsename[PL_PSIZ - 1] = '\0';
+    } else if (!strcmp("pettype", option->name)) {
+        if (!ngo)
+            panic("preferred_pet set outside newgame sequence");
+        ngo->preferred_pet = (char)option->value.e;
+    } else if (!strcmp("timezone", option->name)) {
+        flags.timezone = option->value.e;
+    } else if (!strcmp("polyinit", option->name)) {
+        flags.polyinit_mnum = option->value.e;
+    }
+
+    else
+        /* unrecognized option */
+        goto free;
+
+    /* assume that any recognized option has been handled. */
+    ret = TRUE;
+
+free:
+    nhlib_free_optlist(options);
+
+    return ret;
+}
+
+
+boolean
+nh_set_option(const char *name, union nh_optvalue value)
 {
     boolean rv;
 
-    if (!api_entry_checkpoint())
-        return FALSE;
+    API_ENTRY_CHECKPOINT_RETURN_ON_ERROR(FALSE);
 
-    rv = set_option(name, value, isstring);
+    rv = set_option(name, value, NULL);
 
-    api_exit();
+    API_EXIT();
     return rv;
 }
 
 
 struct nh_option_desc *
-nh_get_options(enum nh_option_list list)
+default_options(void)
 {
-    switch (list) {
-    case CURRENT_BIRTH_OPTIONS:
-        return birth_options;
-    case ACTIVE_BIRTH_OPTIONS:
-        return active_birth_options;
-    case GAME_OPTIONS:
-        return options;
-    default:
-        return NULL;
-    }
-}
-
-
-const char *
-nh_get_option_string(const struct nh_option_desc *option)
-{
-    char valbuf[10], *outstr;
-    char *valstr = NULL;
-    int i;
-    boolean freestr = FALSE;
-
-    switch (option->type) {
-    case OPTTYPE_BOOL:
-        valstr = option->value.b ? "true" : "false";
-        break;
-
-    case OPTTYPE_ENUM:
-        valstr = "(invalid)";
-        for (i = 0; i < option->e.numchoices; i++)
-            if (option->value.e == option->e.choices[i].id)
-                valstr = option->e.choices[i].caption;
-        break;
-
-    case OPTTYPE_INT:
-        sprintf(valbuf, "%d", option->value.i);
-        valstr = valbuf;
-        break;
-
-    case OPTTYPE_STRING:
-        if (!option->value.s)
-            valstr = "";
-        else
-            valstr = option->value.s;
-        break;
-
-    case OPTTYPE_AUTOPICKUP_RULES:
-        freestr = TRUE;
-        valstr = autopickup_to_string(option->value.ar);
-        break;
-
-    default:   /* custom option type defined by the client? */
-        return NULL;
-    }
-
-    /* copy the string to xmalloced memory so that we can forget about the
-       pointer here */
-    outstr = xmalloc(strlen(valstr) + 1);
-    strcpy(outstr, valstr);
-    if (freestr)
-        free(valstr);
-    return outstr;
+    return new_opt_struct();
 }
 
 
 struct nh_option_desc *
-clone_optlist(const struct nh_option_desc *in)
+nh_get_options(void)
 {
-    int i;
-    struct nh_option_desc *out;
+    struct nh_option_desc *options = new_opt_struct();
 
-    for (i = 0; in[i].name; i++) ;
-    i++;
-    out = malloc(sizeof (struct nh_option_desc) * i);
-    memcpy(out, in, sizeof (struct nh_option_desc) * i);
+    /* Outside of a game, don't attempt to recover options from state; all
+       options should have default values. */
+    if (!program_state.game_running)
+        return options;
 
-    for (i = 0; in[i].name; i++) {
-        if (in[i].type == OPTTYPE_STRING && in[i].value.s)
-            out[i].value.s = strdup(in[i].value.s);
-        else if (in[i].type == OPTTYPE_AUTOPICKUP_RULES && in[i].value.ar)
-            out[i].value.ar = copy_autopickup_rules(in[i].value.ar);
-    }
+    struct nh_option_desc *option;
+    for (option = options; option->name; ++option) {
+        if (option->type == OPTTYPE_BOOL) {
+            boolean *bvar = nhlib_find_boolopt(boolopt_map, option->name);
 
-    return out;
-}
+            if (!bvar) {
+                impossible("no boolean for option '%s'", option->name);
+                continue;
+            }
 
+            option->value.b = *bvar;
+        }
 
-void
-free_optlist(struct nh_option_desc *opt)
-{
-    int i;
+        else if (!strcmp("disclose", option->name)) {
+            option->value.e = flags.end_disclose;
+        } else if (!strcmp("fruit", option->name)) {
+            if (option->value.s)
+                free(option->value.s);
+            option->value.s = malloc(PL_FSIZ);
 
-    if (!opt)
-        return;
+            strncpy(option->value.s, gamestate.fruits.curname, PL_FSIZ-1);
+            option->value.s[PL_FSIZ - 1] = '\0';
 
-    for (i = 0; opt[i].name; i++) {
-        if (opt[i].type == OPTTYPE_STRING && opt[i].value.s)
-            free(opt[i].value.s);
-        else if (opt[i].type == OPTTYPE_AUTOPICKUP_RULES && opt[i].value.ar) {
-            free(opt[i].value.ar->rules);
-            free(opt[i].value.ar);
+        } else if (!strcmp("menustyle", option->name)) {
+            option->value.e = flags.menu_style;
+        } else if (!strcmp("movecommand", option->name)) {
+            option->value.e = flags.interaction_mode;
+        } else if (!strcmp("packorder", option->name)) {
+
+            int i;
+
+            if (option->value.s)
+                free(option->value.s);
+
+            option->value.s = malloc(MAXOCLASSES + 1);
+            for (i = 0; i < MAXOCLASSES; ++i)
+                option->value.s[i] = def_oc_syms[(int)flags.inv_order[i]];
+
+            option->value.s[MAXOCLASSES] = '\0';
+
+        } else if (!strcmp("pickup_burden", option->name)) {
+            option->value.e = flags.pickup_burden;
+        } else if (!strcmp("autopickup_rules", option->name)) {
+            if (option->value.ar) {
+                free(option->value.ar->rules);
+                free(option->value.ar);
+            }
+            option->value.ar = nhlib_copy_autopickup_rules(flags.ap_rules);
+        } else if (!strcmp("mode", option->name)) {
+            option->value.e =
+                flags.debug ? MODE_WIZARD :
+                flags.explore ? MODE_EXPLORE : MODE_NORMAL;
+        } else if (!strcmp("timezone", option->name)) {
+            option->value.e = flags.timezone;
+        } else if (!strcmp("polyinit", option->name)) {
+            option->value.e = flags.polyinit_mnum;
+        } else if (!strcmp("align", option->name)) {
+            option->value.e = u.initalign;
+        } else if (!strcmp("gender", option->name)) {
+            option->value.e = u.initgend;
+        } else if (!strcmp("race", option->name)) {
+            option->value.e = u.initrace;
+        } else if (!strcmp("role", option->name)) {
+            option->value.e = u.initrole;
+        } else if (!strcmp("name", option->name)) {
+
+            if (option->value.s)
+                free(option->value.s);
+            option->value.s = malloc(PL_NSIZ);
+
+            strncpy(option->value.s, u.uplname, PL_NSIZ-1);
+            option->value.s[PL_NSIZ - 1] = '\0';
+
+        } else if (!strcmp("seed", option->name)) {
+
+            if (option->value.s)
+                free(option->value.s);
+            option->value.s = malloc(RNG_SEED_SIZE_BASE64 + 1);
+
+            strncpy(option->value.s, flags.setseed, RNG_SEED_SIZE_BASE64);
+            option->value.s[RNG_SEED_SIZE_BASE64] = '\0';
+
+        } else if (!strcmp("catname", option->name) ||
+                   !strcmp("dogname", option->name) ||
+                   !strcmp("horsename", option->name)) {
+            /* The client shouldn't be doing this, but we can't crash in
+               response because that would be exploitable. Send it a null
+               string instead. */
+            if (option->value.s)
+                free(option->value.s);
+            option->value.s = malloc(1);
+            option->value.s[0] = '\0';
+        } else if (!strcmp("pettype", option->name)) {
+            /* As the previous case, just we want an enum not a string. */
+            option->value.e = 0;
+        } else {
+            impossible("unknown option '%s'", option->name);
+            memset(&option->value, 0, sizeof option->value);
         }
     }
 
-    free(opt);
+    return options;
 }
 
 
-/* Returns the fid of the fruit type; if that type already exists, it
- * returns the fid of that one; if it does not exist, it adds a new fruit
- * type to the chain and returns the new one.
- */
+
+
+/* Returns the fid of the fruit type; if that type already exists, it returns
+   the fid of that one; if it does not exist, it adds a new fruit type to the
+   chain and returns the new one. */
 int
 fruitadd(const char *str)
 {
@@ -830,7 +671,7 @@ fruitadd(const char *str)
     struct fruit *lastf = 0;
     int highest_fruit_id = 0;
     char buf[PL_FSIZ], *c;
-    boolean user_specified = (str == pl_fruit);
+    boolean user_specified = (str == gamestate.fruits.curname);
 
     /* if not user-specified, then it's a fruit name for a fruit on a bones
        level... */
@@ -844,12 +685,14 @@ fruitadd(const char *str)
         boolean found = FALSE, numeric = FALSE;
 
         for (i = bases[FOOD_CLASS]; objects[i].oc_class == FOOD_CLASS; i++) {
-            if (i != SLIME_MOLD && !strcmp(OBJ_NAME(objects[i]), pl_fruit)) {
+            if (i != SLIME_MOLD && !strcmp(OBJ_NAME(objects[i]),
+                                           gamestate.fruits.curname)) {
                 found = TRUE;
                 break;
             }
         }
-        for (c = pl_fruit; *c >= '0' && *c <= '9'; c++) ;
+        for (c = gamestate.fruits.curname; *c >= '0' && *c <= '9'; c++)
+            ;
         if (isspace(*c) || *c == 0)
             numeric = TRUE;
 
@@ -862,12 +705,12 @@ fruitadd(const char *str)
             ((!strncmp(str + strlen(str) - 7, " corpse", 7) ||
               !strncmp(str + strlen(str) - 4, " egg", 4)) &&
              name_to_mon(str) >= LOW_PM)) {
-            strcpy(buf, pl_fruit);
-            strcpy(pl_fruit, "candied ");
-            strncat(pl_fruit + 8, buf, PL_FSIZ - 8 - 1);
+            strcpy(buf, gamestate.fruits.curname);
+            strcpy(gamestate.fruits.curname, "candied ");
+            strncat(gamestate.fruits.curname + 8, buf, PL_FSIZ - 8 - 1);
         }
     }
-    for (f = ffruit; f; f = f->nextf) {
+    for (f = gamestate.fruits.chain; f; f = f->nextf) {
         lastf = f;
         if (f->fid > highest_fruit_id)
             highest_fruit_id = f->fid;
@@ -875,44 +718,35 @@ fruitadd(const char *str)
             goto nonew;
     }
     /* if adding another fruit would overflow spe, use a random fruit
-       instead... we've got a lot to choose from. */
+       instead... we've got a lot to choose from.
+
+       TODO: No idea what RNG this should be on (in particular, should it be on
+       the display RNG?) */
     if (highest_fruit_id >= 127)
         return rnd(127);
     highest_fruit_id++;
     f = newfruit();
     memset(f, 0, sizeof (struct fruit));
-    if (ffruit)
+    if (gamestate.fruits.chain)
         lastf->nextf = f;
     else
-        ffruit = f;
+        gamestate.fruits.chain = f;
     strcpy(f->fname, str);
     f->fid = highest_fruit_id;
     f->nextf = 0;
 nonew:
     if (user_specified)
-        current_fruit = highest_fruit_id;
+        gamestate.fruits.current = highest_fruit_id;
     return f->fid;
 }
 
 
-int
-dotogglepickup(void)
-{
-    union nh_optvalue val;
-
-    val.b = !flags.pickup;
-    set_option("autopickup", val, FALSE);
-
-    pline("Autopickup: %s.", flags.pickup ? "ON" : "OFF");
-    return 0;
-}
-
-
 static int
-change_inv_order(char *op)
+change_inv_order(const char *op)
 {
     int oc_sym, num;
-    char *sp, buf[BUFSZ];
+    char buf[MAXOCLASSES];
+    const char *sp;
 
     num = 0;
 
@@ -938,119 +772,5 @@ change_inv_order(char *op)
     strcpy(flags.inv_order, buf);
     return 1;
 }
-
-
-/* convenience function: allows the ui to share option handling code */
-void
-nh_setup_ui_options(struct nh_option_desc *uioptions,
-                    struct nh_boolopt_map *boolmap,
-                    boolean(*callback) (struct nh_option_desc *))
-{
-    ui_options = uioptions;
-    ui_boolopt_map = boolmap;
-    ui_option_callback = callback;
-}
-
-
-static struct nh_autopickup_rules *
-copy_autopickup_rules(const struct nh_autopickup_rules *in)
-{
-    struct nh_autopickup_rules *out;
-    int size;
-
-    if (!in || !in->num_rules)
-        return NULL;
-
-    out = malloc(sizeof (struct nh_autopickup_rules));
-    out->num_rules = in->num_rules;
-    size = out->num_rules * sizeof (struct nh_autopickup_rule);
-    out->rules = malloc(size);
-    memcpy(out->rules, in->rules, size);
-
-    return out;
-}
-
-
-char *
-autopickup_to_string(const struct nh_autopickup_rules *ar)
-{
-    int size, i;
-    char *buf, *bp, pattern[40];
-
-    if (!ar || !ar->num_rules) {
-        buf = strdup("");
-        return buf;
-    }
-
-    /* at this point, size is an upper bound on the stringified length of ar 3
-       stringified small numbers + a pattern with up to 40 chars < 64 chars */
-    size = 64 * ar->num_rules;
-    buf = malloc(size);
-    buf[0] = '\0';
-
-    for (i = 0; i < ar->num_rules; i++) {
-        strncpy(pattern, ar->rules[i].pattern, sizeof (pattern));
-
-        /* remove '"' and ';' from the pattern by replacing them by '?' (single 
-           character wildcard), to simplify parsing */
-        bp = pattern;
-        while (*bp) {
-            if (*bp == '"' || *bp == ';')
-                *bp = '?';
-            bp++;
-        }
-
-        snprintf(eos(buf), 64, "(\"%s\",%d,%u,%u);", pattern,
-                 ar->rules[i].oclass, ar->rules[i].buc, ar->rules[i].action);
-    }
-
-    return buf;
-}
-
-
-struct nh_autopickup_rules *
-parse_autopickup_rules(const char *str)
-{
-    struct nh_autopickup_rules *out;
-    char *copy, *semi;
-    const char *start;
-    int i, rcount = 0;
-    unsigned int action, buc;
-
-    if (!str || !*str)
-        return NULL;
-
-    start = str;
-    while ((semi = strchr(start, ';'))) {
-        start = ++semi;
-        rcount++;
-    }
-
-    if (!rcount)
-        return NULL;
-
-    out = &ap_rules_static;
-    out->rules = ap_rules_array;
-    out->num_rules = rcount;
-
-    i = 0;
-    start = copy = strdup(str);
-    while ((semi = strchr(start, ';')) && i < rcount) {
-        *semi++ = '\0';
-        sscanf(start, "(\"%39[^,],%d,%u,%u);", out->rules[i].pattern,
-               &out->rules[i].oclass, &buc, &action);
-        /* since %[ in sscanf requires a nonempty match, we allowed it to match
-           the closing '"' of the rule. Remove that now. */
-        out->rules[i].pattern[strlen(out->rules[i].pattern) - 1] = '\0';
-        out->rules[i].buc = (enum nh_bucstatus)buc;
-        out->rules[i].action = (enum autopickup_action)action;
-        i++;
-        start = semi;
-    }
-
-    free(copy);
-    return out;
-}
-
 
 /*options.c*/

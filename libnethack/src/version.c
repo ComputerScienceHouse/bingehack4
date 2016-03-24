@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-04-05 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -12,33 +13,33 @@
 
 /* #define BETA_INFO "" *//* "[ beta n]" */
 
-static char *getversionstring(char *);
+static const char *getversionstring(void);
 
 
 /* fill buffer with short version (so caller can avoid including date.h) */
-char *
-version_string(char *buf)
+const char *
+version_string(void)
 {
-    return strcpy(buf, VERSION_STRING);
+    return VERSION_STRING;
 }
 
 /* fill and return the given buffer with the long nethack version string */
-char *
-getversionstring(char *buf)
+const char *
+getversionstring(void)
 {
-    strcpy(buf, VERSION_ID);
+    const char *rv = VERSION_ID;
 #if defined(BETA) && defined(BETA_INFO)
-    sprintf(eos(buf), " %s", BETA_INFO);
+    rv = VERSION_ID " " BETA_INFO;
 #endif
-    return buf;
+    return rv;
 }
 
 int
-doversion(void)
+doversion(const struct nh_cmd_arg *arg)
 {
-    char buf[BUFSZ];
+    (void) arg;
 
-    pline("%s", getversionstring(buf));
+    pline("%s", getversionstring());
     return 0;
 }
 
@@ -58,9 +59,8 @@ check_version(struct version_info * version_data, const char *filename,
         if (complain)
             pline("Version mismatch for file \"%s\".", filename);
         return FALSE;
-    } else if (
-                  version_data->feature_set != VERSION_FEATURES ||
-                  version_data->entity_count != VERSION_SANITY1) {
+    } else if (version_data->feature_set != VERSION_FEATURES ||
+               version_data->entity_count != VERSION_SANITY1) {
         if (complain)
             pline("Configuration incompatibility for file \"%s\".", filename);
         return FALSE;
@@ -97,3 +97,4 @@ store_version(struct memfile *mf)
 
 
 /*version.c*/
+

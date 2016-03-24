@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-25 */
 /* Copyright (c) Kevin Hugo, 1998-1999. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -35,7 +36,7 @@ can_saddle(struct monst *mtmp)
 
 
 int
-use_saddle(struct obj *otmp)
+use_saddle(struct obj *otmp, const struct nh_cmd_arg *arg)
 {
     struct monst *mtmp;
     const struct permonst *ptr;
@@ -53,7 +54,7 @@ use_saddle(struct obj *otmp)
     }
 
     /* Select an animal */
-    if (u.uswallow || Underwater || !getdir(NULL, &dx, &dy, &dz)) {
+    if (Engulfed || Underwater || !getargdir(arg, NULL, &dx, &dy, &dz)) {
         pline("Never mind.");
         return 0;
     }
@@ -62,25 +63,25 @@ use_saddle(struct obj *otmp)
         return 0;
     }
     if (!isok(u.ux + dx, u.uy + dy) ||
-        !(mtmp = m_at(level, u.ux + dx, u.uy + dy)) || !canspotmon(mtmp)) {
-        pline("I see nobody there.");
+        !((mtmp = m_at(level, u.ux + dx, u.uy + dy))) || !canspotmon(mtmp)) {
+        if (knownwormtail(u.ux + dx, u.uy + dy))
+            pline("It's hard to strap a saddle to a tail.");
+        else
+            pline("I see nobody there.");
         return 0;
     }
 
     /* Is this a valid monster? */
-    if (mtmp->misc_worn_check & W_SADDLE || which_armor(mtmp, W_SADDLE)) {
+    if (mtmp->misc_worn_check & W_MASK(os_saddle) ||
+        which_armor(mtmp, os_saddle)) {
         pline("%s doesn't need another one.", Monnam(mtmp));
         return 0;
     }
     ptr = mtmp->data;
-    if (touch_petrifies(ptr) && !uarmg && !Stone_resistance) {
-        char kbuf[BUFSZ];
-
+    if (!uarmg && touched_monster(ptr - mons)) {
         pline("You touch %s.", mon_nam(mtmp));
-        if (!(poly_when_stoned(youmonst.data) && polymon(PM_STONE_GOLEM))) {
-            sprintf(kbuf, "attempting to saddle %s", an(mtmp->data->mname));
-            instapetrify(kbuf);
-        }
+        instapetrify(killer_msg(STONING, msgcat("attempting to saddle ",
+                                                an(mtmp->data->mname))));
     }
     if (ptr == &mons[PM_INCUBUS] || ptr == &mons[PM_SUCCUBUS]) {
         pline("Shame on you!");
@@ -138,11 +139,11 @@ use_saddle(struct obj *otmp)
         if (otmp->owornmask)
             remove_worn_item(otmp, FALSE);
         freeinv(otmp);
-        /* mpickobj may free otmp it if merges, but we have already checked for 
+        /* mpickobj may free otmp it if merges, but we have already checked for
            a saddle above, so no merger should happen */
         mpickobj(mtmp, otmp);
-        mtmp->misc_worn_check |= W_SADDLE;
-        otmp->owornmask = W_SADDLE;
+        mtmp->misc_worn_check |= W_MASK(os_saddle);
+        otmp->owornmask = W_MASK(os_saddle);
         otmp->leashmon = mtmp->m_id;
         update_mon_intrinsics(mtmp, otmp, TRUE, FALSE);
     } else
@@ -164,14 +165,15 @@ can_ride(struct monst * mtmp)
 
 
 int
-doride(void)
+doride(const struct nh_cmd_arg *arg)
 {
     boolean forcemount = FALSE;
     schar dx, dy, dz;
 
     if (u.usteed)
         dismount_steed(DISMOUNT_BYCHOICE);
-    else if (getdir(NULL, &dx, &dy, &dz) && isok(u.ux + dx, u.uy + dy)) {
+    else if (getargdir(arg, NULL, &dx, &dy, &dz) &&
+             isok(u.ux + dx, u.uy + dy)) {
         if (wizard && yn("Force the mount to succeed?") == 'y')
             forcemount = TRUE;
         return mount_steed(m_at(level, u.ux + dx, u.uy + dy), forcemount);
@@ -187,7 +189,6 @@ mount_steed(struct monst * mtmp,        /* The animal */
             boolean force)
 {       /* Quietly force this animal */
     struct obj *otmp;
-    char buf[BUFSZ];
     const struct permonst *ptr;
 
     /* Sanity checks */
@@ -202,16 +203,16 @@ mount_steed(struct monst * mtmp,        /* The animal */
         return FALSE;
     }
     /* While riding Wounded_legs refers to the steed's, not the hero's legs.
-       That opens up a potential abuse where the player can mount a steed, then 
+       That opens up a potential abuse where the player can mount a steed, then
        dismount immediately to heal leg damage, because leg damage is always
-       healed upon dismount (Wounded_legs context switch). By preventing a hero 
+       healed upon dismount (Wounded_legs context switch). By preventing a hero
        with Wounded_legs from mounting a steed, the potential for abuse is
        minimized, if not eliminated altogether. */
     if (Wounded_legs) {
         pline("Your %s are in no shape for riding.",
               makeplural(body_part(LEG)));
         if (force && wizard && yn("Heal your legs?") == 'y')
-            HWounded_legs = EWounded_legs = 0;
+            LWounded_legs = RWounded_legs = 0;
         else
             return FALSE;
     }
@@ -236,10 +237,14 @@ mount_steed(struct monst * mtmp,        /* The animal */
         pline("I see nobody there.");
         return FALSE;
     }
-    if (u.uswallow || u.ustuck || u.utrap || Punished ||
+
+    struct test_move_cache cache;
+    init_test_move_cache(&cache);
+
+    if (Engulfed || u.ustuck || u.utrap || Punished ||
         !test_move(u.ux, u.uy, mtmp->mx - u.ux, mtmp->my - u.uy, 0,
-                   TEST_MOVE)) {
-        if (Punished || !(u.uswallow || u.ustuck || u.utrap))
+                   TEST_MOVE, &cache)) {
+        if (Punished || !(Engulfed || u.ustuck || u.utrap))
             pline("You are unable to swing your %s over.", body_part(LEG));
         else
             pline("You are stuck here for now.");
@@ -247,18 +252,16 @@ mount_steed(struct monst * mtmp,        /* The animal */
     }
 
     /* Is this a valid monster? */
-    otmp = which_armor(mtmp, W_SADDLE);
+    otmp = which_armor(mtmp, os_saddle);
     if (!otmp) {
         pline("%s is not saddled.", Monnam(mtmp));
         return FALSE;
     }
     ptr = mtmp->data;
     if (touch_petrifies(ptr) && !Stone_resistance) {
-        char kbuf[BUFSZ];
-
         pline("You touch %s.", mon_nam(mtmp));
-        sprintf(kbuf, "attempting to ride %s", an(mtmp->data->mname));
-        instapetrify(kbuf);
+        instapetrify(killer_msg(STONING,
+            msgcat("attempting to ride ", an(mtmp->data->mname))));
     }
     if (!mtmp->mtame || mtmp->isminion) {
         pline("I think %s would mind.", mon_nam(mtmp));
@@ -310,12 +313,13 @@ mount_steed(struct monst * mtmp,        /* The animal */
         }
         pline("You slip while trying to get on %s.", mon_nam(mtmp));
 
-        sprintf(buf, "slipped while mounting %s",
-                /* "a saddled mumak" or "a saddled pony called Dobbin" */
-                x_monnam(mtmp, ARTICLE_A, NULL,
-                         SUPPRESS_IT | SUPPRESS_INVISIBLE |
-                         SUPPRESS_HALLUCINATION, TRUE));
-        losehp(rn1(5, 10), buf, NO_KILLER_PREFIX);
+        const char *buf = msgcat(
+            "slipped while mounting ",
+            /* "a saddled mumak" or "a saddled pony called Dobbin" */
+            x_monnam(mtmp, ARTICLE_A, NULL,
+                     SUPPRESS_IT | SUPPRESS_INVISIBLE |
+                     SUPPRESS_HALLUCINATION, TRUE));
+        losehp(rn1(5, 10), buf);
         return FALSE;
     }
 
@@ -328,7 +332,7 @@ mount_steed(struct monst * mtmp,        /* The animal */
     }
     /* setuwep handles polearms differently when you're mounted */
     if (uwep && is_pole(uwep))
-        unweapon = FALSE;
+        u.bashmsg = TRUE;
     u.usteed = mtmp;
     remove_monster(level, mtmp->mx, mtmp->my);
     teleds(mtmp->mx, mtmp->my, TRUE);
@@ -390,7 +394,8 @@ kick_steed(void)
         u.usteed->mtame--;
     if (!u.usteed->mtame && u.usteed->mleashed)
         m_unleash(u.usteed, TRUE);
-    if (!u.usteed->mtame || (u.ulevel + u.usteed->mtame < rnd(MAXULEV / 2 + 5))) {
+    if (!u.usteed->mtame ||
+        (u.ulevel + u.usteed->mtame < rnd(MAXULEV / 2 + 5))) {
         newsym(u.usteed->mx, u.usteed->my);
         dismount_steed(DISMOUNT_THROWN);
         return;
@@ -470,7 +475,7 @@ dismount_steed(int reason)
         return;
 
     /* Check the reason for dismounting */
-    otmp = which_armor(mtmp, W_SADDLE);
+    otmp = which_armor(mtmp, os_saddle);
     switch (reason) {
     case DISMOUNT_THROWN:
         verb = "are thrown";
@@ -478,8 +483,9 @@ dismount_steed(int reason)
         pline("You %s off of %s!", verb, mon_nam(mtmp));
         if (!have_spot)
             have_spot = landing_spot(&cc, reason, 1);
-        losehp(rn1(10, 10), "riding accident", KILLED_BY_AN);
-        set_wounded_legs(BOTH_SIDES, (int)HWounded_legs + rn1(5, 5));
+        losehp(rn1(10, 10), "killed in a riding accident");
+        set_wounded_legs(LEFT_SIDE, (int)LWounded_legs + rn1(5, 5));
+        set_wounded_legs(RIGHT_SIDE, (int)RWounded_legs + rn1(5, 5));
         repair_leg_damage = FALSE;
         break;
     case DISMOUNT_POLY:
@@ -519,7 +525,7 @@ dismount_steed(int reason)
     /* While riding these refer to the steed's legs so after dismounting they
        refer to the player's legs once again. */
     if (repair_leg_damage)
-        HWounded_legs = EWounded_legs = 0;
+        LWounded_legs = RWounded_legs = 0;
 
     /* Release the steed and saddle */
     u.usteed = 0;
@@ -537,7 +543,7 @@ dismount_steed(int reason)
     }
     if (!DEADMONSTER(mtmp)) {
         place_monster(mtmp, u.ux, u.uy);
-        if (!u.uswallow && !u.ustuck && have_spot) {
+        if (!Engulfed && !u.ustuck && have_spot) {
             const struct permonst *mdat = mtmp->data;
 
             /* The steed may drop into water/lava */
@@ -564,10 +570,10 @@ dismount_steed(int reason)
                individually and include an attempt to look at or pick up the
                objects on the floor: teleds() --> spoteffects() --> pickup()
                float_down() --> pickup() We use this kludge to make sure there
-               is only one such attempt. Clearly this is not the best way to do 
+               is only one such attempt. Clearly this is not the best way to do
                it.  A full fix would involve having these functions not call
-               pickup() at all, instead calling them first and calling pickup() 
-               afterwards.  But it would take a lot of work to keep this change 
+               pickup() at all, instead calling them first and calling pickup()
+               afterwards.  But it would take a lot of work to keep this change
                from having any unforseen side effects (for instance, you would
                no longer be able to walk onto a square with a hole, and
                autopickup before falling into the hole). */
@@ -598,16 +604,14 @@ dismount_steed(int reason)
     /* Return the player to the floor */
     if (reason != DISMOUNT_ENGULFED) {
         in_steed_dismounting = TRUE;
-        float_down(0L, W_SADDLE);
+        float_down(0L);
         in_steed_dismounting = FALSE;
-        iflags.botl = 1;
         encumber_msg();
-        vision_full_recalc = 1;
+        turnstate.vision_full_recalc = TRUE;
     } else
-        iflags.botl = 1;
     /* polearms behave differently when not mounted */
     if (uwep && is_pole(uwep))
-        unweapon = TRUE;
+        u.bashmsg = FALSE;
     return;
 }
 
@@ -615,16 +619,24 @@ dismount_steed(int reason)
 void
 place_monster(struct monst *mon, int x, int y)
 {
-    if (mon == u.usteed ||
-        /* special case is for convoluted vault guard handling */
-        (DEADMONSTER(mon) && !(mon->isgd && x == 0 && y == 0))) {
+    if (mon == u.usteed || DEADMONSTER(mon) ) {
         impossible("placing %s onto map?",
                    (mon == u.usteed) ? "steed" : "defunct monster");
         return;
     }
     mon->mx = x;
     mon->my = y;
-    mon->dlevel->monsters[x][y] = mon;
+    if (isok(x, y))
+        mon->dlevel->monsters[x][y] = mon;
+    else
+        impossible("placing monster on invalid spot (%d,%d)", x, y);
+
+    /* If a monster's moved to the location it believes the player to be on,
+       it'll learn the player isn't there. */
+    if (mon->mux == mon->mx && mon->muy == mon->my) {
+        mon->mux = COLNO;
+        mon->muy = ROWNO;
+    }
 }
 
 /*steed.c*/

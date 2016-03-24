@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Sean Hunt, 2014-10-17 */
 /* Copyright (c) Kenneth Lorber, Bethesda, Maryland, 1993. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -63,10 +64,6 @@ static long lib_dlb_ftell(dlb *);
 /* not static because shared with dlb_main.c */
 boolean open_library(const char *lib_name, library * lp);
 void close_library(library * lp);
-
-/* without extern.h via hack.h, these haven't been declared for us */
-extern char *eos(char *);
-
 
 
 /*
@@ -141,7 +138,7 @@ readlibdir(library * lp)
             lp->sspace = NULL;
             return FALSE;
         }
-        sp = eos(sp) + 1;
+        sp = sp + strlen(sp) + 1;
     }
 
     /* calculate file sizes using offset information */
@@ -252,7 +249,8 @@ lib_dlb_fopen(dlb * dp, const char *name, const char *mode)
 {
     long start, size;
     library *lp;
-    (void) mode;
+
+    (void)mode;
     /* look up file in directory */
     if (find_file(name, &lp, &start, &size)) {
         dp->lib = lp;
@@ -269,7 +267,7 @@ static int
 lib_dlb_fclose(dlb * dp)
 {
     /* nothing needs to be done */
-    (void) dp;
+    (void)dp;
     return 0;
 }
 
@@ -372,7 +370,7 @@ lib_dlb_ftell(dlb * dp)
     return dp->mark;
 }
 
-const dlb_procs_t lib_dlb_procs = {
+static const dlb_procs_t lib_dlb_procs = {
     lib_dlb_init,
     lib_dlb_cleanup,
     lib_dlb_fopen,
@@ -510,3 +508,4 @@ dlb_ftell(dlb * dp)
 }
 
 /*dlb.c*/
+

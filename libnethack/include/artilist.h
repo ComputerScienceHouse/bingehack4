@@ -1,15 +1,24 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-04-05 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
-#ifdef MAKEDEFS_C
-/* in makedefs.c, all we care about is the list of names */
+#ifdef ARTINAMES_H
+/* in artinames.h, all we care about is the list of names */
 
 # define A(nam,typ,s1,s2,mt,atk,dfn,cry,inv,al,cl,rac,cost) nam
 
 static const char *artifact_names[] = {
 #else
-/* in artifact.c, set up the actual artifact list structure */
+/* in artilist.h, set up the actual artifact list structure */
+
+# include "artifact.h"
+# include "align.h"
+# include "permonst.h"
+# include "monsym.h"
+# include "onames.h"
+# include "prop.h"
+# include "pm.h"
 
 # define A(nam,typ,s1,s2,mt,atk,dfn,cry,inv,al,cl,rac,cost) \
  { nam, cost, s1, s2, mt, atk, dfn, cry, al, inv, cl, rac, typ }
@@ -27,7 +36,7 @@ static const char *artifact_names[] = {
 # define     STUN(a,b)  {0,AD_STUN,a,b} /* magical attack */
 
 static const struct artifact const_artilist[] = {
-#endif /* MAKEDEFS_C */
+#endif /* ARTINAMES_C */
 
 /* Artifact cost rationale:
  * 1.  The more useful the artifact, the better its cost.
@@ -35,10 +44,39 @@ static const struct artifact const_artilist[] = {
  * 3.  Chaotic artifacts are inflated due to scarcity (and balance).
  */
 
+/* Note: If you ever add an artifact that can be equipped in an armor slot and
+   also has an effect that toggles when invoking, you need to update setequip in
+   do_wear.c to add behaviour for what happens when it is unequipped while
+   invoked. (This combination should probably be avoided, because setequip does
+   not currently have information about whether the artifact is about to be
+   destroyed or not.) */
 
 /*  dummy element #0, so that all interesting indices are non-zero */
     A("", STRANGE_OBJECT,
       0, 0, 0, NO_ATTK, NO_DFNS, NO_CARY, 0, A_NONE, NON_PM, NON_PM, 0L),
+
+/*
+  The bonuses of artifacts are defined partly by the list in this file. This is
+  an array of struct artifact structures. This structure has a struct attack
+  attk field whose members are used in a way completely unlike how struct attack
+  is used for monster descriptions. In this struct attack, the adtyp field tells
+  both what type of elemental damage the bonus damage deals, and how a monster
+  can resist the bonus damage; the damn field gives the to-hit bonus, and the
+  damd field gives the damage bonus.
+
+  The to-hit bonus applies against any monsters, and is 1dX where X is the
+  previously mentioned damn field.
+
+  The damage bonus applies only to particular monsters, and either adds 1dY
+  extra damage where Y is the damd field, or doubles the normal damage that
+  would be dealt by the weapon (if the damd field is zero). This is handled in
+  artifact.c:artifact_hit. There's special handling for artifacts that drain
+  life or behead or bisect.
+
+  Magicbane gets extra special bonuses in addition to the normal damage bonus
+  code path. This handles both the effects and the extra damage for the scare,
+  confuse, stun, cancel, probe bonuses.
+ */
 
     A("Excalibur", LONG_SWORD,
       (SPFX_NOGEN | SPFX_RESTR | SPFX_SEEK | SPFX_DEFN | SPFX_INTEL |
@@ -225,7 +263,8 @@ static const struct artifact const_artilist[] = {
       CREATE_PORTAL, A_NEUTRAL, PM_WIZARD, NON_PM, 4000L),
 
     A("The Ring of Power", RIN_SLOW_DIGESTION,
-      (SPFX_RESTR | SPFX_INTEL | SPFX_INVIS), 0, 0, //It speaks, it is just handled elsewhere (allmain)
+      (SPFX_RESTR | SPFX_INTEL | SPFX_INVIS | SPFX_WRPOWER),
+      SPFX_RPOWER, 0, //It speaks, it is just handled elsewhere (allmain)
       NO_ATTK, NO_DFNS, NO_CARY,
       0, A_NONE, NON_PM, NON_PM, 5000L),
 
@@ -242,7 +281,7 @@ static const struct artifact const_artilist[] = {
 
 #undef  A
 
-#ifndef MAKEDEFS_C
+#ifndef ARTINAMES_H
 # undef NO_ATTK
 # undef NO_DFNS
 # undef DFNS
@@ -255,3 +294,4 @@ static const struct artifact const_artilist[] = {
 #endif
 
 /*artilist.h*/
+

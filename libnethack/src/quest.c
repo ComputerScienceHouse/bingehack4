@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-21 */
 /* Copyright 1991, M. Stephenson */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -9,11 +10,10 @@
 #include "quest.h"
 #include "qtext.h"
 
-#define Not_firsttime   (on_level(&u.uz0, &u.uz))
-#define Qstat(x)        (quest_status.x)
+#define Qstat(x)        (u.quest_status.x)
 
-static void on_start(void);
-static void on_locate(void);
+static void on_start(const d_level * orig_lev);
+static void on_locate(const d_level * orig_lev);
 static void on_goal(void);
 static boolean not_capable(void);
 static int is_pure(boolean);
@@ -27,12 +27,13 @@ static void nemesis_speaks(void);
 
 
 static void
-on_start(void)
+on_start(const d_level * orig_lev)
 {
     if (!Qstat(first_start)) {
         qt_pager(QT_FIRSTTIME);
         Qstat(first_start) = TRUE;
-    } else if ((u.uz0.dnum != u.uz.dnum) || (u.uz0.dlevel < u.uz.dlevel)) {
+    } else if ((orig_lev->dnum != u.uz.dnum) ||
+               (orig_lev->dlevel < u.uz.dlevel)) {
         if (Qstat(not_ready) <= 2)
             qt_pager(QT_NEXTTIME);
         else
@@ -41,12 +42,12 @@ on_start(void)
 }
 
 static void
-on_locate(void)
+on_locate(const d_level * orig_lev)
 {
     if (!Qstat(first_locate)) {
         qt_pager(QT_FIRSTLOCATE);
         Qstat(first_locate) = TRUE;
-    } else if (u.uz0.dlevel < u.uz.dlevel && !Qstat(killed_nemesis))
+    } else if (orig_lev->dlevel < u.uz.dlevel && !Qstat(killed_nemesis))
         qt_pager(QT_NEXTLOCATE);
 }
 
@@ -66,17 +67,17 @@ on_goal(void)
 }
 
 void
-onquest(void)
+onquest(const d_level * orig_lev)
 {
-    if (u.uevent.qcompleted || Not_firsttime)
+    if (u.uevent.qcompleted || on_level(orig_lev, &u.uz))
         return;
     if (!Is_special(&u.uz))
         return;
 
     if (Is_qstart(&u.uz))
-        on_start();
-    else if (Is_qlocate(&u.uz) && u.uz.dlevel > u.uz0.dlevel)
-        on_locate();
+        on_start(orig_lev);
+    else if (Is_qlocate(&u.uz) && u.uz.dlevel > orig_lev->dlevel)
+        on_locate(orig_lev);
     else if (Is_nemesis(&u.uz))
         on_goal();
     return;
@@ -103,10 +104,36 @@ artitouch(void)
 
 /* external hook for do.c (level change check) */
 boolean
-ok_to_quest(void)
+ok_to_quest(boolean verbose)
 {
-    return (boolean) ((Qstat(got_quest) || Qstat(got_thanks)))
-        && (is_pure(FALSE) > 0);
+    if (!(Qstat(got_quest)) && !(Qstat(got_thanks))) {
+        if (verbose) {
+            if (Hallucination)
+                You_hear("the man telling you what you can and can't do.");
+            else
+                You_hear("a mysterious voice say "
+                         "\"You must have permission to descend.\"");
+        }
+    } else if (is_pure(TRUE) <= 0) {
+        if (verbose) {
+            if (Hallucination)
+                You_hear("someone whining about how you should treat %s "
+                         "better.", halu_gname(u.ualignbase[A_ORIGINAL]));
+            else
+                You_hear("a mysterious voice say "
+                         "\"Only the faithful of %s may descend.\"",
+                         align_gname(u.ualignbase[A_ORIGINAL]));
+        }
+    } else
+        return TRUE;
+
+    if (verbose) {
+        if (Hallucination)
+            pline("This staircase is a lie, man!");
+        else
+            pline("A mysterious force prevents you from descending.");
+    }
+    return FALSE;
 }
 
 static boolean
@@ -192,7 +219,7 @@ finish_quest(struct obj *obj)
 {
     struct obj *otmp;
 
-    if (u.uhave.amulet) {       /* unlikely but not impossible */
+    if (Uhave_amulet) { /* unlikely but not impossible */
         qt_pager(QT_HASAMULET);
         /* leader IDs the real amulet but ignores any fakes */
         if ((otmp = carrying(AMULET_OF_YENDOR)) != 0)
@@ -220,7 +247,7 @@ static void
 chat_with_leader(void)
 {
 /* Rule 0: Cheater checks.                                 */
-    if (u.uhave.questart && !Qstat(met_nemesis))
+    if (Uhave_questart && !Qstat(met_nemesis))
         Qstat(cheater) = TRUE;
 
 /* It is possible for you to get the amulet without completing
@@ -228,7 +255,7 @@ chat_with_leader(void)
  */
     if (Qstat(got_thanks)) {
 /* Rule 1: You've gone back with/without the amulet.       */
-        if (u.uhave.amulet)
+        if (Uhave_amulet)
             finish_quest(NULL);
 
 /* Rule 2: You've gone back before going for the amulet.   */
@@ -237,7 +264,7 @@ chat_with_leader(void)
     }
 
 /* Rule 3: You've got the artifact and are back to return it. */
-    else if (u.uhave.questart) {
+    else if (Uhave_questart) {
         struct obj *otmp;
 
         for (otmp = invent; otmp; otmp = otmp->nobj)
@@ -270,7 +297,7 @@ chat_with_leader(void)
         } else if (is_pure(TRUE) < 0) {
             com_pager(QT_BANISHED);
             expulsion(TRUE);
-        } else if (is_pure(TRUE) == 0) {
+        } else if (is_pure(FALSE) == 0) {
             qt_pager(QT_BADALIGN);
             if (Qstat(not_ready) == MAX_QUEST_TRIES) {
                 qt_pager(QT_LASTLEADER);
@@ -322,7 +349,7 @@ void
 nemesis_speaks(void)
 {
     if (!Qstat(in_battle)) {
-        if (u.uhave.questart)
+        if (Uhave_questart)
             qt_pager(QT_NEMWANTSIT);
         else if (Qstat(made_goal) == 1 || !Qstat(met_nemesis))
             qt_pager(QT_FIRSTNEMESIS);
@@ -343,7 +370,7 @@ static void
 chat_with_guardian(void)
 {
 /* These guys/gals really don't have much to say... */
-    if (u.uhave.questart && Qstat(killed_nemesis))
+    if (Uhave_questart && Qstat(killed_nemesis))
         qt_pager(rn1(5, QT_GUARDTALK2));
     else
         qt_pager(rn1(5, QT_GUARDTALK));
@@ -352,13 +379,14 @@ chat_with_guardian(void)
 static void
 prisoner_speaks(struct monst *mtmp)
 {
-    if (mtmp->data == &mons[PM_PRISONER] && (mtmp->mstrategy & STRAT_WAITMASK)) {
+    if (mtmp->data == &mons[PM_PRISONER] &&
+        (mtmp->mstrategy & STRAT_WAITMASK)) {
         /* Awaken the prisoner */
         if (canseemon(mtmp))
             pline("%s speaks:", Monnam(mtmp));
         verbalize("I'm finally free!");
         mtmp->mstrategy &= ~STRAT_WAITMASK;
-        mtmp->mpeaceful = 1;
+        msethostility(mtmp, FALSE, FALSE); /* TODO: reset alignment? */
 
         /* Your god is happy... */
         adjalign(3);
@@ -391,20 +419,12 @@ quest_chat(struct monst *mtmp)
 void
 quest_talk(struct monst *mtmp)
 {
-    if (mtmp->m_id == Qstat(leader_m_id)) {
+    if (mtmp->m_id == Qstat(leader_m_id))
         leader_speaks(mtmp);
-        return;
-    }
-    switch (mtmp->data->msound) {
-    case MS_NEMESIS:
+    else if (mtmp->data->msound == MS_NEMESIS)
         nemesis_speaks();
-        break;
-    case MS_DJINNI:
+    else if (mtmp->data == &mons[PM_PRISONER])
         prisoner_speaks(mtmp);
-        break;
-    default:
-        break;
-    }
 }
 
 void
@@ -416,3 +436,4 @@ quest_stat_check(struct monst *mtmp)
 }
 
 /*quest.c*/
+

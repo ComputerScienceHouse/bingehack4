@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-02-27 */
 /* Copyright (C) 1990 by Ken Arromdee                             */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -18,16 +19,19 @@ static const int explosion[3][3] = {
  * they don't supply enough information--was it a player or a monster that
  * did it, and with a wand, spell, or breath weapon?  Object types share both
  * these disadvantages....
+ *
+ * The descr argument should be used to describe the explosion. It should be
+ * a string suitable for use with an().
  */
 void
 explode(int x, int y, int type, /* the same as in zap.c */
-        int dam, char olet, int expltype)
+        int dam, char olet, int expltype, const char *descr)
 {
     int i, j, k, damu = dam;
     boolean visible, any_shield;
     int uhurt = 0;      /* 0=unhurt, 1=items damaged, 2=you and items damaged */
     const char *str;
-    char dispbuf[BUFSZ];
+    const char *dispbuf = "";   /* lint suppression; I think the code's OK */
     boolean expl_needs_the = TRUE;
     int idamres, idamnonres;
     struct monst *mtmp;
@@ -36,7 +40,6 @@ explode(int x, int y, int type, /* the same as in zap.c */
 
     /* 0=normal explosion, 1=do shieldeff, 2=do nothing */
     boolean shopdamage = FALSE;
-    boolean generic = FALSE;
 
     if (olet == WAND_CLASS)     /* retributive strike */
         switch (Role_switch) {
@@ -54,16 +57,15 @@ explode(int x, int y, int type, /* the same as in zap.c */
         }
 
     if (olet == MON_EXPLODE) {
-        str = killer;
-        killer = 0;     /* set again later as needed */
+        str = descr;
         adtyp = AD_PHYS;
         if (Hallucination) {
             int name = rndmonidx();
 
-            sprintf(dispbuf, "%s explosion", s_suffix(monnam_for_index(name)));
+            dispbuf = msgcat(s_suffix(monnam_for_index(name)), " explosion");
             expl_needs_the = !monnam_is_pname(name);
         } else {
-            strcpy(dispbuf, str);
+            dispbuf = str;
         }
     } else {
         int whattype = abs(type) % 10;
@@ -106,7 +108,7 @@ explode(int x, int y, int type, /* the same as in zap.c */
             return;
         }
         if (!done) {
-            strcpy(dispbuf, str);
+            dispbuf = str;
             done = TRUE;
             if (hallu) {
                 whattype = adtyp - 1;
@@ -198,12 +200,8 @@ explode(int x, int y, int type, /* the same as in zap.c */
                         break;
                     }
             }
-            if (mtmp && cansee(i + x - 1, j + y - 1) && !canspotmon(mtmp))
-                map_invisible(i + x - 1, j + y - 1);
-            else if (!mtmp && level->locations[i + x - 1][j + y - 1].mem_invis) {
-                unmap_object(i + x - 1, j + y - 1);
-                newsym(i + x - 1, j + y - 1);
-            }
+            reveal_monster_at(i + x - 1, j + y - 1, TRUE);
+
             if (cansee(i + x - 1, j + y - 1))
                 visible = TRUE;
             if (explmask[i][j] == 1)
@@ -212,6 +210,7 @@ explode(int x, int y, int type, /* the same as in zap.c */
 
     if (visible) {
         struct tmp_sym *tsym = tmpsym_init(DISP_BEAM, 0);
+
         /* Start the explosion */
         for (i = 0; i < 3; i++)
             for (j = 0; j < 3; j++) {
@@ -232,9 +231,9 @@ explode(int x, int y, int type, /* the same as in zap.c */
                              * directly to the buffered screen.  tmpsym_at()
                              * will clean up the location for us later.
                              */
-                            dbuf_set_effect(
-                                i + x - 1, j + y - 1, dbuf_effect(
-                                    E_MISC, shield_static[k]));
+                            dbuf_set_effect(i + x - 1, j + y - 1,
+                                            dbuf_effect(E_MISC,
+                                                        shield_static[k]));
                     }
                 flush_screen(); /* will flush screen and output */
                 win_delay_output();
@@ -244,9 +243,9 @@ explode(int x, int y, int type, /* the same as in zap.c */
             for (i = 0; i < 3; i++)
                 for (j = 0; j < 3; j++) {
                     if (explmask[i][j] == 1)
-                        dbuf_set_effect(
-                            i + x - 1, j + y - 1, dbuf_explosion(
-                                expltype, explosion[i][j]));
+                        dbuf_set_effect(i + x - 1, j + y - 1,
+                                        dbuf_explosion(expltype,
+                                                       explosion[i][j]));
                 }
 
         } else {        /* delay a little bit. */
@@ -254,14 +253,12 @@ explode(int x, int y, int type, /* the same as in zap.c */
             win_delay_output();
         }
 
-        tmpsym_end(tsym);    /* clear the explosion */
+        tmpsym_end(tsym);       /* clear the explosion */
     } else {
         if (olet == MON_EXPLODE) {
             str = "explosion";
-            generic = TRUE;
         }
-        if (flags.soundok)
-            You_hear("a blast.");
+        You_hear("a blast.");
     }
 
     if (dam)
@@ -281,7 +278,7 @@ explode(int x, int y, int type, /* the same as in zap.c */
                     mtmp = u.usteed;
                 if (!mtmp)
                     continue;
-                if (u.uswallow && mtmp == u.ustuck) {
+                if (Engulfed && mtmp == u.ustuck) {
                     if (is_animal(u.ustuck->data))
                         pline("%s gets %s!", Monnam(u.ustuck),
                               (adtyp == AD_FIRE) ? "heartburn" :
@@ -359,7 +356,7 @@ explode(int x, int y, int type, /* the same as in zap.c */
         /* do property damage first, in case we end up leaving bones */
         if (adtyp == AD_FIRE)
             burn_away_slime();
-        if (Invulnerable) {
+        if (u.uinvulnerable) {
             damu = 0;
             pline("You are unharmed!");
         } else if (Half_physical_damage && adtyp == AD_PHYS)
@@ -378,34 +375,29 @@ explode(int x, int y, int type, /* the same as in zap.c */
                 u.mh -= damu;
             else
                 u.uhp -= damu;
-            iflags.botl = 1;
         }
 
         if (u.uhp <= 0 || (Upolyd && u.mh <= 0)) {
-            if (Upolyd) {
-                rehumanize();
+            int death = adtyp == AD_FIRE ? BURNING : DIED;
+            const char *killer;
+
+            if (olet == MON_EXPLODE) {
+                killer = killer_msg(death, an(str));
+            } else if (type >= 0 && olet != SCROLL_CLASS) {
+                killer = msgprintf("caught %sself in %s own %s", uhim(),
+                                   uhis(), str);
+            } else if (!strcmp(str, "burning oil")) {
+                /* This manual check hack really sucks */
+                killer = killer_msg(death, str);
             } else {
-                if (olet == MON_EXPLODE) {
-                    /* killer handled by caller */
-                    if (str != killer_buf && !generic)
-                        strcpy(killer_buf, str);
-                    killer_format = KILLED_BY_AN;
-                } else if (type >= 0 && olet != SCROLL_CLASS) {
-                    killer_format = NO_KILLER_PREFIX;
-                    sprintf(killer_buf, "caught %sself in %s own %s", uhim(),
-                            uhis(), str);
-                } else if (!strncmpi(str, "tower of flame", 8) ||
-                           !strncmpi(str, "fireball", 8)) {
-                    killer_format = KILLED_BY_AN;
-                    strcpy(killer_buf, str);
-                } else {
-                    killer_format = KILLED_BY;
-                    strcpy(killer_buf, str);
-                }
-                killer = killer_buf;
-                /* Known BUG: BURNING suppresses corpse in bones data, but done 
-                   does not handle killer reason correctly */
-                done((adtyp == AD_FIRE) ? BURNING : DIED);
+                killer = killer_msg(death, an(str));
+            }
+            /* Known BUG: BURNING suppresses corpse in bones data, but done 
+               does not handle killer reason correctly */
+            if (Upolyd) {
+                rehumanize(death, killer);
+            } else {
+                done(death, killer);
             }
         }
         exercise(A_STR, FALSE);
@@ -564,18 +556,16 @@ scatter(int sx, int sy, /* location of objects to scatter */
                     if (scflags & MAY_HITYOU) {
                         int hitvalu, hitu;
 
-                        if (multi)
-                            nomul(0, NULL);
+                        action_interrupted();
+
                         hitvalu = 8 + stmp->obj->spe;
                         if (bigmonst(youmonst.data))
                             hitvalu++;
                         hitu =
                             thitu(hitvalu, dmgval(stmp->obj, &youmonst),
                                   stmp->obj, NULL);
-                        if (hitu) {
+                        if (hitu)
                             stmp->range -= 3;
-                            stop_occupation();
-                        }
                     }
                 } else {
                     if (scflags & VIS_EFFECTS) {
@@ -601,7 +591,8 @@ scatter(int sx, int sy, /* location of objects to scatter */
             stackobj(stmp->obj);
         }
         free(stmp);
-        newsym(x, y);
+        if (lev == level)
+            newsym(x, y);
     }
 
     return total;
@@ -625,7 +616,8 @@ splatter_burning_oil(int x, int y)
 {
 /* ZT_SPELL(ZT_FIRE) = ZT_SPELL(AD_FIRE-1) = 10+(2-1) = 11 */
 #define ZT_SPELL_O_FIRE 11      /* value kludge, see zap.c */
-    explode(x, y, ZT_SPELL_O_FIRE, dice(4, 4), BURNING_OIL, EXPL_FIERY);
+    explode(x, y, ZT_SPELL_O_FIRE, dice(4, 4), BURNING_OIL, EXPL_FIERY, NULL);
 }
 
 /*explode.c*/
+

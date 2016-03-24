@@ -1,20 +1,26 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-20 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
-/* This file contains the command routines dowhatis() and dohelp() and */
-/* a few other help related facilities */
+/* This file contains the command routines dowhatis() and dohelp() and a few
+   other help related facilities. It also handles farlooking for the API, and
+   thus cannot use the msg* functions for string handing; it works using
+   fixed-size buffers instead, which never escape this file into the rest of
+   libnethack (although they do end up in the client). */
 
 #include "hack.h"
 #include "dlb.h"
 
-static int append_str(char *buf, const char *new_str, int is_plur, int is_in);
+static boolean append_str(const char **buf, const char *new_str,
+                          int is_plur, int is_in);
 static void mon_vision_summary(const struct monst *mtmp, char *outbuf);
 static void describe_bg(int x, int y, int bg, char *buf);
-static int describe_object(int x, int y, int votyp, char *buf, int known_embed);
+static int describe_object(int x, int y, int votyp, char *buf, int known_embed,
+                           boolean *feature_described);
 static void describe_mon(int x, int y, int monnum, char *buf);
 static void checkfile(const char *inp, struct permonst *, boolean, boolean);
-static int do_look(boolean);
+static int do_look(boolean, const struct nh_cmd_arg *);
 
 /* The explanations below are also used when the user gives a string
  * for blessed genocide, so no text should wholly contain any later
@@ -39,159 +45,113 @@ const char *const monexplain[MAXMCLASSES] = {
     "mummy", "naga", "ogre",
     "pudding or ooze", "quantum mechanic", "rust monster or disenchanter",
     "snake", "troll", "umber hulk",
-    "vampire", "wraith", "xorn",
+    "vampire", "wraith or ghost", "xorn",
     "apelike creature", "zombie",
 
-    "human or elf", "ghost", "golem",
-    "major demon", "sea monster", "lizard",
+    "human or elf", "golem", "major demon", "sea monster", "lizard",
     "long worm tail", "mimic"
 };
 
-const char invisexplain[] = "remembered, unseen, creature";
+static const char invisexplain[] = "remembered, unseen, creature";
 
-/* Object descriptions.  Used in do_look(). */
-const char *const objexplain[] = {      /* these match def_oc_syms */
-/* 0*/ 0,
-    "strange object",
-    "weapon",
-    "suit or piece of armor",
-    "ring",
-/* 5*/ "amulet",
-    "useful item (pick-axe, key, lamp...)",
-    "piece of food",
-    "potion",
-    "scroll",
-/*10*/ "spellbook",
-    "wand",
-    "pile of coins",
-    "gem or rock",
-    "boulder or statue",
-/*15*/ "iron ball",
-    "iron chain",
-    "splash of venom"
-};
-
-/*
- * Append new_str to the end of buf if new_str doesn't already exist as
- * a substring of buf.  Return 1 if the string was appended, 0 otherwise.
- * It is expected that buf is of size BUFSZ.
- */
-static int
-append_str(char *buf, const char *new_str, int is_plur, int is_in)
+/* Concatenates new_str to *buf, returning the result back in *buf, with some
+   grammatical fixes. (The previous documentation said "if new_str doesn't
+   already exist as a substring of buf", but this appears to be inaccurate.)
+   Returns TRUE if the string was appended, FALSE otherwise. */
+static boolean
+append_str(const char **buf, const char *new_str, int is_plur, int is_in)
 {
-    int space_left;     /* space remaining in buf */
-
     if (!new_str || !new_str[0])
-        return 0;
+        return FALSE;
 
-    space_left = BUFSZ - strlen(buf) - 1;
-    if (buf[0]) {
-        strncat(buf, is_in ? " in " : " on ", space_left);
-        space_left -= 4;
-    }
+    if (**buf)
+        *buf = msgcat(*buf, is_in ? " in " : " on ");
 
     if (is_plur)
-        strncat(buf, new_str, space_left);
+        *buf = msgcat(*buf, new_str);
     else
-        strncat(buf, an(new_str), space_left);
+        *buf = msgcat(*buf, an(new_str));
 
-    return 1;
+    return TRUE;
 }
 
+/* Like the above, except with commas, and into a BUFSZ-sized buffer for API
+   boundary uses. */
+static boolean
+append_str_comma(char *buf, char **end_of_buf, const char *new_str)
+{
+    int remaining_space = BUFSZ - (*end_of_buf - buf);
+    int newlen = strlen(new_str);
+
+    if (remaining_space < 2 + newlen)
+        return FALSE; /* just leave this portion out */
+
+    if (remaining_space < BUFSZ) {
+        memcpy(*end_of_buf, ", ", 2);
+        *end_of_buf += 2;
+    }
+
+    memcpy(*end_of_buf, new_str, newlen + 1);
+    *end_of_buf += newlen;
+
+    return TRUE;
+}
 
 static void
 mon_vision_summary(const struct monst *mtmp, char *outbuf)
 {
-    int ways_seen = 0, normal = 0, xraydist;
-    boolean useemon = (boolean) canseemon(mtmp);
+    unsigned msense_status = msensem(&youmonst, mtmp);
+    char *outbufp = outbuf;
+    char wbuf[BUFSZ];
 
     outbuf[0] = '\0';
 
-    xraydist = (u.xray_range < 0) ? -1 : u.xray_range * u.xray_range;
-    /* normal vision */
-    if ((mtmp->wormno ? worm_known(mtmp) : couldsee(mtmp->mx, mtmp->my) &&
-         cansee(mtmp->mx, mtmp->my)) && mon_visible(mtmp) && !mtmp->minvis) {
-        ways_seen++;
-        normal++;
+    if (msense_status & MSENSE_VISION)
+        append_str_comma(outbuf, &outbufp, "normal vision");
+    if (msense_status & MSENSE_SEEINVIS)
+        append_str_comma(outbuf, &outbufp, "see invisible");
+    if (msense_status & MSENSE_INFRAVISION)
+        append_str_comma(outbuf, &outbufp, "infravision");
+    if (msense_status & MSENSE_TELEPATHY)
+        append_str_comma(outbuf, &outbufp, "telepathy");
+    if (msense_status & MSENSE_XRAY)
+        append_str_comma(outbuf, &outbufp, "astral vision");
+    if (msense_status & MSENSE_MONDETECT)
+        append_str_comma(outbuf, &outbufp, "monster detection");
+    if (msense_status & MSENSE_WARNOFMON) {
+        snprintf(wbuf, SIZE(wbuf), "warned of %s",
+                 makeplural(mtmp->data->mname));
+        append_str_comma(outbuf, &outbufp,
+                         Hallucination ? "paranoid delusion" : wbuf);
     }
-    /* see invisible */
-    if (useemon && mtmp->minvis)
-        ways_seen++;
-    /* infravision */
-    if ((!mtmp->minvis || See_invisible) && see_with_infrared(mtmp))
-        ways_seen++;
-    /* telepathy */
-    if (tp_sensemon(mtmp))
-        ways_seen++;
-    /* xray */
-    if (useemon && xraydist > 0 && distu(mtmp->mx, mtmp->my) <= xraydist)
-        ways_seen++;
-    if (Detect_monsters)
-        ways_seen++;
-    if (MATCH_WARN_OF_MON(mtmp))
-        ways_seen++;
+    if (msense_status & MSENSE_COVETOUS)
+        append_str_comma(outbuf, &outbufp, "artifact sense");
+    if (msense_status & MSENSE_GOLDSMELL)
+        append_str_comma(outbuf, &outbufp, "smell of gold");
+    if (msense_status & MSENSE_SCENT)
+        append_str_comma(outbuf, &outbufp, "scent");
+    if (msense_status & MSENSE_DETECTFISH)
+        append_str_comma(outbuf, &outbufp, "detect fish");
 
-    if (ways_seen > 1 || !normal) {
-        if (normal) {
-            strcat(outbuf, "normal vision");
-            /* can't actually be 1 yet here */
-            if (ways_seen-- > 1)
-                strcat(outbuf, ", ");
-        }
-        if (useemon && mtmp->minvis) {
-            strcat(outbuf, "see invisible");
-            if (ways_seen-- > 1)
-                strcat(outbuf, ", ");
-        }
-        if ((!mtmp->minvis || See_invisible) && see_with_infrared(mtmp)) {
-            strcat(outbuf, "infravision");
-            if (ways_seen-- > 1)
-                strcat(outbuf, ", ");
-        }
-        if (tp_sensemon(mtmp)) {
-            strcat(outbuf, "telepathy");
-            if (ways_seen-- > 1)
-                strcat(outbuf, ", ");
-        }
-        if (useemon && xraydist > 0 && distu(mtmp->mx, mtmp->my) <= xraydist) {
-            /* Eyes of the Overworld */
-            strcat(outbuf, "astral vision");
-            if (ways_seen-- > 1)
-                strcat(outbuf, ", ");
-        }
-        if (Detect_monsters) {
-            strcat(outbuf, "monster detection");
-            if (ways_seen-- > 1)
-                strcat(outbuf, ", ");
-        }
-        if (MATCH_WARN_OF_MON(mtmp)) {
-            char wbuf[BUFSZ];
-
-            if (Hallucination)
-                strcat(outbuf, "paranoid delusion");
-            else {
-                sprintf(wbuf, "warned of %s", makeplural(mtmp->data->mname));
-                strcat(outbuf, wbuf);
-            }
-            if (ways_seen-- > 1)
-                strcat(outbuf, ", ");
-        }
-    }
+    if (strcmp(outbuf, "normal vision") == 0)
+        outbuf[0] = '\0';
 }
 
 
 static void
 describe_bg(int x, int y, int bg, char *buf)
 {
-    if (!bg)
+    if (!bg) {
+        sprintf (buf, "unexplored area");
         return;
+    }
 
     switch (bg) {
     case S_altar:
         if (!In_endgame(&u.uz))
             sprintf(buf, "%s altar",
                     align_str(Amask2align
-                              (level->locations[x][y].altarmask & ~AM_SHRINE)));
+                              (level->locations[x][y].altarmask & AM_MASK)));
         else
             sprintf(buf, "aligned altar");
         break;
@@ -217,11 +177,14 @@ describe_bg(int x, int y, int bg, char *buf)
 
 
 static int
-describe_object(int x, int y, int votyp, char *buf, int known_embed)
+describe_object(int x, int y, int votyp, char *buf, int known_embed,
+                boolean *feature_described)
 {
     int num_objs = 0;
     struct obj *otmp;
     int typ;
+
+    *feature_described = FALSE;
 
     if (votyp == -1)
         return -1;
@@ -229,18 +192,21 @@ describe_object(int x, int y, int votyp, char *buf, int known_embed)
     otmp = vobj_at(x, y);
 
     if (!otmp || otmp->otyp != votyp) {
-        if (votyp != STRANGE_OBJECT) {
-            otmp = mksobj(level, votyp, FALSE, FALSE);
+        /* We have a mimic. */
+        if (votyp == STRANGE_OBJECT) {
+            strcpy(buf, "strange object");
+        } else {
+            otmp = mktemp_sobj(level, votyp);
+            otmp->corpsenm = PM_TENGU;
+            /* (basic object only, no random features) */
             if (otmp->oclass == COIN_CLASS)
                 otmp->quan = 1L;        /* to force pluralization off */
             else if (otmp->otyp == SLIME_MOLD)
-                otmp->spe = current_fruit;      /* give the fruit a type */
+                otmp->spe = gamestate.fruits.current;/* give the fruit a type */
             strcpy(buf, distant_name(otmp, xname));
             dealloc_obj(otmp);
             otmp = vobj_at(x, y);       /* make sure we don't point to the temp 
                                            obj any more */
-        } else {
-            strcpy(buf, "strange object");
         }
     } else
         strcpy(buf, distant_name(otmp, xname));
@@ -250,18 +216,25 @@ describe_object(int x, int y, int votyp, char *buf, int known_embed)
         strcat(buf, " stuck");
     else if (known_embed && (IS_ROCK(typ) || closed_door(level, x, y)))
         strcat(buf, " embedded");
-    else if (IS_TREE(typ))
+    else if (IS_TREE(typ)) {
         strcat(buf, " stuck in a tree");
-    else if (typ == STONE || typ == SCORR)
+        *feature_described = TRUE;
+    } else if (typ == STONE || typ == SCORR) {
         strcat(buf, " embedded in stone");
-    else if (IS_WALL(typ) || typ == SDOOR)
+        *feature_described = TRUE;
+    } else if (IS_WALL(typ) || typ == SDOOR) {
         strcat(buf, " embedded in a wall");
-    else if (closed_door(level, x, y))
+        *feature_described = TRUE;
+    } else if (closed_door(level, x, y)) {
         strcat(buf, " embedded in a door");
-    else if (is_pool(level, x, y))
+        *feature_described = TRUE;
+    } else if (is_pool(level, x, y)) {
         strcat(buf, " in water");
-    else if (is_lava(level, x, y))
+        *feature_described = TRUE;
+    } else if (is_lava(level, x, y)) {
         strcat(buf, " in molten lava"); /* [can this ever happen?] */
+        *feature_described = TRUE;
+    }
 
     if (!cansee(x, y))
         return -1;      /* don't disclose the number of objects for location
@@ -288,11 +261,13 @@ static void
 describe_mon(int x, int y, int monnum, char *buf)
 {
     char race[QBUFSZ];
-    char *name, monnambuf[BUFSZ];
+    const char *name;
     boolean accurate = !Hallucination;
     char steedbuf[BUFSZ];
     struct monst *mtmp;
     char visionbuf[BUFSZ], temp_buf[BUFSZ];
+
+    static const int maximum_output_len = 78;
 
     if (monnum == -1)
         return;
@@ -301,13 +276,13 @@ describe_mon(int x, int y, int monnum, char *buf)
         /* if not polymorphed, show both the role and the race */
         race[0] = 0;
         if (!Upolyd)
-            sprintf(race, "%s ", urace.adj);
+            snprintf(race, SIZE(race), "%s ", urace.adj);
 
         sprintf(buf, "%s%s%s called %s", Invis ? "invisible " : "", race,
-                mons[u.umonnum].mname, plname);
+                mons[u.umonnum].mname, u.uplname);
 
         if (u.usteed) {
-            sprintf(steedbuf, ", mounted on %s", y_monnam(u.usteed));
+            snprintf(steedbuf, SIZE(steedbuf), ", mounted on %s", y_monnam(u.usteed));
             /* assert((sizeof buf >= strlen(buf)+strlen(steedbuf)+1); */
             strcat(buf, steedbuf);
         }
@@ -315,7 +290,7 @@ describe_mon(int x, int y, int monnum, char *buf)
            you could also see yourself via other means). Sensing self while
            blind or swallowed is treated as if it were by normal vision (cf
            canseeself()). */
-        if ((Invisible || u.uundetected) && !Blind && !u.uswallow) {
+        if ((Invisible || u.uundetected) && !Blind && !Engulfed) {
             unsigned how = 0;
 
             if (Infravision)
@@ -326,7 +301,7 @@ describe_mon(int x, int y, int monnum, char *buf)
                 how |= 4;
 
             if (how)
-                sprintf(eos(buf), " [seen: %s%s%s%s%s]",
+                sprintf(buf + strlen(buf), " [seen: %s%s%s%s%s]",
                         (how & 1) ? "infravision" : "",
                         /* add comma if telep and infrav */
                         ((how & 3) > 2) ? ", " : "",
@@ -345,16 +320,28 @@ describe_mon(int x, int y, int monnum, char *buf)
         bhitpos.x = x;
         bhitpos.y = y;
 
-        if (mtmp->data == &mons[PM_COYOTE] && accurate)
-            name = coyotename(mtmp, monnambuf);
+        if (mtmp->data == &mons[PM_COYOTE] && accurate && !mtmp->mpeaceful)
+            name = an(coyotename(mtmp));
         else
-            name = distant_monnam(mtmp, ARTICLE_NONE, monnambuf);
+            name = distant_monnam(
+                mtmp, (mtmp->mtame && accurate) ? "tame" :
+                (mtmp->mpeaceful && accurate) ? "peaceful" : NULL,
+                ARTICLE_A);
 
-        sprintf(buf, "%s%s%s",
-                (mtmp->mx != x || mtmp->my != y) ?
-                ((mtmp->isshk && accurate) ? "tail of " : "tail of a ") : "",
-                (mtmp->mtame && accurate) ? "tame " :
-                (mtmp->mpeaceful && accurate) ? "peaceful " : "", name);
+        boolean spotted = canspotmon(mtmp);
+
+        if (!spotted && (mtmp->mx != x || mtmp->my != y))
+            name = "an unseen long worm";
+        else if (!spotted)
+            /* we can't safely impossible/panic from this point in the code;
+               well, we /could/, but as it's called on every mouse movement,
+               it'd quickly get very confusing and possibly lead to recursive
+               panics; just put up an obvious message instead */
+            name = "a <BUG: monster both seen and unseen>";
+
+        snprintf(buf, BUFSZ-1, "%s%s",
+                (mtmp->mx != x || mtmp->my != y) ? "tail of " : "", name);
+        buf[BUFSZ-1] = '\0';
         if (u.ustuck == mtmp)
             strcat(buf,
                    (Upolyd &&
@@ -368,13 +355,29 @@ describe_mon(int x, int y, int monnum, char *buf)
 
             /* newsym lets you know of the trap, so mention it here */
             if (tt == BEAR_TRAP || tt == PIT || tt == SPIKED_PIT || tt == WEB)
-                sprintf(eos(buf), ", trapped in %s", an(trapexplain[tt]));
+                sprintf(buf + strlen(buf),
+                        ", trapped in %s", an(trapexplain[tt - 1]));
         }
 
-        mon_vision_summary(mtmp, visionbuf);
-        if (visionbuf[0]) {
-            sprintf(temp_buf, " [seen: %s]", visionbuf);
-            strncat(buf, temp_buf, BUFSZ - strlen(buf) - 1);
+#ifdef DEBUG_STRATEGY
+        if (wizard) {
+            snprintf(temp_buf, SIZE(temp_buf),
+                     ", strategy %08lx, muxy %02x%02x",
+                     (unsigned long)mtmp->mstrategy,
+                     (int)mtmp->mux, (int)mtmp->muy);
+            strncat(buf, temp_buf, maximum_output_len - strlen(buf) - 1);
+        }
+#endif
+
+        /* Don't mention how a long worm tail is seen; msensem() only works on
+           monster heads. (Probably, the only unusual way to see a long worm
+           tail is see invisible, anyway.) */
+        if (mtmp->mx == x && mtmp->my == y) {
+            mon_vision_summary(mtmp, visionbuf);
+            if (visionbuf[0]) {
+                snprintf(temp_buf, SIZE(temp_buf), " [seen: %s]", visionbuf);
+                strncat(buf, temp_buf, maximum_output_len - strlen(buf) - 1);
+            }
         }
     }
 }
@@ -383,16 +386,22 @@ describe_mon(int x, int y, int monnum, char *buf)
 void
 nh_describe_pos(int x, int y, struct nh_desc_buf *bufs, int *is_in)
 {
-    int monid = dbuf_get_mon(x, y);
-    int mem_bg = level->locations[x][y].mem_bg;
-
     bufs->bgdesc[0] = '\0';
     bufs->trapdesc[0] = '\0';
     bufs->objdesc[0] = '\0';
     bufs->mondesc[0] = '\0';
     bufs->invisdesc[0] = '\0';
     bufs->effectdesc[0] = '\0';
+    bufs->feature_described = FALSE;
     bufs->objcount = -1;
+
+    if (is_in)
+        *is_in = 0;
+
+    if (!program_state.game_running || !isok(x, y))
+        return;
+
+    API_ENTRY_CHECKPOINT_RETURN_VOID_ON_ERROR();
 
     if (is_in) {
         if (IS_ROCK(level->locations[x][y].typ) || closed_door(level, x, y))
@@ -401,8 +410,8 @@ nh_describe_pos(int x, int y, struct nh_desc_buf *bufs, int *is_in)
             *is_in = 0;
     }
 
-    if (!program_state.game_running || !api_entry_checkpoint())
-        return;
+    int monid = dbuf_get_mon(x, y);
+    int mem_bg = level->locations[x][y].mem_bg;
 
     describe_bg(x, y, mem_bg, bufs->bgdesc);
 
@@ -418,20 +427,20 @@ nh_describe_pos(int x, int y, struct nh_desc_buf *bufs, int *is_in)
 
     bufs->objcount =
         describe_object(x, y, level->locations[x][y].mem_obj - 1, bufs->objdesc,
-                        mem_bg && is_in);
+                        mem_bg && is_in, &bufs->feature_described);
 
     describe_mon(x, y, monid - 1, bufs->mondesc);
 
     if (level->locations[x][y].mem_invis)
         strcpy(bufs->invisdesc, invisexplain);
 
-    if (u.uswallow && (x != u.ux || y != u.uy)) {
+    if (Engulfed && (x != u.ux || y != u.uy)) {
         /* all locations when swallowed other than the hero are the monster */
-        sprintf(bufs->effectdesc, "interior of %s",
+        snprintf(bufs->effectdesc, SIZE(bufs->effectdesc), "interior of %s",
                 Blind ? "a monster" : a_monnam(u.ustuck));
     }
 
-    api_exit();
+    API_EXIT();
 }
 
 /*
@@ -446,7 +455,7 @@ checkfile(const char *inp, struct permonst *pm, boolean user_typed_name,
     dlb *fp;
     char buf[BUFSZ], newstr[BUFSZ];
     char *ep, *dbase_str;
-    long txt_offset;
+    long txt_offset = 0;
     int chk_skip;
     boolean found_in_file = FALSE, skipping_entry = FALSE;
 
@@ -463,7 +472,9 @@ checkfile(const char *inp, struct permonst *pm, boolean user_typed_name,
         dbase_str = strcpy(newstr, pm->mname);
     else
         dbase_str = strcpy(newstr, inp);
-    lcase(dbase_str);
+
+    for (ep = dbase_str; *ep; ep++)
+        *ep = lowc(*ep);
 
     if (!strncmp(dbase_str, "interior of ", 12))
         dbase_str += 12;
@@ -488,17 +499,17 @@ checkfile(const char *inp, struct permonst *pm, boolean user_typed_name,
     if (*dbase_str) {
         /* adjust the input to remove " [seen" and "named " and convert to
            lower case */
-        char *alt = 0;  /* alternate description */
+        const char *alt = 0;  /* alternate description */
 
-        if ((ep = strstri(dbase_str, " [seen")) != 0)
+        if ((ep = strstri_mutable(dbase_str, " [seen")) != 0)
             *ep = '\0';
 
-        if ((ep = strstri(dbase_str, " named ")) != 0)
+        if ((ep = strstri_mutable(dbase_str, " named ")) != 0)
             alt = ep + 7;
         else
-            ep = strstri(dbase_str, " called ");
+            ep = strstri_mutable(dbase_str, " called ");
         if (!ep)
-            ep = strstri(dbase_str, ", ");
+            ep = strstri_mutable(dbase_str, ", ");
         if (ep && ep > dbase_str)
             *ep = '\0';
 
@@ -513,7 +524,7 @@ checkfile(const char *inp, struct permonst *pm, boolean user_typed_name,
         if (!alt)
             alt = makesingular(dbase_str);
         else if (user_typed_name)
-            lcase(alt);
+            alt = msglowercase(alt);
 
         /* skip first record; read second */
         txt_offset = 0L;
@@ -570,7 +581,7 @@ checkfile(const char *inp, struct permonst *pm, boolean user_typed_name,
         }
 
         if (user_typed_name || without_asking || yn("More info?") == 'y') {
-            struct menulist menu;
+            struct nh_menulist menu;
 
             if (dlb_fseek(fp, txt_offset + entry_offset, SEEK_SET) < 0) {
                 pline("? Seek error on 'data' file!");
@@ -579,6 +590,7 @@ checkfile(const char *inp, struct permonst *pm, boolean user_typed_name,
             }
 
             init_menulist(&menu);
+
             for (i = 0; i < entry_count; i++) {
                 if (!dlb_fgets(buf, BUFSZ, fp))
                     goto bad_data_file;
@@ -589,9 +601,8 @@ checkfile(const char *inp, struct permonst *pm, boolean user_typed_name,
                 add_menutext(&menu, buf + 1);
             }
 
-            display_menu(menu.items, menu.icount, NULL, FALSE, PLHINT_ANYWHERE,
+            display_menu(&menu, NULL, FALSE, PLHINT_ANYWHERE,
                          NULL);
-            free(menu.items);
         }
     } else if (user_typed_name)
         pline("I don't have any information on those things.");
@@ -600,30 +611,25 @@ checkfile(const char *inp, struct permonst *pm, boolean user_typed_name,
 }
 
 
-/* getpos() return values */
-#define LOOK_TRADITIONAL        0       /* '.' -- ask about "more info?" */
-#define LOOK_QUICK              1       /* ',' -- skip "more info?" */
-#define LOOK_ONCE               2       /* ';' -- skip and stop looping */
-#define LOOK_VERBOSE            3       /* ':' -- show more info w/o asking */
-
 /* also used by getpos hack in do_name.c */
-const char what_is_an_unknown_object[] = "an unknown object";
+static const char what_is_an_unknown_object[] = "an unknown object";
 
 /* quick: use cursor && don't search for "more info" */
 static int
-do_look(boolean quick)
+do_look(boolean quick, const struct nh_cmd_arg *arg)
 {
-    char out_str[BUFSZ];
-    char firstmatch[BUFSZ];
+    const char *out_str;
+    const char *firstmatch;
     int i, ans = 0, objplur = 0, is_in;
-    int found;  /* count of matching syms found */
     coord cc;   /* screen pos of unknown glyph */
     boolean save_verbose;       /* saved value of flags.verbose */
     boolean from_screen;        /* question from the screen */
     struct nh_desc_buf descbuf;
     struct obj *otmp;
 
-    if (quick) {
+    if (arg->argtype & CMD_ARG_OBJ) {
+        from_screen = FALSE;
+    } else if (quick || (arg->argtype & CMD_ARG_POS)) {
         from_screen = TRUE;     /* yes, we want to use the cursor */
     } else {
         i = ynq("Specify unknown object by cursor?");
@@ -636,15 +642,20 @@ do_look(boolean quick)
         cc.x = u.ux;
         cc.y = u.uy;
     } else {
-        getlin("Specify what? (type the word)", out_str);
-        if (out_str[0] == '\0' || out_str[0] == '\033')
-            return 0;
+        if (arg->argtype & CMD_ARG_OBJ) {
+            static const char allowall[] = { ALL_CLASSES, 0 };
+            out_str = simple_typename(getargobj(arg, allowall, "explain")->otyp);
+        } else {
+            out_str = getarglin(arg, "Specify what? (type the word)");
+            if (out_str[0] == '\0' || out_str[0] == '\033')
+                return 0;
+        }
 
         /* the ability to specify symbols is gone: it is simply impossible to
            know how the window port is displaying things (tiles?) and even if
            charaters are used it may not be possible to type them (utf8) */
 
-        checkfile(out_str, NULL, TRUE, TRUE);
+        checkfile(out_str, NULL, !(arg->argtype & CMD_ARG_OBJ), TRUE);
         return 0;
     }
     /* Save the verbose flag, we change it later. */
@@ -656,8 +667,7 @@ do_look(boolean quick)
      */
     do {
         /* Reset some variables. */
-        found = 0;
-        out_str[0] = '\0';
+        firstmatch = NULL;
         objplur = 0;
 
         if (flags.verbose)
@@ -665,9 +675,11 @@ do_look(boolean quick)
         else
             pline("Pick an object.");
 
-        ans = getpos(&cc, FALSE, what_is_an_unknown_object);
-        if (ans < 0 || cc.x < 0) {
+        ans = getargpos(arg, &cc, FALSE, what_is_an_unknown_object);
+        if (ans == NHCR_CLIENT_CANCEL || cc.x < 0) {
             flags.verbose = save_verbose;
+            if (flags.verbose)
+                pline(quick ? "Never mind." : "Done.");
             return 0;   /* done */
         }
         flags.verbose = FALSE;  /* only print long question once */
@@ -678,75 +690,79 @@ do_look(boolean quick)
         if (otmp && is_plural(otmp))
             objplur = 1;
 
-        out_str[0] = '\0';
-        if (append_str(out_str, descbuf.effectdesc, 0, 0))
-            if (++found == 1)
-                strcpy(firstmatch, descbuf.effectdesc);
+        out_str = "";
+        if (append_str(&out_str, descbuf.effectdesc, 0, 0))
+            if (!firstmatch)
+                firstmatch = descbuf.effectdesc;
 
-        if (append_str(out_str, descbuf.invisdesc, 0, 0))
-            if (++found == 1)
-                strcpy(firstmatch, descbuf.invisdesc);
+        if (append_str(&out_str, descbuf.invisdesc, 0, 0))
+            if (!firstmatch)
+                firstmatch = descbuf.invisdesc;
 
-        if (append_str(out_str, descbuf.mondesc, 0, 0))
-            if (++found == 1)
-                strcpy(firstmatch, descbuf.mondesc);
+        /* We already have a/an added by describe_mon; don't add it again,
+           because that'll fail in cases like "Dudley's ghost" */
+        if (append_str(&out_str, descbuf.mondesc, 1, 0))
+            if (!firstmatch)
+                firstmatch = descbuf.mondesc;
 
-        if (append_str(out_str, descbuf.objdesc, objplur, 0))
-            if (++found == 1)
-                strcpy(firstmatch, descbuf.objdesc);
+        if (append_str(&out_str, descbuf.objdesc, objplur, 0))
+            if (!firstmatch)
+                firstmatch = descbuf.objdesc;
 
-        if (append_str(out_str, descbuf.trapdesc, 0, 0))
-            if (++found == 1)
-                strcpy(firstmatch, descbuf.trapdesc);
+        if (append_str(&out_str, descbuf.trapdesc, 0, 0))
+            if (!firstmatch)
+                firstmatch = descbuf.trapdesc;
 
-        if (append_str(out_str, descbuf.bgdesc, 0, is_in))
-            if (!found) {
-                found++;        /* only increment found if nothing else was
-                                   seen, so that checkfile can be called below */
-                strcpy(firstmatch, descbuf.bgdesc);
-            }
-
+        if (!descbuf.feature_described &&
+            append_str(&out_str, descbuf.bgdesc, 0, is_in))
+            if (!firstmatch)
+                firstmatch = descbuf.bgdesc;
 
         /* Finally, print out our explanation. */
-        if (found) {
-            out_str[0] = highc(out_str[0]);
-            pline("%s.", out_str);
+        if (firstmatch) {
+            pline("%s.", msgupcasefirst(out_str));
             /* check the data file for information about this thing */
-            if (found == 1 && ans != LOOK_QUICK && ans != LOOK_ONCE &&
-                (ans == LOOK_VERBOSE || !quick)) {
-                checkfile(firstmatch, NULL, FALSE, ans == LOOK_VERBOSE);
+            if (firstmatch && ans != NHCR_CONTINUE &&
+                (ans == NHCR_MOREINFO ||
+                 ans == NHCR_MOREINFO_CONTINUE || !quick)) {
+                checkfile(firstmatch, NULL, FALSE,
+                          ans == NHCR_MOREINFO ||
+                          ans == NHCR_MOREINFO_CONTINUE);
             }
         } else {
             pline("I've never heard of such things.");
         }
-    } while (!quick && ans != LOOK_ONCE);
+    } while (ans == NHCR_CONTINUE || ans == NHCR_MOREINFO_CONTINUE);
 
     flags.verbose = save_verbose;
+    if (!quick && flags.verbose)
+        pline("Done.");
 
     return 0;
 }
 
 
 int
-dowhatis(void)
+dowhatis(const struct nh_cmd_arg *arg)
 {
-    return do_look(FALSE);
+    return do_look(FALSE, arg);
+}
+
+/* TODO: CMD_ARG_POS is meaningful here, we should implement it. */
+int
+doquickwhatis(const struct nh_cmd_arg *arg)
+{
+    return do_look(TRUE, arg);
 }
 
 int
-doquickwhatis(void)
-{
-    return do_look(TRUE);
-}
-
-int
-doidtrap(void)
+doidtrap(const struct nh_cmd_arg *arg)
 {
     struct trap *trap;
     int x, y, tt;
     schar dx, dy, dz;
 
-    if (!getdir(NULL, &dx, &dy, &dz))
+    if (!getargdir(arg, NULL, &dx, &dy, &dz))
         return 0;
 
     x = u.ux + dx;
@@ -760,7 +776,8 @@ doidtrap(void)
                 if (dz < 0 ? (tt == TRAPDOOR || tt == HOLE) : tt == ROCKTRAP)
                     break;
             }
-            tt = what_trap(tt);
+            /* This command is CMD_NOTIME, pick the RNG accordingly */
+            tt = what_trap(tt, x, y, rn2_on_display_rng);
             pline("That is %s%s%s.", an(trapexplain[tt - 1]),
                   !trap->madeby_u ? "" : (tt == WEB) ? " woven" :
                   /* trap doors & spiked pits can't be made by player, and
@@ -777,18 +794,21 @@ doidtrap(void)
 
 
 int
-dolicense(void)
+dolicense(const struct nh_cmd_arg *arg)
 {
+    (void) arg;
     display_file(LICENSE, TRUE);
     return 0;
 }
 
 
 int
-doverhistory(void)
+doverhistory(const struct nh_cmd_arg *arg)
 {
+    (void) arg;
     display_file(HISTORY, TRUE);
     return 0;
 }
 
 /*pager.c*/
+

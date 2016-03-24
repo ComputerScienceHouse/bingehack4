@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-04-05 */
 /* Copyright (c) 1989 by M. Stephenson                            */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -21,7 +22,7 @@ struct tmpdungeon {
     char name[24], protoname[24];
     struct couple lev;
     int flags, chance, levels, branches;
-    int entry_lev;     /* entry level for this dungeon */
+    int entry_lev;      /* entry level for this dungeon */
     char boneschar;
 };
 
@@ -51,7 +52,7 @@ struct tmpbranch {
 /*
  *      Flags that map into the dungeon flags bitfields.
  */
-# define TOWN        1   /* levels only */
+# define TOWN        1  /* levels only */
 # define HELLISH     2
 # define MAZELIKE    4
 # define ROGUELIKE   8
@@ -70,3 +71,4 @@ struct tmpbranch {
 # define BRANCH_LIMIT    32
 
 #endif /* DGN_FILE_H */
+

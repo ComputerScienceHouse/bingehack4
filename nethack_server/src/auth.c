@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-11-06 */
 /* Copyright (c) Daniel Thaler, 2011. */
 /* The NetHack server may be freely redistributed under the terms of either:
  *  - the NetHack license
@@ -12,11 +13,14 @@
 /* check various rules that apply to names:
  * - it must be a valid multibyte (UTF8) string
  * - no more than 50 multibyte characters long
- * - '/' and '\\' are not allowed because the user name will be used as part of
- *   the filename for saved games.
+ * - '/', '.' and '\\' are not allowed because the user name will be used as
+ *   part of the filename for saved games.
  * - it can't contain '<' or '>': names may be shown in web pages and this puts
  *   trivial mischief out of reach even if the name is not escaped properly.
  * - control characters are forbidden
+ * - ASCII letters, numbers, underscores only for now, so that people don't
+ *   try to confuse shellscripts (this rather makes the other checks moot,
+ *   but...)
  */
 static int
 is_valid_username(const char *name)
@@ -30,7 +34,11 @@ is_valid_username(const char *name)
         return FALSE;
 
     if (strchr(name, '/') || strchr(name, '\\') || strchr(name, '<') ||
-        strchr(name, '>'))
+        strchr(name, '>') || strchr(name, '.'))
+        return FALSE;
+
+    if (strspn(name, "abcdefghijklmnopqrstuvwxyz"
+               "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != strlen(name))
         return FALSE;
 
     for (i = 0; i < mblen; i++)
@@ -42,16 +50,18 @@ is_valid_username(const char *name)
 
 
 int
-auth_user(char *authbuf, const char *peername, int *is_reg, int *reconnect_id)
+auth_user(char *authbuf, int *is_reg)
 {
     json_error_t err;
-    json_t *obj, *cmd, *name, *pass, *email, *reconn;
+    json_t *obj, *cmd, *name, *pass, *email;
     const char *namestr, *passstr, *emailstr;
     int userid = 0;
 
     obj = json_loads(authbuf, 0, &err);
-    if (!obj)
+    if (!obj) {
+        log_msg("auth packet does not look like valid JSON");
         return 0;
+    }
 
     /* try 1: is it an auth command? */
     *is_reg = 0;
@@ -61,42 +71,46 @@ auth_user(char *authbuf, const char *peername, int *is_reg, int *reconnect_id)
         *is_reg = 1;
         cmd = json_object_get(obj, "register");
     }
-    if (!cmd)   /* not a recognized command */
+    if (!cmd) {  /* not a recognized command */
+        log_msg("auth packet is not 'auth' or 'register'");
         goto err;
+    }
 
     name = json_object_get(cmd, "username");
     pass = json_object_get(cmd, "password");
     email = json_object_get(cmd, "email");      /* is null for auth */
-    reconn = json_object_get(cmd, "reconnect");
 
-    if (!name || !pass)
+    if (!name || !pass) {
+        log_msg("auth packet is missing name or password");
         goto err;
+    }
 
     namestr = json_string_value(name);
     passstr = json_string_value(pass);
 
     if (!namestr || !passstr || strlen(namestr) < 3 || strlen(passstr) < 3 ||
-        !is_valid_username(namestr))
+        !is_valid_username(namestr)) {
+        log_msg("name or password is invalid");
         goto err;
+    }
 
-    *reconnect_id = 0;
     if (!*is_reg) {
-        if (reconn && json_is_integer(reconn))
-            *reconnect_id = json_integer_value(reconn);
 
         /* authenticate against a user database */
         userid = db_auth_user(namestr, passstr);
         if (userid > 0)
-            log_msg("%s has logged in as \"%s\" (userid %d)", peername, namestr,
+            log_msg("User has logged in as \"%s\" (userid %d)", namestr,
                     userid);
         else if (userid < 0)
-            log_msg("%s has failed to log in as \"%s\" (userid %d)", peername,
+            log_msg("Someone has failed to log in as \"%s\" (userid %d)",
                     namestr, -userid);
     } else {
         /* register a new user */
         emailstr = email ? json_string_value(email) : "";
-        if (strlen(emailstr) > 100)
+        if (strlen(emailstr) > 100) {
+            log_msg("Rejecting registration attempt: email is too long");
             goto err;
+        }
 
         userid = db_register_user(namestr, passstr, emailstr);
         if (userid) {
@@ -104,8 +118,13 @@ auth_user(char *authbuf, const char *peername, int *is_reg, int *reconnect_id)
 
             snprintf(savedir, 1024, "%s/save/%s", settings.workdir, namestr);
             mkdir(savedir, 0700);
-            log_msg("%s has registered as \"%s\" (userid: %d)", peername,
+            snprintf(savedir, 1024, "%s/completed/%s",
+                     settings.workdir, namestr);
+            mkdir(savedir, 0700);
+            log_msg("User has registered as \"%s\" (userid: %d)",
                     namestr, userid);
+        } else {
+            log_msg("User has failed to register as \"%s\"", namestr);
         }
     }
 
@@ -119,7 +138,7 @@ err:
 
 
 void
-auth_send_result(int sockfd, enum authresult result, int is_reg, int connid)
+auth_send_result(int sockfd, enum authresult result, int is_reg)
 {
     int ret, written, len;
     json_t *jval;
@@ -131,17 +150,17 @@ auth_send_result(int sockfd, enum authresult result, int is_reg, int connid)
         key = "register";
 
     jval =
-        json_pack("{s:{si,si,s:[i,i,i]}}", key, "return", result, "connection",
-                  connid, "version", VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL);
+        json_pack("{s:{si,s:[i,i,i]}}", key, "return", result,
+                  "version", VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL);
     jstr = json_dumps(jval, JSON_COMPACT);
     len = strlen(jstr);
     written = 0;
     do {
-        ret = write(sockfd, jstr, len - written);
+        /* Remember to include a NUL; the client expects that. */
+        ret = write(sockfd, jstr, len - written + 1);
         if (ret > 0)
             written += ret;
-        /* don't care if it fails - if it does, the main event loop will be
-           notified by epoll and perform cleanup later. */
+        /* don't care if it fails - if it does, we'll notice later */
     } while (ret > 0 && written < len);
 
     free(jstr);

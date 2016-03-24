@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Sean Hunt, 2014-12-02 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -18,12 +19,7 @@ ballfall(void)
                 ((uwep == uball) ? FALSE : (boolean) rn2(5)));
     if (carried(uball)) {
         pline("Startled, you drop the iron ball.");
-        if (uwep == uball)
-            setuwep(NULL);
-        if (uswapwep == uball)
-            setuswapwep(NULL);
-        if (uquiver == uball)
-            setuqwep(NULL);;
+        unwield_silently(uball);
         if (uwep != uball)
             freeinv(uball);
     }
@@ -38,7 +34,7 @@ ballfall(void)
             } else if (flags.verbose)
                 pline("Your %s does not protect you.", xname(uarmh));
         }
-        losehp(dmg, "crunched in the head by an iron ball", NO_KILLER_PREFIX);
+        losehp(dmg, "crunched in the head by an iron ball");
     }
 }
 
@@ -63,6 +59,9 @@ ballfall(void)
  *  moved (and felt).  When swallowed, the ball&chain are pulled completely
  *  off of the dungeon, but are still on the object chain.  They are placed
  *  under the hero when she is expelled.
+ *
+ *  If the player gets engulfed, the ball and chain follow them around, sticking
+ *  out of the monster's mouth or something.
  */
 
 /*
@@ -124,9 +123,6 @@ placebc(void)
 void
 unplacebc(void)
 {
-    if (u.uswallow)
-        return; /* ball&chain not placed while swallowed */
-
     if (!carried(uball)) {
         obj_extract_self(uball);
         if (Blind && (u.bc_felt & BC_BALL))     /* drop glyph */
@@ -153,7 +149,7 @@ bc_order(void)
     struct obj *obj;
 
     if (uchain->ox != uball->ox || uchain->oy != uball->oy || carried(uball)
-        || u.uswallow)
+        || Engulfed)
         return BCPOS_DIFFER;
 
     for (obj = level->objects[uball->ox][uball->oy]; obj; obj = obj->nexthere) {
@@ -180,7 +176,7 @@ set_bc(int already_blind)
     u.bc_order = bc_order();    /* get the order */
     u.bc_felt = ball_on_floor ? BC_BALL | BC_CHAIN : BC_CHAIN;  /* felt */
 
-    if (already_blind || u.uswallow) {
+    if (already_blind || Engulfed) {
         u.cglyph = u.bglyph = level->locations[u.ux][u.uy].mem_obj;
         return;
     }
@@ -268,8 +264,8 @@ move_bc(int before, int control, xchar ballx, xchar bally, xchar chainx,
                         level->locations[uball->ox][uball->oy].mem_obj =
                             u.bglyph;
                     } else if (u.bc_order == BCPOS_BALL) {
-                        if (u.bc_felt & BC_CHAIN) {     /* know chain is there */
-                            map_object(uchain, 0);
+                        if (u.bc_felt & BC_CHAIN) {    /* know chain is there */
+                            map_object(uchain, 0, TRUE);
                         } else {
                             level->locations[uball->ox][uball->oy].mem_obj =
                                 u.bglyph;
@@ -280,9 +276,8 @@ move_bc(int before, int control, xchar ballx, xchar bally, xchar chainx,
 
                 /* Pick up mem_obj at new position. */
                 u.bglyph = (ballx != chainx ||
-                            bally !=
-                            chainy) ? level->locations[ballx][bally].
-                    mem_obj : u.cglyph;
+                            bally != chainy) ?
+                    level->locations[ballx][bally].mem_obj : u.cglyph;
 
                 movobj(uball, ballx, bally);
             } else if (control & BC_CHAIN) {
@@ -292,7 +287,7 @@ move_bc(int before, int control, xchar ballx, xchar bally, xchar chainx,
                             u.cglyph;
                     } else if (u.bc_order == BCPOS_CHAIN) {
                         if (u.bc_felt & BC_BALL) {
-                            map_object(uball, 0);
+                            map_object(uball, 0, TRUE);
                         } else {
                             level->locations[uchain->ox][uchain->oy].mem_obj =
                                 u.cglyph;
@@ -302,9 +297,8 @@ move_bc(int before, int control, xchar ballx, xchar bally, xchar chainx,
                 }
                 /* Pick up mem_obj at new position. */
                 u.cglyph = (ballx != chainx ||
-                            bally !=
-                            chainy) ? level->locations[chainx][chainy].
-                    mem_obj : u.bglyph;
+                            bally != chainy) ?
+                    level->locations[chainx][chainy].mem_obj : u.bglyph;
 
                 movobj(uchain, chainx, chainy);
             }
@@ -337,7 +331,8 @@ move_bc(int before, int control, xchar ballx, xchar bally, xchar chainx,
         } else {
             int on_floor = !carried(uball);
 
-            if ((control & BC_CHAIN) || (!control && u.bc_order == BCPOS_CHAIN)) {
+            if ((control & BC_CHAIN) ||
+                (!control && u.bc_order == BCPOS_CHAIN)) {
                 /* If the chain moved or nothing moved & chain on top. */
                 if (on_floor)
                     place_object(uball, level, ballx, bally);
@@ -403,9 +398,11 @@ drag_ball(xchar x, xchar y, int *bc_control, xchar * ballx, xchar * bally,
             return TRUE;
         }
 #define CHAIN_IN_MIDDLE(chx, chy) \
-(distmin(x, y, chx, chy) <= 1 && distmin(chx, chy, uball->ox, uball->oy) <= 1)
+    (distmin(x, y, chx, chy) <= 1 && \
+     distmin(chx, chy, uball->ox, uball->oy) <= 1)
 #define IS_CHAIN_ROCK(x,y) \
-(IS_ROCK(level->locations[x][y].typ) || (IS_DOOR(level->locations[x][y].typ) && \
+    (IS_ROCK(level->locations[x][y].typ) || \
+     (IS_DOOR(level->locations[x][y].typ) && \
       (level->locations[x][y].doormask & (D_CLOSED|D_LOCKED))))
 /* Don't ever move the chain into solid rock.  If we have to, then instead
  * undo the move_bc() and jump to the drag ball code.  Note that this also
@@ -551,7 +548,7 @@ drag:
     if (near_capacity() > SLT_ENCUMBER && dist2(x, y, u.ux, u.uy) <= 2) {
         pline("You cannot %sdrag the heavy iron ball.",
               invent ? "carry all that and also " : "");
-        nomul(0, NULL);
+        action_completed();
         return FALSE;
     }
 
@@ -588,7 +585,7 @@ drag:
                 u.uy = uchain->oy;
                 newsym(u.ux0, u.uy0);
             }
-            nomul(0, NULL);
+            action_interrupted();
 
             *bc_control = BC_BALL;
             move_bc(1, *bc_control, *ballx, *bally, *chainx, *chainy);
@@ -666,9 +663,8 @@ drop_ball(xchar x, xchar y, schar dx, schar dy)
                         pline("Your %s %s is severely damaged.",
                               (side == LEFT_SIDE) ? "left" : "right",
                               body_part(LEG));
-                        losehp(2,
-                               "leg damage from being pulled out of a bear trap",
-                               KILLED_BY);
+                        losehp(2, killer_msg(DIED, "leg damage from being "
+                                             "pulled out of a bear trap"));
                     }
                     break;
                 }
@@ -690,7 +686,9 @@ drop_ball(xchar x, xchar y, schar dx, schar dy)
             u.ux = x - dx;
             u.uy = y - dy;
         }
-        vision_full_recalc = 1; /* hero has moved, recalculate vision later */
+
+        /* hero has moved, recalculate vision later */
+        turnstate.vision_full_recalc = TRUE;
 
         if (Blind) {
             /* drop glyph under the chain */
@@ -723,7 +721,8 @@ litter(void)
 
     while (otmp) {
         nextobj = otmp->nobj;
-        if ((otmp != uball) && (rnd(capacity) <= (int)otmp->owt)) {
+        if ((otmp != uball) && (rnd(capacity) <= (int)otmp->owt) &&
+            !otmp->owornmask) {
             if (canletgo(otmp, "")) {
                 pline("Your %s you down the stairs.", aobjnam(otmp, "follow"));
                 dropx(otmp);
@@ -756,21 +755,19 @@ drag_down(void)
     if (forward) {
         if (rn2(6)) {
             pline("The iron ball drags you downstairs!");
-            losehp(rnd(6), "dragged downstairs by an iron ball",
-                   NO_KILLER_PREFIX);
+            losehp(rnd(6), "dragged downstairs by an iron ball");
             litter();
         }
     } else {
         if (rn2(2)) {
             pline("The iron ball smacks into you!");
-            losehp(rnd(20), "iron ball collision", KILLED_BY_AN);
+            losehp(rnd(20), killer_msg(DIED, "an iron ball collision"));
             exercise(A_STR, FALSE);
             dragchance -= 2;
         }
         if ((int)dragchance >= rnd(6)) {
             pline("The iron ball drags you downstairs!");
-            losehp(rnd(3), "dragged downstairs by an iron ball",
-                   NO_KILLER_PREFIX);
+            losehp(rnd(3), "dragged downstairs by an iron ball");
             exercise(A_STR, FALSE);
             litter();
         }
@@ -778,3 +775,4 @@ drag_down(void)
 }
 
 /*ball.c*/
+

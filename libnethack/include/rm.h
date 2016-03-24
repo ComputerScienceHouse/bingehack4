@@ -1,9 +1,17 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-12 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #ifndef RM_H
 # define RM_H
+
+# include "global.h"
+# include "drawing.h"
+# include "dungeon.h"
+# include "decl.h"
+# include "timeout.h"
+# include "mkroom.h"
 
 /*
  * The dungeon presentation graphics code and data structures were rewritten
@@ -37,21 +45,21 @@
 # define TRCORNER        4
 # define BLCORNER        5
 # define BRCORNER        6
-# define CROSSWALL       7       /* For pretty mazes and special levels */
+# define CROSSWALL       7      /* For pretty mazes and special levels */
 # define TUWALL          8
 # define TDWALL          9
 # define TLWALL          10
 # define TRWALL          11
 # define DBWALL          12
-# define TREE            13      /* KMH */
+# define TREE            13     /* KMH */
 # define SDOOR           14
 # define SCORR           15
 # define POOL            16
-# define MOAT            17      /* pool that doesn't boil, adjust messages */
+# define MOAT            17     /* pool that doesn't boil, adjust messages */
 # define WATER           18
 # define DRAWBRIDGE_UP   19
 # define LAVAPOOL        20
-# define IRONBARS        21      /* KMH */
+# define IRONBARS        21     /* KMH */
 # define DOOR            22
 # define CORR            23
 # define ROOM            24
@@ -76,13 +84,13 @@
  * Instead, use one of the macros below.
  */
 # define IS_WALL(typ)       ((typ) && (typ) <= DBWALL)
-# define IS_STWALL(typ)     ((typ) <= DBWALL) /* STONE <= (typ) <= DBWALL */
-# define IS_ROCK(typ)       ((typ) < POOL)    /* absolutely nonaccessible */
+# define IS_STWALL(typ)     ((typ) <= DBWALL)   /* STONE <= (typ) <= DBWALL */
+# define IS_ROCK(typ)       ((typ) < POOL)      /* absolutely nonaccessible */
 # define IS_DOOR(typ)       ((typ) == DOOR)
 # define IS_TREE(typ)       ((typ) == TREE || \
                             (level->flags.arboreal && (typ) == STONE))
-# define ACCESSIBLE(typ)    ((typ) >= DOOR)   /* good position */
-# define IS_ROOM(typ)       ((typ) >= ROOM)   /* ROOM, STAIRS, furniture.. */
+# define ACCESSIBLE(typ)    ((typ) >= DOOR)     /* good position */
+# define IS_ROOM(typ)       ((typ) >= ROOM)     /* ROOM, STAIRS, furniture.. */
 # define ZAP_POS(typ)       ((typ) >= POOL)
 # define SPACE_POS(typ)     ((typ) > DOOR)
 # define IS_POOL(typ)       ((typ) >= POOL && (typ) <= DRAWBRIDGE_UP)
@@ -99,7 +107,7 @@
 /*
  * The screen symbols may be the default or defined at game startup time.
  * See drawing.c for defaults.
- * Note: {ibm|dec}_graphics[] arrays (also in drawing.c) must be kept in synch.
+ * Note: various arrays (also in drawing.c) must be kept in synch.
  */
 
 /* begin dungeon characters */
@@ -118,9 +126,7 @@ enum dungeon_symbols {
     S_tlwall,
     S_trwall,
     S_corr,
-    S_litcorr,
     S_room,
-    S_darkroom,
     S_pool,
     S_air,
     S_cloud,
@@ -151,9 +157,11 @@ enum dungeon_symbols {
     S_vcdbridge,        /* closed drawbridge, vertical wall */
     S_hcdbridge,        /* closed drawbridge, horizontal wall */
 
+    S_cmap_COUNT,
+
     /* values used only in saving, to squeeze a bit more info into the memflags 
        dword */
-    S_vodoor_meml,
+    S_vodoor_meml = S_cmap_COUNT,
     S_vodoor_memt,
     S_vodoor_memlt,
     S_hodoor_meml,
@@ -172,49 +180,46 @@ enum dungeon_symbols {
 # define DUNGEON_FEATURE_OFFSET S_vodoor
 
 /* end dungeon characters, begin special effects */
+/* when changing these, also update brandings.c */
 
-# define E_digbeam      0 /* dig beam symbol */
-# define E_flashbeam    1 /* camera flash symbol */
-# define E_boomleft     2 /* thrown boomerang, open left, e.g ')' */
-# define E_boomright    3 /* thrown boomerang, open right, e.g. '(' */
-# define E_ss1          4 /* 4 magic shield glyphs */
+# define E_digbeam      0       /* dig beam symbol */
+# define E_flashbeam    1       /* camera flash symbol */
+# define E_boomleft     2       /* thrown boomerang, open left, e.g ')' */
+# define E_boomright    3       /* thrown boomerang, open right, e.g. '(' */
+# define E_ss1          4       /* 4 magic shield glyphs */
 # define E_ss2          5
 # define E_ss3          6
 # define E_ss4          7
 # define E_gascloud     8
 
+# define E_COUNT        9
+
 /* The 8 swallow symbols.  Do NOT separate.  To change order or add, see */
 /* the function swallow_to_effect() in display.c.                        */
-# define S_sw_tl        0 /* swallow top left [1] */
-# define S_sw_tc        1 /* swallow top center [2] Order: */
-# define S_sw_tr        2 /* swallow top right [3] */
-# define S_sw_ml        3 /* swallow middle left [4] 1 2 3 */
-# define S_sw_mr        4 /* swallow middle right [6] 4 5 6 */
-# define S_sw_bl        5 /* swallow bottom left [7] 7 8 9 */
-# define S_sw_bc        6 /* swallow bottom center [8] */
-# define S_sw_br        7 /* swallow bottom right [9] */
+# define S_sw_tl        0       /* swallow top left [1] */
+# define S_sw_tc        1       /* swallow top center [2] Order: */
+# define S_sw_tr        2       /* swallow top right [3] */
+# define S_sw_ml        3       /* swallow middle left [4] 1 2 3 */
+# define S_sw_mr        4       /* swallow middle right [6] 4 5 6 */
+# define S_sw_bl        5       /* swallow bottom left [7] 7 8 9 */
+# define S_sw_bc        6       /* swallow bottom center [8] */
+# define S_sw_br        7       /* swallow bottom right [9] */
 
-# define E_explode1     0 /* explosion top left */
-# define E_explode2     1 /* explosion top center */
-# define E_explode3     2 /* explosion top right Ex. */
-# define E_explode4     3 /* explosion middle left */
-# define E_explode5     4 /* explosion middle center /-\ */
-# define E_explode6     5 /* explosion middle right |@| */
-# define E_explode7     6 /* explosion bottom left \-/ */
-# define E_explode8     7 /* explosion bottom center */
-# define E_explode9     8 /* explosion bottom right */
+# define E_explode1     0       /* explosion top left */
+# define E_explode2     1       /* explosion top center */
+# define E_explode3     2       /* explosion top right Ex. */
+# define E_explode4     3       /* explosion middle left */
+# define E_explode5     4       /* explosion middle center /-\ */
+# define E_explode6     5       /* explosion middle right |@| */
+# define E_explode7     6       /* explosion bottom left \-/ */
+# define E_explode8     7       /* explosion bottom center */
+# define E_explode9     8       /* explosion bottom right */
 
 /* end effects */
 
-
-extern const struct nh_symdef defsyms[];        /* defaults */
-
-extern const char *const trapexplain[];
-extern const char *const defexplain[];
-extern const char *const warnexplain[];
-
 /*
  * The 5 possible states of doors
+ * Note: rnddoor() in sp_lev.c uses numerical values directly, not the constants
  */
 
 # define D_NODOOR       0
@@ -228,6 +233,7 @@ extern const char *const warnexplain[];
  * Some altars are considered as shrines, so we need a flag.
  */
 # define AM_SHRINE      8
+# define AM_SANCTUM     16
 
 /*
  * Thrones should only be looted once.
@@ -310,22 +316,22 @@ extern const char *const warnexplain[];
  * the size of temporary files and save files.
  */
 struct rm {
-    unsigned mem_bg:6;  /* remembered background */
-    unsigned mem_trap:5;        /* remembered trap */
-    unsigned mem_obj:10;        /* remembered object */
+    unsigned mem_bg:6;          /* remembered background */
+    unsigned mem_trap:5;        /* remembered trap (0 = no trap) */
+    unsigned mem_obj:10;        /* remembered object, +1 (0 = no object) */
     unsigned mem_obj_mn:9;      /* monnum of remembered corpses, statues,
-                                   figurines */
+                                   figurines, +1 */
     unsigned mem_invis:1;       /* remembered invisible monster encounter */
     unsigned mem_stepped:1;     /* has this square been stepped on? */
 
-    schar typ;  /* what is really there */
-    uchar seenv;        /* seen vector */
-    unsigned flags:5;   /* extra information for typ */
+    schar typ;                  /* what is really there */
+    uchar seenv;                /* seen vector */
+    unsigned flags:5;           /* extra information for typ */
     unsigned horizontal:1;      /* wall/door/etc is horiz. (more typ info) */
-    unsigned lit:1;     /* speed hack for lit rooms */
-    unsigned waslit:1;  /* remember if a location was lit */
-    unsigned roomno:6;  /* room # for special rooms */
-    unsigned edge:1;    /* marks boundaries for special rooms */
+    unsigned lit:1;             /* speed hack for lit rooms */
+    unsigned waslit:1;          /* remember if a location was lit */
+    unsigned roomno:6;          /* room # for special rooms */
+    unsigned edge:1;            /* marks boundaries for special rooms */
 
     /* these values only have meaning if mem_bg is some sort of door, and are
        saved in mem_bg not in their own bits; they record what the player knows 
@@ -435,19 +441,8 @@ struct damage {
 };
 
 struct levelflags {
-    uchar nfountains;   /* number of fountains on level */
-    uchar nsinks;       /* number of sinks on the level */
-    /* Several flags that give hints about what's on the level */
-    unsigned has_shop:1;
-    unsigned has_vault:1;
-    unsigned has_zoo:1;
-    unsigned has_court:1;
-    unsigned has_morgue:1;
-    unsigned has_beehive:1;
-    unsigned has_barracks:1;
-    unsigned has_temple:1;
+    int purge_monsters; /* number of dead monsters still on level->monlist */
 
-    unsigned has_swamp:1;
     unsigned noteleport:1;
     unsigned hardfloor:1;
     unsigned nommap:1;
@@ -455,10 +450,9 @@ struct levelflags {
     unsigned shortsighted:1;    /* monsters are shortsighted */
     unsigned graveyard:1;       /* has_morgue, but remains set */
     unsigned is_maze_lev:1;
-
     unsigned is_cavernous_lev:1;
-    unsigned arboreal:1;        /* Trees replace rock */
 
+    unsigned arboreal:1;        /* Trees replace rock */
     unsigned forgotten:1;       /* previously visited but forgotten (amnesia) */
 };
 
@@ -532,3 +526,4 @@ extern struct level *level;             /* pointer to an entry in levels */
              (MON_BURIED_AT(x,y) ? level->monsters[x][y] : NULL)
 
 #endif /* RM_H */
+

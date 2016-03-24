@@ -1,25 +1,47 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-21 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #ifndef DECL_H
 # define DECL_H
 
-extern int (*occupation) (void);
-extern int (*afternmv) (void);
-
-extern int bases[MAXOCLASSES];
-
-extern int multi;
-extern char multi_txt[BUFSZ];
-extern int occtime;
+# include "flag.h"
+# include "dungeon.h"
+# include "monsym.h"
+# include "xmalloc.h"
+# include "spell.h"
+# include "color.h"
+# include "obj.h"
+# include "role.h"
+# include "you.h"
+# include "onames.h"
+# include "memfile.h"
+# ifndef PM_H   /* (pm.h might already have been included via youprop.h) */
+#  include "pm.h"
+# endif
 
 # define WARNCOUNT 6    /* number of different warning levels */
 
-extern int x_maze_max, y_maze_max;
-extern int otg_temp;
+/* Read-only data */
+static const int x_maze_max = (COLNO - 1) & ~1, y_maze_max = (ROWNO - 1) & ~1;
 
-extern struct dgn_topology {    /* special dungeon levels for speed */
+extern const int bases[MAXOCLASSES];
+
+extern const char quitchars[];
+extern const char vowels[];
+extern const char ynchars[];
+extern const char ynqchars[];
+extern const char ynaqchars[];
+
+extern const char disclosure_options[];
+
+extern const schar xdir[], ydir[], zdir[];
+
+/* Dungeon topology structure.
+
+   TODO: This should be in a different file, probably. */
+struct dgn_topology {    /* special dungeon levels for speed */
     d_level d_oracle_level;
     d_level d_bigroom_level;    /* unused */
     d_level d_rogue_level;
@@ -50,119 +72,70 @@ extern struct dgn_topology {    /* special dungeon levels for speed */
     xchar d_mines_dnum, d_quest_dnum;
     d_level d_qstart_level, d_qlocate_level, d_nemesis_level;
     d_level d_knox_level;
-} dungeon_topology;
+};
 
-/* macros for accesing the dungeon levels by their old names */
-# define oracle_level           (dungeon_topology.d_oracle_level)
-# define bigroom_level          (dungeon_topology.d_bigroom_level)
-# define rogue_level            (dungeon_topology.d_rogue_level)
-# define medusa_level           (dungeon_topology.d_medusa_level)
-# define stronghold_level       (dungeon_topology.d_stronghold_level)
-# define valley_level           (dungeon_topology.d_valley_level)
-# define wiz1_level             (dungeon_topology.d_wiz1_level)
-# define wiz2_level             (dungeon_topology.d_wiz2_level)
-# define wiz3_level             (dungeon_topology.d_wiz3_level)
-# define juiblex_level          (dungeon_topology.d_juiblex_level)
-# define orcus_level            (dungeon_topology.d_orcus_level)
-# define baalzebub_level        (dungeon_topology.d_baalzebub_level)
-# define asmodeus_level         (dungeon_topology.d_asmodeus_level)
-#define lolth_level     (dungeon_topology.d_lolth_level)
-#define lilith_level        (dungeon_topology.d_lilith_level)
-#define sammael_level       (dungeon_topology.d_sammael_level)
-#define cthulhu_level       (dungeon_topology.d_cthulhu_level)
-#define mammon_level        (dungeon_topology.d_mammon_level)
-# define portal_level           (dungeon_topology.d_portal_level)
-# define sanctum_level          (dungeon_topology.d_sanctum_level)
-# define earth_level            (dungeon_topology.d_earth_level)
-# define water_level            (dungeon_topology.d_water_level)
-# define fire_level             (dungeon_topology.d_fire_level)
-# define air_level              (dungeon_topology.d_air_level)
-# define astral_level           (dungeon_topology.d_astral_level)
-# define tower_dnum             (dungeon_topology.d_tower_dnum)
-# define sokoban_dnum           (dungeon_topology.d_sokoban_dnum)
-# define mines_dnum             (dungeon_topology.d_mines_dnum)
-# define quest_dnum             (dungeon_topology.d_quest_dnum)
-# define qstart_level           (dungeon_topology.d_qstart_level)
-# define qlocate_level          (dungeon_topology.d_qlocate_level)
-# define nemesis_level          (dungeon_topology.d_nemesis_level)
-# define knox_level             (dungeon_topology.d_knox_level)
 
-# define xdnstair               (dnstair.sx)
-# define ydnstair               (dnstair.sy)
-# define xupstair               (upstair.sx)
-# define yupstair               (upstair.sy)
+/* This structure is being used as part of the globals purge.
 
-extern int branch_id;
-extern coord inv_pos;
-extern dungeon dungeons[];
-extern s_level *sp_levchn;
+   Current meaning: "globals associated with the player character that aren't
+   part of struct you".
 
-# define dunlev_reached(x)      (dungeons[(x)->dnum].dunlev_ureached)
+   Eventual meaning: "values associated with a player that aren't associated
+   with a monster".
 
-# include "quest.h"
-extern struct q_score quest_status;
+   Ideally, we'll continuously deform one into the other. (Also, this is in the
+   wrong file; you.h would make more sense.) */
+struct youaux {
+    int unused;
+};
 
-extern char pl_character[PL_CSIZ];
-extern char pl_race;    /* character's race */
 
-extern char pl_fruit[PL_FSIZ];
-extern int current_fruit;
-extern struct fruit *ffruit;
+/* The big gamestate structure that holds all saved data. */
+extern struct gamestate {
 
-extern struct sinfo {
-    int game_running;   /* ok to call nh_do_move */
-    int restoring;      /* game is currently non-interactive (user input via
-                           log restore) */
-    int viewing;        /* non-interactive: viewing a game replay */
-    int gameover;       /* self explanatory? */
-    int forced_exit;    /* exit was triggered by nh_exit_game */
-    int stopprint;      /* inhibit further end of game disclosure */
-    int something_worth_saving; /* in case of panic */
-    int panicking;      /* `panic' is in progress */
-# if defined(WIN32)
-    int exiting;        /* an exit handler is executing */
-# endif
-    int in_impossible;
-# ifdef PANICLOG
-    int in_paniclog;
-# endif
-} program_state;
+    /* Things that describe the dungeon as a whole. */
+    dungeon dungeons[MAXDUNGEON];
+    s_level *sp_levchn;
+    struct dgn_topology topology;
 
-extern char tune[6];
+    /* Things that are conceptually attached to specific levels of a dungeon,
+       but for which only one such level exists, and for which the value may be
+       needed globally (and thus it makes more sense to store them as part of
+       the dungeon). These are currently saved in save_dungeon. */
+    char castle_tune[6];
+    coord inv_pos; /* TODO: use "vibrating square" trap instead */
+
+    /* Things that describe individual levels of a dungeon. */
+
+    /* Things that describe players within a dungeon.  (Eventually, this will
+       just be a single monster chain.  But that's a *long* way off at the
+       moment.) */
+    struct you us[1];
+    struct youaux us_aux[1];
+
+    /* Fruit state. Arguably should be in flags. Currently, this is attached to
+       a dungeon as a whole /or/ a bones level, which is weird enough as it is;
+       also, it's affected by options, which is even weirder. Anyone have any
+       idea how this would be expected to work in multiplayer? */
+    struct {
+        char curname[PL_FSIZ];
+        int current;
+        struct fruit *chain;
+    } fruits;
+
+    /* Unique IDs. TODO: move flags.ident here. TODO: Is this saved? If not, it
+       should probably be a local rather than a global. */
+    struct {
+        int branch;
+    } unique_ids;
+} gamestate;
+
+# define find_dungeon(z)        (gamestate.dungeons[(z)->dnum])
+# define dunlev_reached(z)      (find_dungeon(z).dunlev_ureached)
 
 # define MAXLINFO (MAXDUNGEON * MAXLEVEL)
-extern boolean restoring;
 
-extern const char quitchars[];
-extern const char vowels[];
-extern const char ynchars[];
-extern const char ynqchars[];
-extern const char ynaqchars[];
-
-extern const char disclosure_options[];
-
-extern int smeq[];
-extern int saved_cmd;
-
-# define KILLED_BY_AN    0
-# define KILLED_BY       1
-# define NO_KILLER_PREFIX 2
-extern int killer_format;
-extern const char *killer;
-extern const char *delayed_killer;
-extern int done_money;
-extern char killer_buf[BUFSZ];
-extern const char *configfile;
-extern char plname[PL_NSIZ];
-extern char dogname[];
-extern char catname[];
-extern char horsename[];
-extern char preferred_pet;
-extern const char *occtxt;      /* defined when occupation != NULL */
-extern const char *nomovemsg;
-extern const char nul[];
-
-extern const schar xdir[], ydir[], zdir[];
+extern struct xmalloc_block *api_blocklist;
 
 extern schar tbx, tby;  /* set in mthrowu.c */
 
@@ -172,60 +145,31 @@ extern struct multishot {
     boolean s;
 } m_shot;
 
-extern struct dig_info {        /* apply.c, hack.c */
-    int effort;
-    int lastdigtime;
-    d_level level;
-    coord pos;
-    boolean down, chew, warned, quiet;
-} digging;
-
-extern unsigned int stetho_last_used_move;
-extern int stetho_last_used_movement;
-
 extern unsigned int moves;
 extern long wailmsg;
 
 extern boolean in_mklev;
 extern boolean stoned;
-extern boolean unweapon;
 extern boolean mrg_to_wielded;
-extern struct obj *current_wand;
 
 extern boolean in_steed_dismounting;
 
 extern const int shield_static[];
 
-# include "spell.h"
 extern struct spell spl_book[]; /* sized in decl.c */
 
-# include "color.h"
 
 extern const char def_oc_syms[MAXOCLASSES];     /* default class symbols */
 extern const char def_monsyms[MAXMCLASSES];     /* default class symbols */
 
-# include "obj.h"
-extern struct obj *invent, *uarm, *uarmc, *uarmh, *uarms, *uarmg, *uarmf,
-    *uarmu,       /* under-wear, so to speak */
-    *uskin, *uamul, *uleft, *uright, *ublindf, *uwep, *uswapwep, *uquiver;
 extern int lastinvnr;
 
-extern struct obj *uchain;      /* defined only when punished */
-extern struct obj *uball;
-extern struct obj *book;
+extern struct obj *invent;
 extern struct obj zeroobj;      /* init'd and defined in decl.c */
 
-# include "role.h"
-# include "you.h"
-extern struct you u;
-
-# include "onames.h"
-# ifndef PM_H   /* (pm.h has already been included via youprop.h) */
-#  include "pm.h"
-# endif
 
 extern struct monst youmonst;   /* init'd and defined in decl.c */
-extern struct monst *mydogs, *migrating_mons;
+extern struct monst *migrating_mons;
 
 extern struct mvitals {
     uchar born;
@@ -255,7 +199,6 @@ extern const char *const materialnm[];
 # define EXACT_NAME             0x0F
 
 /* Vision */
-extern boolean vision_full_recalc;      /* TRUE if need vision recalc */
 extern char **viz_array;        /* could see/in sight row pointers */
 
 /* xxxexplain[] is in drawing.c */
@@ -273,12 +216,6 @@ extern const char *const fqn_prefix_names[PREFIX_COUNT];
 struct object_pick {
     struct obj *obj;
     int count;
-};
-
-struct menulist {
-    struct nh_menuitem *items;
-    int size;
-    int icount;
 };
 
 extern struct permonst pm_leader, pm_guardian, pm_nemesis;
@@ -306,9 +243,8 @@ struct cmd_desc {
     const char *desc;
     char defkey, altkey;
     boolean can_if_buried;
-    const void *func;
+    int (*func)(const struct nh_cmd_arg *);
     unsigned int flags;
-    const char *text;
 };
 
 struct histevent {
@@ -319,99 +255,144 @@ struct histevent {
 extern unsigned int histcount;
 extern struct histevent *histevents;
 
-
-extern unsigned long long turntime;
-extern int current_timezone,
-    replay_timezone;   /* difference from UTC in seconds */
 extern unsigned int timer_id;
 
-extern struct nh_option_desc *active_birth_options;
-extern struct nh_option_desc *birth_options;
-extern struct nh_option_desc *options;
-
-# define MSGCOUNT 20
+# define MSGCOUNT 30
 
 extern char toplines[MSGCOUNT][BUFSZ];
+extern int toplines_count[MSGCOUNT];
 extern int curline;
 
-# define add_menuitem(m, i, cap, acc, sel)\
-    add_menu_item((m)->items, (m)->size, (m)->icount, i, cap, acc, sel)
-# define add_menuheading(m, c)\
-    add_menu_txt((m)->items, (m)->size, (m)->icount, c, MI_HEADING)
-# define add_menutext(m, c)\
-    add_menu_txt((m)->items, (m)->size, (m)->icount, c, MI_TEXT)
-
-# define MEMFILE_HASHTABLE_SIZE 1009
-
-# define MDIFF_SEEK 0
-# define MDIFF_COPY 1
-# define MDIFF_EDIT 2
-# define MDIFF_INVALID 255
-
-enum memfile_tagtype {
-    MTAG_START, /* 0 */
-    MTAG_WATERLEVEL,
-    MTAG_DUNGEONSTRUCT,
-    MTAG_BRANCH,
-    MTAG_DUNGEON,
-    MTAG_REGION,        /* 5 */
-    MTAG_YOU,
-    MTAG_VERSION,
-    MTAG_WORMS,
-    MTAG_ROOMS,
-    MTAG_HISTORY,       /* 10 */
-    MTAG_ORACLES,
-    MTAG_TIMER,
-    MTAG_TIMERS,
-    MTAG_LIGHT,
-    MTAG_LIGHTS,        /* 15 */
-    MTAG_OBJ,
-    MTAG_TRACK,
-    MTAG_OCLASSES,
-    MTAG_RNDMONST,
-    MTAG_MON,   /* 20 */
-    MTAG_STEAL,
-    MTAG_ARTIFACT,
-    MTAG_RNGSTATE,
-    MTAG_LEVELS,
-    MTAG_LEVEL, /* 25 */
-    MTAG_MVITALS,
-    MTAG_GAMESTATE,
-    MTAG_DAMAGE,
-    MTAG_DAMAGEVALUE,
-    MTAG_TRAP,  /* 30 */
-    MTAG_FRUIT,
-    MTAG_ENGRAVING,
+/* Some game creation options don't have their values stored anywhere else.
+   Thus, we store them in a local variable whose type is this structure while
+   nh_create_game is running, and pass that variable around. */
+struct newgame_options {
+    char dogname[PL_PSIZ];
+    char catname[PL_PSIZ];
+    char horsename[PL_PSIZ];
+    char preferred_pet;                  /* '\0', 'c', 'd', 'n' for 'none' */
 };
-struct memfile_tag {
-    struct memfile_tag *next;
-    long tagdata;
-    enum memfile_tagtype tagtype;
-    int pos;
-};
-struct memfile {
-    /* The basic information: the buffer, its length, and the file position */
-    char *buf;
-    int len;
-    int pos;
-    /* Difference memfiles are relative to another memfile; and they contain
-       both the actual data in buf, and the diffed data in diffbuf */
-    struct memfile *relativeto;
-    char *diffbuf;
-    int difflen;
-    int diffpos;
-    int relativepos;    /* pos corresponds to relativepos in diffbuf */
-    /* Run-length-encoding of diffs. Either curcmd is MDIFF_INVALID and
-       curcount is irrelevant, or curcmd is a command and curcount is a count
-       matching that command. Note that we allow a negative "runlength" for
-       seek, so we can encode both forwards and backwards seeks. */
-    uint8_t curcmd;
-    int16_t curcount;
-    /* Tags to help in diffing. This is a hashtable for efficiency, using
-       chaining in the case of collisions */
-    struct memfile_tag *tags[MEMFILE_HASHTABLE_SIZE];
-};
+
+# define add_menuitem(m, i, cap, acc, sel)      \
+    add_menu_item((m), i, cap, acc, sel)
+# define add_menuheading(m, c)                  \
+    add_menu_txt((m), c, MI_HEADING)
+# define add_menutext(m, c)                     \
+    add_menu_txt((m), c, MI_TEXT)
+
+/* Compatibility macros. */
+# define u gamestate.us[0]
+
+# define dungeon_topology       gamestate.topology
+# define oracle_level           (dungeon_topology.d_oracle_level)
+# define bigroom_level          (dungeon_topology.d_bigroom_level)
+# define rogue_level            (dungeon_topology.d_rogue_level)
+# define medusa_level           (dungeon_topology.d_medusa_level)
+# define stronghold_level       (dungeon_topology.d_stronghold_level)
+# define valley_level           (dungeon_topology.d_valley_level)
+# define wiz1_level             (dungeon_topology.d_wiz1_level)
+# define wiz2_level             (dungeon_topology.d_wiz2_level)
+# define wiz3_level             (dungeon_topology.d_wiz3_level)
+# define juiblex_level          (dungeon_topology.d_juiblex_level)
+# define orcus_level            (dungeon_topology.d_orcus_level)
+# define baalzebub_level        (dungeon_topology.d_baalzebub_level)
+# define asmodeus_level         (dungeon_topology.d_asmodeus_level)
+# define portal_level           (dungeon_topology.d_portal_level)
+# define sanctum_level          (dungeon_topology.d_sanctum_level)
+# define earth_level            (dungeon_topology.d_earth_level)
+# define water_level            (dungeon_topology.d_water_level)
+# define fire_level             (dungeon_topology.d_fire_level)
+# define air_level              (dungeon_topology.d_air_level)
+# define astral_level           (dungeon_topology.d_astral_level)
+# define tower_dnum             (dungeon_topology.d_tower_dnum)
+# define sokoban_dnum           (dungeon_topology.d_sokoban_dnum)
+# define mines_dnum             (dungeon_topology.d_mines_dnum)
+# define quest_dnum             (dungeon_topology.d_quest_dnum)
+# define qstart_level           (dungeon_topology.d_qstart_level)
+# define qlocate_level          (dungeon_topology.d_qlocate_level)
+# define nemesis_level          (dungeon_topology.d_nemesis_level)
+# define knox_level             (dungeon_topology.d_knox_level)
+
+# define lolth_level            (dungeon_topology.d_lolth_level)
+# define lilith_level           (dungeon_topology.d_lilith_level)
+# define sammael_level          (dungeon_topology.d_sammael_level)
+# define cthulhu_level          (dungeon_topology.d_cthulhu_level)
+# define mammon_level           (dungeon_topology.d_mammon_level)
+
 
 extern int logfile;
+
+enum target_location_units {
+    TLU_BYTES,
+    TLU_TURNS,
+    TLU_EOF
+};
+
+extern struct sinfo {
+    int game_running;   /* ok to call nh_do_move */
+    int gameover;       /* self explanatory? */
+    int stopprint;      /* inhibit further end of game disclosure */
+    int panicking;      /* `panic' is in progress */
+# if defined(WIN32)
+    int exiting;        /* an exit handler is executing */
+# endif
+    int in_impossible;
+# ifdef PANICLOG
+    int in_paniclog;
+# endif
+
+    enum nh_followmode followmode;         /* play/watch/replay */
+
+    boolean suppress_screen_updates;
+    boolean restoring_binary_save;
+    boolean in_zero_time_command;
+
+    /*
+     * Invariants:
+     * * binary_save is uninitialized (and doesn't point to memory that needs
+     *   freeing) if binary_save_allocated is false, and the binary save
+     *   matching binary_save_location if binary_save_allocated is true;
+     * * save_backup_location <= binary_save_location <= gamestate_location;
+     * * save_backup_location refers to a save backup (or, if log_sync() has
+     *   never been called for this save file, may be 0, but log_sync() is
+     *   meant to be called immediately upon loading it);
+     * * last_save_backup_location_location is one byte past the first save
+     *   backup in the file;
+     * * gamestate_location points to the location in the save file that
+     *   reflects the start of the line referring to the current gamestate (in
+     *   u, level, etc.), except possibly while log_sync() is running.
+     * * emergency_recover_location is normally 0; if it isn't, panic() and
+     *   impossible() should recover to that location rather than trying to
+     *   find somewhere to recover to
+     * * end_of_gamestate_location is the start of the line immediately after
+     *   the one that gamestate_location point to.
+     */
+    volatile int logfile;                             /* file descriptor */
+    void *logfile_watchers;                /* on UNIX, an array of pid_t */
+    int logfile_watcher_count;
+    struct memfile binary_save;
+    boolean binary_save_allocated;
+    int expected_recovery_count;
+    long last_save_backup_location_location; /* bytes from start of file */
+    long save_backup_location;               /* bytes from start of file */
+    long binary_save_location;               /* bytes from start of file */
+    long gamestate_location;                 /* bytes from start of file */
+    long end_of_gamestate_location;          /* bytes from start of file */
+    long emergency_recover_location;         /* bytes from start of file */
+    boolean input_was_just_replayed;
+    boolean ok_to_diff;
+} program_state;
+
+#define panic(...) panic_core(__FILE__, __LINE__, __VA_ARGS__)
+#define impossible(...) impossible_core(__FILE__, __LINE__,  __VA_ARGS__)
+
+extern const struct cmd_desc cmdlist[];
+
+/* timezones, polyinit are generated in readonly.c */
+extern const struct nh_listitem timezone_list[];
+extern const struct nh_enum_option timezone_spec;
+
+extern const struct nh_listitem polyinit_list[];
+extern const struct nh_enum_option polyinit_spec;
 
 #endif /* DECL_H */

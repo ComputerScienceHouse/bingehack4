@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-21 */
 /* Copyright (C) 1990 by Ken Arromdee                              */
 /* NetHack may be freely redistributed.  See license for details.  */
 
@@ -69,7 +70,7 @@ precheck(struct monst *mon, struct obj *obj, struct musable *m)
                 mtmp = makemon(&mons[PM_GHOST], level, cc.x, cc.y, NO_MM_FLAGS);
                 if (!mtmp) {
                     if (vis)
-                        pline(empty);
+                        pline("%s", empty);
                 } else {
                     if (vis) {
                         if (Hallucination) {
@@ -95,6 +96,7 @@ precheck(struct monst *mon, struct obj *obj, struct musable *m)
                 return 2;
             }
         }
+        /* not rng_smoky_potion; that's for wishes that players will get */
         if (potion_descr && !strcmp(potion_descr, "smoky") &&
             flags.djinni_count < MAXMONNO &&
             !rn2(POTION_OCCUPANT_CHANCE(flags.djinni_count))) {
@@ -105,17 +107,17 @@ precheck(struct monst *mon, struct obj *obj, struct musable *m)
             mtmp = makemon(&mons[PM_DJINNI], level, cc.x, cc.y, NO_MM_FLAGS);
             if (!mtmp) {
                 if (vis)
-                    pline(empty);
+                    pline("%s", empty);
             } else {
                 if (vis)
                     pline("In a cloud of smoke, %s emerges!", a_monnam(mtmp));
-                pline("%s speaks.", vis ? Monnam(mtmp) : "Something");
+                if (canhear())
+                    pline("%s speaks.", vis ? Monnam(mtmp) : "Something");
                 /* I suspect few players will be upset that monsters */
                 /* can't wish for wands of death here.... */
                 if (rn2(2)) {
                     verbalize("You freed me!");
-                    mtmp->mpeaceful = 1;
-                    set_malign(mtmp);
+                    msethostility(mtmp, FALSE, TRUE);
                 } else {
                     verbalize("It is about time.");
                     if (vis)
@@ -129,7 +131,7 @@ precheck(struct monst *mon, struct obj *obj, struct musable *m)
     if (obj->oclass == WAND_CLASS && obj->cursed && !rn2(100)) {
         int dam = dice(obj->spe + 2, 6);
 
-        if (flags.soundok) {
+        if (canhear()) {
             if (vis)
                 pline("%s zaps %s, which suddenly explodes!", Monnam(mon),
                       an(xname(obj)));
@@ -151,29 +153,28 @@ precheck(struct monst *mon, struct obj *obj, struct musable *m)
 static void
 mzapmsg(struct monst *mtmp, struct obj *otmp, boolean self)
 {
-    if (!canseemon(mtmp)) {
-        if (flags.soundok)
-            You_hear("a %s zap.",
-                     (distu(mtmp->mx, mtmp->my) <=
-                      (BOLT_LIM + 1) * (BOLT_LIM + 1)) ? "nearby" : "distant");
+    if (!mon_visible(mtmp)) {
+        You_hear("a %s zap.",
+                    (distu(mtmp->mx, mtmp->my) <=
+                    (BOLT_LIM + 1) * (BOLT_LIM + 1)) ? "nearby" : "distant");
     } else if (self)
         pline("%s zaps %sself with %s!", Monnam(mtmp), mhim(mtmp),
               doname(otmp));
     else {
         pline("%s zaps %s!", Monnam(mtmp), an(xname(otmp)));
-        stop_occupation();
+        action_interrupted();
     }
 }
 
 static void
 mreadmsg(struct monst *mtmp, struct obj *otmp)
 {
-    boolean vismon = canseemon(mtmp);
-    char onambuf[BUFSZ];
+    boolean vismon = mon_visible(mtmp);
     short saverole;
+    const char *onambuf;
     unsigned savebknown;
 
-    if (!vismon && !flags.soundok)
+    if (!vismon && !canhear())
         return; /* no feedback */
 
     otmp->dknown = 1;   /* seeing or hearing it read reveals its label */
@@ -186,7 +187,7 @@ mreadmsg(struct monst *mtmp, struct obj *otmp)
         if (Role_if(PM_PRIEST))
             Role_switch = 0;
     }
-    strcpy(onambuf, singular(otmp, doname));
+    onambuf = singular(otmp, doname);
     Role_switch = saverole;
     otmp->bknown = savebknown;
 
@@ -206,17 +207,16 @@ mreadmsg(struct monst *mtmp, struct obj *otmp)
 static void
 mquaffmsg(struct monst *mtmp, struct obj *otmp)
 {
-    if (canseemon(mtmp)) {
+    if (mon_visible(mtmp)) {
         otmp->dknown = 1;
         pline("%s drinks %s!", Monnam(mtmp), singular(otmp, doname));
-    } else if (flags.soundok)
+    } else
         You_hear("a chugging sound.");
 }
 
 
 /* Select a defensive item/action for a monster.  Returns TRUE iff one is
- * found.
- */
+   found. */
 boolean
 find_defensive(struct monst *mtmp, struct musable *m)
 {
@@ -230,9 +230,10 @@ find_defensive(struct monst *mtmp, struct musable *m)
 
     if (is_animal(mtmp->data) || mindless(mtmp->data))
         return FALSE;
-    if (dist2(x, y, mtmp->mux, mtmp->muy) > 25)
+    if (engulfing_u(mtmp) || !aware_of_u(mtmp) ||
+        dist2(x, y, mtmp->mux, mtmp->muy) > 25)
         return FALSE;
-    if (u.uswallow && stuck)
+    if (Engulfed && stuck)
         return FALSE;
 
     m->defensive = NULL;
@@ -321,8 +322,8 @@ find_defensive(struct monst *mtmp, struct musable *m)
             m->has_defense = MUSE_DOWNSTAIRS;
         if (x == lev->upstair.sx && y == lev->upstair.sy &&
             ledger_no(&u.uz) != 1)
-            /* Unfair to let the monsters leave the dungeon with the Amulet */
-            /* (or go to the endlevel since you also need it, to get there) */
+            /* Unfair to let the monsters leave the dungeon with the Amulet
+               (or go to the endlevel since you also need it, to get there) */
             m->has_defense = MUSE_UPSTAIRS;
     } else if (lev->locations[x][y].typ == LADDER && !stuck && !immobile) {
         if (x == lev->upladder.sx && y == lev->upladder.sy)
@@ -330,7 +331,7 @@ find_defensive(struct monst *mtmp, struct musable *m)
         if (x == lev->dnladder.sx && y == lev->dnladder.sy &&
             !is_floater(mtmp->data))
             m->has_defense = MUSE_DN_LADDER;
-    } else if (lev->sstairs.sx && lev->sstairs.sx == x && lev->sstairs.sy == y) {
+    } else if (lev->sstairs.sx == x && lev->sstairs.sy == y) {
         m->has_defense = MUSE_SSTAIRS;
     } else if (!stuck && !immobile) {
         /* Note: trap doors take precedence over teleport traps. */
@@ -339,7 +340,7 @@ find_defensive(struct monst *mtmp, struct musable *m)
         for (xx = x - 1; xx <= x + 1; xx++)
             for (yy = y - 1; yy <= y + 1; yy++)
                 if (isok(xx, yy))
-                    if (xx != u.ux && yy != u.uy)
+                    if (xx != u.ux || yy != u.uy)
                         if (mtmp->data != &mons[PM_GRID_BUG] || xx == x ||
                             yy == y)
                             if ((xx == x && yy == y) || !lev->monsters[xx][yy])
@@ -377,7 +378,8 @@ find_defensive(struct monst *mtmp, struct musable *m)
         struct monst *mon;
 
         /* Distance is arbitrary.  What we really want to do is have the
-           soldier play the bugle when it sees or remembers soldiers nearby... */
+           soldier play the bugle when it sees or remembers soldiers nearby...
+           */
         for (xx = x - 3; xx <= x + 3; xx++)
             for (yy = y - 3; yy <= y + 3; yy++)
                 if (isok(xx, yy))
@@ -508,7 +510,7 @@ use_defensive(struct monst *mtmp, struct musable *m)
     if ((i = precheck(mtmp, otmp, m)) != 0)
         return i;
     vis = cansee(mtmp->mx, mtmp->my);
-    vismon = canseemon(mtmp);
+    vismon = mon_visible(mtmp);
     oseen = otmp && vismon;
 
     /* when using defensive choice to run away, we want monster to avoid
@@ -542,7 +544,7 @@ use_defensive(struct monst *mtmp, struct musable *m)
     case MUSE_BUGLE:
         if (vismon)
             pline("%s plays %s!", Monnam(mtmp), doname(otmp));
-        else if (flags.soundok)
+        else
             You_hear("a bugle playing reveille!");
         awaken_soldiers();
         return 2;
@@ -570,7 +572,7 @@ use_defensive(struct monst *mtmp, struct musable *m)
         }
         if (oseen && how)
             makeknown(how);
-        rloc(mtmp, FALSE);
+        rloc(mtmp, TRUE);
         return 2;
     case MUSE_WAN_TELEPORTATION:
         zap_oseen = oseen;
@@ -629,18 +631,18 @@ use_defensive(struct monst *mtmp, struct musable *m)
             if (IS_FURNITURE(level->locations[mtmp->mx][mtmp->my].typ) ||
                 IS_DRAWBRIDGE(level->locations[mtmp->mx][mtmp->my].typ) ||
                 (is_drawbridge_wall(mtmp->mx, mtmp->my) >= 0) ||
-                (level->sstairs.sx && level->sstairs.sx == mtmp->mx &&
+                (level->sstairs.sx == mtmp->mx &&
                  level->sstairs.sy == mtmp->my)) {
                 pline("The digging ray is ineffective.");
                 return 2;
             }
             if (!can_dig_down(level)) {
-                if (canseemon(mtmp))
+                if (mon_visible(mtmp))
                     pline("The %s here is too hard to dig in.",
                           surface(mtmp->mx, mtmp->my));
                 return 2;
             }
-            ttmp = maketrap(level, mtmp->mx, mtmp->my, HOLE);
+            ttmp = maketrap(level, mtmp->mx, mtmp->my, HOLE, rng_main);
             if (!ttmp)
                 return 2;
             seetrap(ttmp);
@@ -649,7 +651,7 @@ use_defensive(struct monst *mtmp, struct musable *m)
                       surface(mtmp->mx, mtmp->my));
                 pline("%s %s through...", Monnam(mtmp),
                       is_flyer(mtmp->data) ? "dives" : "falls");
-            } else if (flags.soundok)
+            } else
                 You_hear("something crash through the %s.",
                          surface(mtmp->mx, mtmp->my));
             /* we made sure that there is a level for mtmp to go to */
@@ -661,19 +663,20 @@ use_defensive(struct monst *mtmp, struct musable *m)
             coord cc;
 
             /* pm: 0 => random, eel => aquatic, croc => amphibious */
-            const struct permonst *pm =
-                !is_pool(level, mtmp->mx,
-                         mtmp->my) ? 0 : &mons[u.
-                                               uinwater ? PM_GIANT_EEL :
-                                               PM_CROCODILE];
+            const struct permonst *pm = !is_pool(level, mtmp->mx,
+                                                 mtmp->
+                                                 my) ? 0 : &mons[u.uinwater ?
+                                                                 PM_GIANT_EEL :
+                                                                 PM_CROCODILE];
             struct monst *mon;
 
             if (!enexto(&cc, level, mtmp->mx, mtmp->my, pm))
                 return 0;
             mzapmsg(mtmp, otmp, FALSE);
             otmp->spe--;
-            mon = makemon(NULL, level, cc.x, cc.y, NO_MM_FLAGS);
-            if (mon && canspotmon(mon) && oseen)
+            mon = makemon(NULL, level, cc.x, cc.y,
+                          MM_CREATEMONSTER | MM_CMONSTER_M);
+            if (mon && cansuspectmon(mon) && oseen)
                 makeknown(WAN_CREATE_MONSTER);
             return 2;
         }
@@ -699,8 +702,9 @@ use_defensive(struct monst *mtmp, struct musable *m)
                    is what to actually create (0 => random) */
                 if (!enexto(&cc, level, mtmp->mx, mtmp->my, fish))
                     break;
-                mon = makemon(pm, level, cc.x, cc.y, NO_MM_FLAGS);
-                if (mon && canspotmon(mon))
+                mon = makemon(pm, level, cc.x, cc.y,
+                              MM_CREATEMONSTER | MM_CMONSTER_M);
+                if (mon && cansuspectmon(mon))
                     known = TRUE;
             }
             /* The only case where we don't use oseen.  For wands, you have to
@@ -762,9 +766,8 @@ use_defensive(struct monst *mtmp, struct musable *m)
         if (Inhell && mon_has_amulet(mtmp) && !rn2(4) &&
             (dunlev(&u.uz) < dunlevs_in_dungeon(&u.uz) - 3)) {
             if (vismon)
-                pline
-                    ("As %s climbs the stairs, a mysterious force momentarily surrounds %s...",
-                     mon_nam(mtmp), mhim(mtmp));
+                pline("As %s climbs the stairs, a mysterious force momentarily "
+                      "surrounds %s...", mon_nam(mtmp), mhim(mtmp));
             /* simpler than for the player; this will usually be the Wizard and 
                he'll immediately go right to the upstairs, so there's not much
                point in having any chance for a random position on the current
@@ -901,22 +904,23 @@ use_defensive(struct monst *mtmp, struct musable *m)
 }
 
 int
-rnd_defensive_item(struct monst *mtmp)
+rnd_defensive_item(struct monst *mtmp, enum rng rng)
 {
     const struct permonst *pm = mtmp->data;
     int difficulty = monstr[monsndx(pm)];
     int trycnt = 0;
 
     if (is_animal(pm) || attacktype(pm, AT_EXPL) || mindless(mtmp->data)
-        || pm->mlet == S_GHOST || pm->mlet == S_KOP)
+        || noncorporeal(pm) || pm->mlet == S_KOP)
         return 0;
 try_again:
-    switch (rn2(8 + (difficulty > 3) + (difficulty > 6) + (difficulty > 8))) {
+    switch (rn2_on_rng(8 + (difficulty > 3) + (difficulty > 6) +
+                       (difficulty > 8), rng)) {
     case 6:
     case 9:
         if (mtmp->dlevel->flags.noteleport && ++trycnt < 2)
             goto try_again;
-        if (!rn2(3))
+        if (!rn2_on_rng(3, rng))
             return WAN_TELEPORTATION;
         /* else FALLTHRU */
     case 0:
@@ -924,7 +928,7 @@ try_again:
         return SCR_TELEPORTATION;
     case 8:
     case 10:
-        if (!rn2(3))
+        if (!rn2_on_rng(3, rng))
             return WAN_CREATE_MONSTER;
         /* else FALLTHRU */
     case 2:
@@ -947,21 +951,21 @@ try_again:
 
 
 /* Select an offensive item/action for a monster.  Returns TRUE iff one is
- * found. */
+   found. */
 boolean
-find_offensive(struct monst * mtmp, struct musable * m)
+find_offensive(struct monst *mtmp, struct musable *m)
 {
     struct obj *obj;
     boolean ranged_stuff = FALSE;
     boolean reflection_skip = FALSE;
-    struct obj *helmet = which_armor(mtmp, W_ARMH);
+    struct obj *helmet = which_armor(mtmp, os_armh);
 
     struct monst *target = mfind_target(mtmp);
 
     if (target) {
         ranged_stuff = TRUE;
         if (target == &youmonst)
-            reflection_skip = (Reflecting && rn2(2));
+            reflection_skip = Reflecting && rn2(2);
     } else
         return FALSE;   /* nothing to attack */
 
@@ -970,12 +974,12 @@ find_offensive(struct monst * mtmp, struct musable * m)
     if (is_animal(mtmp->data) || mindless(mtmp->data) || nohands(mtmp->data))
         return FALSE;
     if (target == &youmonst) {
-        if (u.uswallow)
+        if (Engulfed)
             return FALSE;
         if (in_your_sanctuary(mtmp, 0, 0))
             return FALSE;
-        if (dmgtype(mtmp->data, AD_HEAL) && !uwep && !uarmu && !uarm && !uarmh
-            && !uarms && !uarmg && !uarmc && !uarmf)
+        if (dmgtype(mtmp->data, AD_HEAL) && !uwep && !uarmu && !uarmh
+            && !uarms && !uarmg && !uarmc && !uarmf && (!uarm || uskin()))
             return FALSE;
     }
 
@@ -990,7 +994,8 @@ find_offensive(struct monst * mtmp, struct musable * m)
                 m->has_offense = MUSE_WAN_DEATH;
             }
             nomore(MUSE_WAN_SLEEP);
-            if (obj->otyp == WAN_SLEEP && obj->spe > 0 && multi >= 0) {
+            if (obj->otyp == WAN_SLEEP && obj->spe > 0 &&
+                !u_helpless(hm_paralyzed | hm_unconscious)) {
                 m->offensive = obj;
                 m->has_offense = MUSE_WAN_SLEEP;
             }
@@ -1033,7 +1038,8 @@ find_offensive(struct monst * mtmp, struct musable * m)
             m->has_offense = MUSE_WAN_STRIKING;
         }
         nomore(MUSE_POT_PARALYSIS);
-        if (obj->otyp == POT_PARALYSIS && multi >= 0) {
+        if (obj->otyp == POT_PARALYSIS &&
+            !u_helpless(hm_paralyzed | hm_unconscious)) {
             m->offensive = obj;
             m->has_offense = MUSE_POT_PARALYSIS;
         }
@@ -1065,15 +1071,16 @@ find_offensive(struct monst * mtmp, struct musable * m)
             ((helmet && is_metallic(helmet)) || mtmp->mconf ||
              amorphous(mtmp->data) || passes_walls(mtmp->data) ||
              noncorporeal(mtmp->data) || unsolid(mtmp->data) || !rn2(10))
-            && dist2(mtmp->mx, mtmp->my, mtmp->mux, mtmp->muy) <= 2 &&
-            mtmp->mcansee && haseyes(mtmp->data)
+            && aware_of_u(mtmp) && !engulfing_u(mtmp)
+            && dist2(mtmp->mx, mtmp->my, mtmp->mux, mtmp->muy) <= 2
+            && mtmp->mcansee && haseyes(mtmp->data)
             && !Is_rogue_level(&u.uz)
             && (!In_endgame(&u.uz) || Is_earthlevel(&u.uz))) {
             m->offensive = obj;
             m->has_offense = MUSE_SCR_EARTH;
         }
     }
-    return (boolean) (! !m->has_offense);
+    return (boolean) (!!m->has_offense);
 #undef nomore
 }
 
@@ -1098,16 +1105,15 @@ mbhitm(struct monst *mtmp, struct obj *otmp)
             if (Antimagic) {
                 shieldeff(u.ux, u.uy);
                 pline("Boing!");
-            } else if (rnd(20) < 10 + u.uac) {
+            } else if (rnd(20) < 10 + get_player_ac()) {
                 pline("The wand hits you!");
                 tmp = dice(2, 12);
                 if (Half_spell_damage)
                     tmp = (tmp + 1) / 2;
-                losehp(tmp, "wand", KILLED_BY_AN);
+                losehp(tmp, killer_msg(DIED, "a wand"));
             } else
                 pline("The wand misses you.");
-            stop_occupation();
-            nomul(0, NULL);
+            action_interrupted();
         } else if (resists_magm(mtmp)) {
             shieldeff(mtmp->mx, mtmp->my);
             pline("Boing!");
@@ -1130,14 +1136,15 @@ mbhitm(struct monst *mtmp, struct obj *otmp)
             tele();
         } else {
             /* for consistency with zap.c, don't identify */
-            if (mtmp->ispriest && *in_rooms(level, mtmp->mx, mtmp->my, TEMPLE)) {
+            if (mtmp->ispriest &&
+                *in_rooms(level, mtmp->mx, mtmp->my, TEMPLE)) {
                 if (cansee(mtmp->mx, mtmp->my))
                     pline("%s resists the magic!", Monnam(mtmp));
                 mtmp->msleeping = 0;
                 if (mtmp->m_ap_type)
                     seemimic(mtmp);
             } else if (!tele_restrict(mtmp))
-                rloc(mtmp, FALSE);
+                rloc(mtmp, TRUE);
         }
         break;
     case WAN_CANCELLATION:
@@ -1146,6 +1153,7 @@ mbhitm(struct monst *mtmp, struct obj *otmp)
         break;
     }
     if (reveal_invis) {
+        /* monster-on-monster, so don't use reveal_monster_at */
         if (mtmp->mhp > 0 && cansee(bhitpos.x, bhitpos.y)
             && !canspotmon(mtmp))
             map_invisible(bhitpos.x, bhitpos.y);
@@ -1240,8 +1248,8 @@ mbhit(struct monst *mon,        /* monster shooting the wand */
         }
         if (!ZAP_POS(typ) ||
             (IS_DOOR(typ) &&
-             (level->
-              locations[bhitpos.x][bhitpos.y].doormask & (D_LOCKED | D_CLOSED)))
+             (level->locations[bhitpos.x][bhitpos.y].
+              doormask & (D_LOCKED | D_CLOSED)))
             ) {
             bhitpos.x -= ddx;
             bhitpos.y -= ddy;
@@ -1263,7 +1271,7 @@ use_offensive(struct monst *mtmp, struct musable *m)
     /* offensive potions are not drunk, they're thrown */
     if (otmp->oclass != POTION_CLASS && (i = precheck(mtmp, otmp, m)) != 0)
         return i;
-    oseen = canseemon(mtmp);
+    oseen = mon_visible(mtmp);
     if (oseen)
         examine_object(otmp);
 
@@ -1325,8 +1333,7 @@ use_offensive(struct monst *mtmp, struct musable *m)
             } else if (cansee(mtmp->mx, mtmp->my)) {
                 pline("The %s rumbles in the middle of nowhere!",
                       ceiling(mtmp->mx, mtmp->my));
-                if (mtmp->minvis)
-                    map_invisible(mtmp->mx, mtmp->my);
+                map_invisible(mtmp->mx, mtmp->my);
                 if (oseen)
                     makeknown(otmp->otyp);
             }
@@ -1345,9 +1352,8 @@ use_offensive(struct monst *mtmp, struct musable *m)
                         struct monst *mtmp2;
 
                         /* Make the object(s) */
-                        otmp2 =
-                            mksobj(level, confused ? ROCK : BOULDER, FALSE,
-                                   FALSE);
+                        otmp2 = mksobj(level, confused ? ROCK : BOULDER,
+                                       FALSE, FALSE, rng_main);
                         if (!otmp2)
                             continue;   /* Shouldn't happen */
                         otmp2->quan = confused ? rn1(5, 2) : 1;
@@ -1359,28 +1365,28 @@ use_offensive(struct monst *mtmp, struct musable *m)
                             !passes_walls(mtmp2->data) &&
                             !noncorporeal(mtmp2->data) &&
                             !unsolid(mtmp2->data)) {
-                            struct obj *helmet = which_armor(mtmp2, W_ARMH);
+                            struct obj *helmet = which_armor(mtmp2, os_armh);
                             int mdmg;
 
                             if (cansee(mtmp2->mx, mtmp2->my)) {
                                 pline("%s is hit by %s!", Monnam(mtmp2),
                                       doname(otmp2));
-                                if (mtmp2->minvis && !canspotmon(mtmp2))
+                                if (!canspotmon(mtmp2))
                                     map_invisible(mtmp2->mx, mtmp2->my);
                             }
                             mdmg = dmgval(otmp2, mtmp2) * otmp2->quan;
                             if (helmet) {
                                 if (is_metallic(helmet)) {
-                                    if (canspotmon(mtmp2))
+                                    if (canseemon(mtmp2))
                                         pline("Fortunately, %s is wearing "
                                               "a hard %s.", mon_nam(mtmp2),
                                               helmet_name(helmet));
-                                    else if (flags.soundok)
+                                    else
                                         You_hear("a clanging sound.");
                                     if (mdmg > 2)
                                         mdmg = 2;
                                 } else {
-                                    if (canspotmon(mtmp2))
+                                    if (canseemon(mtmp2))
                                         pline("%s's %s does not protect %s.",
                                               Monnam(mtmp2), xname(helmet),
                                               mhim(mtmp2));
@@ -1408,7 +1414,8 @@ use_offensive(struct monst *mtmp, struct musable *m)
                 struct obj *otmp2;
 
                 /* Okay, _you_ write this without repeating the code */
-                otmp2 = mksobj(level, confused ? ROCK : BOULDER, FALSE, FALSE);
+                otmp2 = mksobj(level, confused ? ROCK : BOULDER, FALSE, FALSE,
+                               rng_main);
                 if (!otmp2)
                     goto xxx_noobj;     /* Shouldn't happen */
                 otmp2->quan = confused ? rn1(5, 2) : 1;
@@ -1436,7 +1443,7 @@ use_offensive(struct monst *mtmp, struct musable *m)
                     newsym(u.ux, u.uy);
                 }
                 if (dmg)
-                    losehp(dmg, "scroll of earth", KILLED_BY_AN);
+                    losehp(dmg, killer_msg(DIED, "scroll of earth"));
             }
         xxx_noobj:
 
@@ -1455,6 +1462,11 @@ use_offensive(struct monst *mtmp, struct musable *m)
             otmp->dknown = 1;
             pline("%s hurls %s!", Monnam(mtmp), singular(otmp, doname));
         }
+        /* Wow, this is a twisty mess of ugly global variables. */
+        if (!aware_of_u(mtmp))
+            panic("Monster throws potion while unaware!");
+        if (engulfing_u(mtmp))
+            panic("Monster throws potion while engulfing you!");
         m_throw(mtmp, mtmp->mx, mtmp->my, sgn(tbx), sgn(tby),
                 distmin(mtmp->mx, mtmp->my, mtmp->mux, mtmp->muy), otmp, TRUE);
         return 2;
@@ -1469,19 +1481,19 @@ use_offensive(struct monst *mtmp, struct musable *m)
 }
 
 int
-rnd_offensive_item(struct monst *mtmp)
+rnd_offensive_item(struct monst *mtmp, enum rng rng)
 {
     const struct permonst *pm = mtmp->data;
     int difficulty = monstr[monsndx(pm)];
 
     if (is_animal(pm) || attacktype(pm, AT_EXPL) || mindless(mtmp->data)
-        || pm->mlet == S_GHOST || pm->mlet == S_KOP)
+        || noncorporeal(pm) || pm->mlet == S_KOP)
         return 0;
-    if (difficulty > 7 && !rn2(35))
+    if (difficulty > 7 && !rn2_on_rng(35, rng))
         return WAN_DEATH;
-    switch (rn2(9 - (difficulty < 4) + 4 * (difficulty > 6))) {
+    switch (rn2_on_rng(9 - (difficulty < 4) + 4 * (difficulty > 6), rng)) {
     case 0:{
-            struct obj *helmet = which_armor(mtmp, W_ARMH);
+            struct obj *helmet = which_armor(mtmp, os_armh);
 
             if ((helmet && is_metallic(helmet)) || amorphous(pm) ||
                 passes_walls(pm) || noncorporeal(pm) || unsolid(pm))
@@ -1529,13 +1541,14 @@ find_misc(struct monst * mtmp, struct musable * m)
     m->has_misc = 0;
     if (is_animal(mdat) || mindless(mdat))
         return 0;
-    if (u.uswallow && stuck)
+    if (Engulfed && stuck)
         return FALSE;
 
     /* We arbitrarily limit to times when a player is nearby for the same
        reason as Junior Pac-Man doesn't have energizers eaten until you can see 
        them... */
-    if (dist2(x, y, mtmp->mux, mtmp->muy) > 36)
+    if (!aware_of_u(mtmp) || engulfing_u(mtmp) ||
+        dist2(x, y, mtmp->mux, mtmp->muy) > 36)
         return FALSE;
 
     if (!stuck && !immobile && !mtmp->cham && monstr[monsndx(mdat)] < 6) {
@@ -1640,13 +1653,13 @@ muse_newcham_mon(struct monst *mon)
 {
     struct obj *m_armr;
 
-    if ((m_armr = which_armor(mon, W_ARM)) != 0) {
+    if ((m_armr = which_armor(mon, os_arm)) != 0) {
         if (Is_dragon_scales(m_armr))
             return Dragon_scales_to_pm(m_armr);
         else if (Is_dragon_mail(m_armr))
             return Dragon_mail_to_pm(m_armr);
     }
-    return rndmonst(&mon->dlevel->z);
+    return rndmonst(&mon->dlevel->z, rng_main);
 }
 
 int
@@ -1654,13 +1667,12 @@ use_misc(struct monst *mtmp, struct musable *m)
 {
     int i;
     struct obj *otmp = m->misc;
-    boolean vis, vismon, oseen;
-    char nambuf[BUFSZ];
+    boolean vismon, oseen;
+    const char *nambuf;
 
     if ((i = precheck(mtmp, otmp, m)) != 0)
         return i;
-    vis = cansee(mtmp->mx, mtmp->my);
-    vismon = canseemon(mtmp);
+    vismon = mon_visible(mtmp);
     oseen = otmp && vismon;
 
     switch (m->has_misc) {
@@ -1714,8 +1726,8 @@ use_misc(struct monst *mtmp, struct musable *m)
         } else
             mquaffmsg(mtmp, otmp);
         /* format monster's name before altering its visibility */
-        strcpy(nambuf, See_invisible ||
-               tp_sensemon(mtmp) ? Monnam(mtmp) : mon_nam(mtmp));
+        nambuf = (See_invisible || tp_sensemon(mtmp)) ?
+            Monnam(mtmp) : mon_nam(mtmp);
         mon_set_minvis(mtmp);
         if (vismon && mtmp->minvis) {   /* was seen, now invisible */
             if (See_invisible)
@@ -1766,11 +1778,14 @@ use_misc(struct monst *mtmp, struct musable *m)
         m_useup(mtmp, otmp);
         return 2;
     case MUSE_POLY_TRAP:
-        if (vismon)
+        if (vismon) {
+            /* If the player can see the monster jump onto a square and
+               polymorph, they'll know there's a trap there even if they can't
+               see the square the trap's on (e.g. infravisible monster). */
             pline("%s deliberately %s onto a polymorph trap!", Monnam(mtmp),
                   makeplural(locomotion(mtmp->data, "jump")));
-        if (vis)
             seetrap(t_at(level, trapx, trapy));
+        }
 
         /* don't use rloc() due to worms */
         remove_monster(level, mtmp->mx, mtmp->my);
@@ -1789,9 +1804,8 @@ use_misc(struct monst *mtmp, struct musable *m)
             int where_to = rn2(4);
             struct obj *obj = uwep;
             const char *hand;
-            char the_weapon[BUFSZ];
+            const char *the_weapon = the(xname(obj));
 
-            strcpy(the_weapon, the(xname(obj)));
             hand = body_part(HAND);
             if (bimanual(obj))
                 hand = makeplural(hand);
@@ -1820,8 +1834,8 @@ use_misc(struct monst *mtmp, struct musable *m)
                    hero's feet instead */
                 where_to = 2;
             }
-            freeinv(obj);
             uwepgone();
+            freeinv(obj);
             switch (where_to) {
             case 1:    /* onto floor beneath mon */
                 pline("%s yanks %s from your %s!", Monnam(mtmp), the_weapon,
@@ -1845,7 +1859,7 @@ use_misc(struct monst *mtmp, struct musable *m)
         mreadmsg(mtmp, otmp);
         if (canseemon(mtmp)) {
             if (mtmp->mconf)
-                pline("You feel as though %s needs some help.", mon_nam(mtmp));
+                pline("You feel as if %s needs some help.", mon_nam(mtmp));
             else
                 pline("You feel like someone is helping %s.", mon_nam(mtmp));
             if (!objects[SCR_REMOVE_CURSE].oc_name_known &&
@@ -1859,9 +1873,10 @@ use_misc(struct monst *mtmp, struct musable *m)
                 /* gold isn't subject to cursing and blessing */
                 if (obj->oclass == COIN_CLASS)
                     continue;
-                if (otmp->blessed || otmp->owornmask || obj->otyp == LOADSTONE) {
+                if (otmp->blessed || otmp->owornmask ||
+                    obj->otyp == LOADSTONE) {
                     if (mtmp->mconf)
-                        blessorcurse(obj, 2);
+                        blessorcurse(obj, 2, rng_main);
                     else
                         uncurse(obj);
                 }
@@ -1885,48 +1900,45 @@ you_aggravate(struct monst *mtmp)
     pline("For some reason, %s presence is known to you.",
           s_suffix(noit_mon_nam(mtmp)));
     cls();
-    dbuf_set(mtmp->mx, mtmp->my, S_unexplored, 0, 0, 0, 0, dbuf_monid(mtmp), 0,
-             0, 0);
+    dbuf_set(mtmp->mx, mtmp->my, S_unexplored, 0, 0, 0, 0,
+             dbuf_monid(mtmp, mtmp->mx, mtmp->my, rn2), 0, 0, 0);
     display_self();
     pline("You feel aggravated at %s.", noit_mon_nam(mtmp));
     win_pause_output(P_MAP);
     doredraw();
-    if (unconscious()) {
-        multi = -1;
-        nomovemsg = "Aggravated, you are jolted into full consciousness.";
-    }
+    cancel_helplessness(hm_unconscious,
+                        "Aggravated, you are jolted into full consciousness.");
+
     newsym(mtmp->mx, mtmp->my);
     if (!canspotmon(mtmp))
         map_invisible(mtmp->mx, mtmp->my);
 }
 
 int
-rnd_misc_item(struct monst *mtmp)
+rnd_misc_item(struct monst *mtmp, enum rng rng)
 {
     const struct permonst *pm = mtmp->data;
     int difficulty = monstr[monsndx(pm)];
 
     if (is_animal(pm) || attacktype(pm, AT_EXPL) || mindless(mtmp->data)
-        || pm->mlet == S_GHOST || pm->mlet == S_KOP)
+        || noncorporeal(pm) || pm->mlet == S_KOP)
         return 0;
     /* Unlike other rnd_item functions, we only allow _weak_ monsters to have
        this item; after all, the item will be used to strengthen the monster
        and strong monsters won't use it at all... */
-    if (difficulty < 6 && !rn2(30))
-        return rn2(6) ? POT_POLYMORPH : WAN_POLYMORPH;
+    if (difficulty < 6 && !rn2_on_rng(30, rng))
+        return rn2_on_rng(6, rng) ? POT_POLYMORPH : WAN_POLYMORPH;
 
-    if (!rn2(40) && !nonliving(pm))
+    if (!rn2_on_rng(40, rng) && !nonliving(pm))
         return AMULET_OF_LIFE_SAVING;
 
-    switch (rn2(3)) {
+    switch (rn2_on_rng(3, rng)) {
     case 0:
         if (mtmp->isgd)
             return 0;
-        return rn2(6) ? POT_SPEED : WAN_SPEED_MONSTER;
+        return rn2_on_rng(6, rng) ? POT_SPEED : WAN_SPEED_MONSTER;
     case 1:
-        if (mtmp->mpeaceful && !See_invisible)
-            return 0;
-        return rn2(6) ? POT_INVISIBILITY : WAN_MAKE_INVISIBLE;
+        return rn2_on_rng(6, rng) ? POT_INVISIBILITY : WAN_MAKE_INVISIBLE;
     case 2:
         return POT_GAIN_LEVEL;
     }
@@ -1934,15 +1946,13 @@ rnd_misc_item(struct monst *mtmp)
 }
 
 boolean
-searches_for_item(struct monst * mon, struct obj * obj)
+searches_for_item(struct monst *mon, struct obj *obj)
 {
     int typ = obj->otyp;
 
-    if (is_animal(mon->data) || mindless(mon->data) || mon->data == &mons[PM_GHOST])    /* don't 
-                                                                                           loot 
-                                                                                           bones 
-                                                                                           piles 
-                                                                                         */
+    /* don't loot bones piles */
+    if (is_animal(mon->data) || mindless(mon->data) ||
+        mon->data == &mons[PM_GHOST])
         return FALSE;
 
     if (typ == WAN_MAKE_INVISIBLE || typ == POT_INVISIBILITY)
@@ -1993,7 +2003,7 @@ searches_for_item(struct monst * mon, struct obj * obj)
         break;
     case FOOD_CLASS:
         if (typ == CORPSE)
-            return (boolean) (((mon->misc_worn_check & W_ARMG) &&
+            return (boolean) (((mon->misc_worn_check & W_MASK(os_armg)) &&
                                touch_petrifies(&mons[obj->corpsenm])) ||
                               (!resists_ston(mon) &&
                                (obj->corpsenm == PM_LIZARD ||
@@ -2012,7 +2022,7 @@ searches_for_item(struct monst * mon, struct obj * obj)
 boolean
 mon_reflects(struct monst * mon, const char *str)
 {
-    struct obj *orefl = which_armor(mon, W_ARMS);
+    struct obj *orefl = which_armor(mon, os_arms);
 
     if (orefl && orefl->otyp == SHIELD_OF_REFLECTION) {
         if (str) {
@@ -2025,14 +2035,14 @@ mon_reflects(struct monst * mon, const char *str)
         if (str)
             pline(str, s_suffix(mon_nam(mon)), "weapon");
         return TRUE;
-    } else if ((orefl = which_armor(mon, W_AMUL)) &&
+    } else if ((orefl = which_armor(mon, os_amul)) &&
                orefl->otyp == AMULET_OF_REFLECTION) {
         if (str) {
             pline(str, s_suffix(mon_nam(mon)), "amulet");
             makeknown(AMULET_OF_REFLECTION);
         }
         return TRUE;
-    } else if ((orefl = which_armor(mon, W_ARM)) &&
+    } else if ((orefl = which_armor(mon, os_arm)) &&
                (orefl->otyp == SILVER_DRAGON_SCALES ||
                 orefl->otyp == SILVER_DRAGON_SCALE_MAIL)) {
         if (str)
@@ -2052,30 +2062,34 @@ boolean
 ureflects(const char *fmt, const char *str)
 {
     /* Check from outermost to innermost objects */
-    if (EReflecting & W_ARMS) {
+    unsigned reflect_reason = u_have_property(REFLECTING, ANY_PROPERTY, FALSE);
+    if (reflect_reason & W_MASK(os_arms)) {
         if (fmt && str) {
             pline(fmt, str, "shield");
             makeknown(SHIELD_OF_REFLECTION);
         }
         return TRUE;
-    } else if (EReflecting & W_WEP) {
+    } else if (reflect_reason & W_MASK(os_wep)) {
         /* Due to wielded artifact weapon */
         if (fmt && str)
             pline(fmt, str, "weapon");
         return TRUE;
-    } else if (EReflecting & W_AMUL) {
+    } else if (reflect_reason & W_MASK(os_amul)) {
         if (fmt && str) {
             pline(fmt, str, "medallion");
             makeknown(AMULET_OF_REFLECTION);
         }
         return TRUE;
-    } else if (EReflecting & W_ARM) {
+    } else if (reflect_reason & W_MASK(os_arm)) {
         if (fmt && str)
             pline(fmt, str, "armor");
         return TRUE;
-    } else if (youmonst.data == &mons[PM_SILVER_DRAGON]) {
+    } else if (reflect_reason & W_MASK(os_polyform)) {
         if (fmt && str)
             pline(fmt, str, "scales");
+        return TRUE;
+    } else if (reflect_reason) {
+        impossible("Reflecting for unknown reason");
         return TRUE;
     }
     return FALSE;
@@ -2120,7 +2134,7 @@ mon_consume_unstone(struct monst *mon, struct obj *obj, boolean by_you,
     if (stoning)
         mon_adjust_speed(mon, -3, NULL);
 
-    if (canseemon(mon)) {
+    if (mon_visible(mon)) {
         long save_quan = obj->quan;
 
         obj->quan = 1L;
@@ -2128,9 +2142,8 @@ mon_consume_unstone(struct monst *mon, struct obj *obj, boolean by_you,
               (obj->otyp == POT_ACID) ? "quaff" : "eat", distant_name(obj,
                                                                       doname));
         obj->quan = save_quan;
-    } else if (flags.soundok)
+    } else
         You_hear("%s.", (obj->otyp == POT_ACID) ? "drinking" : "chewing");
-    m_useup(mon, obj);
     if (((obj->otyp == POT_ACID) || acidic(&mons[obj->corpsenm])) &&
         !resists_acid(mon)) {
         mon->mhp -= rnd(15);
@@ -2138,6 +2151,7 @@ mon_consume_unstone(struct monst *mon, struct obj *obj, boolean by_you,
     }
     if (mon->mhp <= 0) {
         pline("%s dies!", Monnam(mon));
+        m_useup(mon, obj);
         if (by_you)
             xkilled(mon, 0);
         else
@@ -2165,6 +2179,8 @@ mon_consume_unstone(struct monst *mon, struct obj *obj, boolean by_you,
         mon->mconf = 0;
     }
     mon->mlstmv = moves;        /* it takes a turn */
+    m_useup(mon, obj);
 }
 
 /*muse.c*/
+

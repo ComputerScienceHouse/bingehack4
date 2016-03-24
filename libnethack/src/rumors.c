@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-13 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -43,7 +44,7 @@ static int *oracle_loc = 0;
 static void
 init_rumors(dlb * fp)
 {
-    char line[BUFSZ];
+    char line[BUFSZ]; /* for fgets */
 
     dlb_fgets(line, sizeof line, fp);   /* skip "don't edit" comment */
     dlb_fgets(line, sizeof line, fp);
@@ -73,18 +74,21 @@ init_rumors(dlb * fp)
  * cookies should not appear.  This has no effect for true rumors since none
  * of them contain such references anyway.
  */
-char *
+const char *
 getrumor(int truth,     /* 1=true, -1=false, 0=either 3=potter (truier than true)*/
-         char *rumor_buf, boolean exclude_cookie, int *truth_out)
+         boolean exclude_cookie, int *truth_out, enum rng rng)
 {
     dlb *rumors;
     int tidbit, beginning;
-    char *endp, line[BUFSZ], xbuf[BUFSZ];
+    char *endp;
     int ltruth = 0;
+    char line[BUFSZ]; /* for fgets */
+    const char *rv = "";
 
-    rumor_buf[0] = '\0';
-    if (true_rumor_size < 0L)   /* we couldn't open RUMORFILE */
-        return rumor_buf;
+    /* If this happens, we couldn't open the RUMORFILE. So synthesize a
+       rumor just for the occasion :-) */
+    if (true_rumor_size < 0L)
+        return "";
 
     rumors = dlb_fopen(RUMORFILE, "r");
 
@@ -93,37 +97,36 @@ getrumor(int truth,     /* 1=true, -1=false, 0=either 3=potter (truier than true
         int adjtruth;
 
         do {
-            rumor_buf[0] = '\0';
             if (true_rumor_size == 0L) {        /* if this is 1st outrumor() */
                 init_rumors(rumors);
-                if (true_rumor_size < 0L) {     /* init failed */
-                    sprintf(rumor_buf, "Error reading \"%.80s\".", RUMORFILE);
-                    return rumor_buf;
-                }
+                if (true_rumor_size < 0L)       /* init failed */
+                    return msgprintf("Error reading \"%.80s\".", RUMORFILE);
             }
             /* 
              *      input:      3    1    0   -1
              *       rn2 \ +1  4=P  2=T  1=T  0=F
              *       adj./ +0  3=P  1=T  0=F -1=F
              */
-            switch (adjtruth = truth + rn2(2)) {
+            switch (adjtruth = truth + rn2_on_rng(2, rng)) {
             case 4:    /* (might let a bogus input arg sneak thru) */
             case 3:
                 beginning = potter_rumor_start;
-                tidbit = mt_random() % potter_rumor_size;
+                tidbit = rn2_on_rng(potter_rumor_size, rng);
                 break;
             case 1:
                 beginning = true_rumor_start;
-                tidbit = mt_random() % true_rumor_size;
+                tidbit = rn2_on_rng(true_rumor_size, rng);
                 break;
             case 0:    /* once here, 0 => false rather than "either" */
             case -1:
                 beginning = false_rumor_start;
-                tidbit = mt_random() % false_rumor_size;
+                tidbit = rn2_on_rng(false_rumor_size, rng);
                 break;
             default:
                 impossible("strange truth value for rumor");
-                return strcpy(rumor_buf, "Oops...");
+                if (truth_out)
+                    *truth_out = 0;
+                return "Oops...";
             }
             dlb_fseek(rumors, beginning + tidbit, SEEK_SET);
             dlb_fgets(line, sizeof line, rumors);
@@ -140,9 +143,11 @@ getrumor(int truth,     /* 1=true, -1=false, 0=either 3=potter (truier than true
             }
             if ((endp = strchr(line, '\n')) != 0)
                 *endp = 0;
-            strcat(rumor_buf, xcrypt(line, xbuf));
+            char decrypted_line[strlen(line) + 1];
+            xcrypt(line, decrypted_line);
+            rv = msg_from_string(decrypted_line);
         } while (count++ < 50 && exclude_cookie &&
-                 (strstri(rumor_buf, "fortune") || strstri(rumor_buf, "pity")));
+                 (strstri(rv, "fortune") || strstri(rv, "pity")));
         dlb_fclose(rumors);
         if (count >= 50)
             impossible("Can't find non-cookie rumor?");
@@ -156,7 +161,7 @@ getrumor(int truth,     /* 1=true, -1=false, 0=either 3=potter (truier than true
     }
     if (truth_out)
         *truth_out = ltruth;
-    return rumor_buf;
+    return rv;
 }
 
 void
@@ -166,13 +171,12 @@ outrumor(int truth,     /* 1=true, -1=false, 0=either 3=potter*/
     static const char fortune_msg[] =
         "This cookie has a scrap of paper inside.";
     const char *line;
-    char buf[BUFSZ];
     boolean reading = (mechanism == BY_COOKIE || mechanism == BY_PAPER);
     int truth_out;
 
     if (reading) {
         /* deal with various things that prevent reading */
-        if (is_fainted() && mechanism == BY_COOKIE)
+        if (u_helpless(hm_all) && mechanism == BY_COOKIE)
             return;
         else if (Blind) {
             if (mechanism == BY_COOKIE)
@@ -184,7 +188,7 @@ outrumor(int truth,     /* 1=true, -1=false, 0=either 3=potter*/
     else{
         truth=3; /* We're talking to Potter, we want the Potter quotes */
     }
-    line = getrumor(truth, buf, reading ? FALSE : TRUE, &truth_out);
+    line = getrumor(truth, reading ? FALSE : TRUE, &truth_out, rng_main);
     if (truth_out)
         exercise(A_WIS, truth_out == 1);
     if (!*line)
@@ -211,7 +215,7 @@ static void
 init_oracles(dlb * fp)
 {
     int i;
-    char line[BUFSZ];
+    char line[BUFSZ]; /* for fgets */
     unsigned int cnt = 0;
 
     /* this assumes we're only called once */
@@ -274,7 +278,6 @@ outoracle(boolean special, boolean delphi)
     char *endp;
     dlb *oracles;
     int oracle_idx;
-    char xbuf[BUFSZ];
 
     if (oracle_flg < 0 ||       /* couldn't open ORACLEFILE */
         (oracle_flg > 0 && oracle_cnt == 0))    /* oracles already exhausted */
@@ -283,7 +286,7 @@ outoracle(boolean special, boolean delphi)
     oracles = dlb_fopen(ORACLEFILE, "r");
 
     if (oracles) {
-        struct menulist menu;
+        struct nh_menulist menu;
 
         if (oracle_flg == 0) {  /* if this is the first outoracle() */
             init_oracles(oracles);
@@ -301,12 +304,12 @@ outoracle(boolean special, boolean delphi)
             oracle_loc[oracle_idx] = oracle_loc[--oracle_cnt];
 
         init_menulist(&menu);
+
         if (delphi)
-            add_menutext(&menu,
-                         special ?
-                         "Potter protests, but then takes your money and says:"
-                         :
-                         "Potter thinks for a second, and then announces in a gravelly voice:");
+            add_menutext(
+                &menu, special ?
+                "Potter protests, but then takes your money and says:" :
+                "Potter thinks for a second, and then announces in a gravelly voice:");
         else
             add_menutext(&menu, "The message reads:");
         add_menutext(&menu, "");
@@ -314,11 +317,12 @@ outoracle(boolean special, boolean delphi)
         while (dlb_fgets(line, COLNO, oracles) && strcmp(line, "---\n")) {
             if ((endp = strchr(line, '\n')) != 0)
                 *endp = 0;
-            add_menutext(&menu, xcrypt(line, xbuf));
+            char decrypted_line[strlen(line) + 1];
+            add_menutext(&menu, xcrypt(line, decrypted_line));
         }
-        display_menu(menu.items, menu.icount, NULL, PICK_NONE, PLHINT_ANYWHERE,
+
+        display_menu(&menu, NULL, PICK_NONE, PLHINT_ANYWHERE,
                      NULL);
-        free(menu.items);
         dlb_fclose(oracles);
     } else {
         pline("Can't open oracles file!");
@@ -333,9 +337,11 @@ doconsult(struct monst *oracl)
     int umoney = money_cnt(invent);
     int u_pay, minor_cost = 50, major_cost = 500 + 50 * u.ulevel;
     int add_xpts;
-    char qbuf[QBUFSZ];
+    const char *qbuf;
 
-    multi = 0;
+    /* TODO: Do we want this? The purpose seems to be specifically to prevent
+       repeating an Oracle donation. */
+    action_completed();
 
     if (!oracl) {
         pline("There is no one here to consult.");
@@ -348,8 +354,8 @@ doconsult(struct monst *oracl)
         return 0;
     }
 
-    sprintf(qbuf, "\"Would you mind talking for a little bit?\" (%d %s)",
-            minor_cost, currency(minor_cost));
+    qbuf = msgprintf("\"Would you mind talking for a little bit?\" (%d %s)",
+                     minor_cost, currency(minor_cost));
     switch (ynq(qbuf)) {
     default:
     case 'q':
@@ -365,8 +371,8 @@ doconsult(struct monst *oracl)
         if (umoney <= minor_cost ||     /* don't even ask */
             (oracle_cnt == 1 || oracle_flg < 0))
             return 0;
-        sprintf(qbuf, "\"Oh! You'd like to sit and talk for a _long_ while?\" (%d %s)",
-                major_cost, currency(major_cost));
+        qbuf = msgprintf("\"Oh! You'd like to sit and talk for a _long_ while?\" (%d %s)",
+                         major_cost, currency(major_cost));
         if (yn(qbuf) != 'y')
             return 0;
         u_pay = (umoney < major_cost ? umoney : major_cost);
@@ -375,7 +381,6 @@ doconsult(struct monst *oracl)
     }
 
     money2mon(oracl, u_pay);
-    iflags.botl = 1;
     add_xpts = 0;       /* first oracle of each type gives experience points */
     if (u_pay == minor_cost) {
         outrumor(1, BY_ORACLE);
@@ -402,3 +407,4 @@ doconsult(struct monst *oracl)
 }
 
 /*rumors.c*/
+

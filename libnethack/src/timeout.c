@@ -1,9 +1,12 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-07-22 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
 #include "lev.h"        /* for checking save modes */
+#include "trietable.h"
+#include <stdint.h>
 
 static void stoned_dialogue(void);
 static void vomiting_dialogue(void);
@@ -32,13 +35,15 @@ stoned_dialogue(void)
     long i = (Stoned & TIMEOUT);
 
     if (i > 0L && i <= SIZE(stoned_texts)) {
-        pline(stoned_texts[SIZE(stoned_texts) - i]);
-        nomul(0, NULL); /* ensure the player is able to act on this message */
+        pline("%s", stoned_texts[SIZE(stoned_texts) - i]);
+        /* ensure the player is able to act on this message */
+        action_interrupted();
     }
     if (i == 5L)
         HFast = 0L;
     if (i == 3L)
-        nomul(-3, "getting stoned");
+        helpless(3, hr_paralyzed, "unable to move due to turning to stone",
+                 NULL);
     exercise(A_DEX, FALSE);
 }
 
@@ -58,7 +63,7 @@ vomiting_dialogue(void)
 
     if ((((Vomiting & TIMEOUT) % 3L) == 2) && (i >= 0)
         && (i < SIZE(vomiting_texts)))
-        pline(vomiting_texts[SIZE(vomiting_texts) - i - 1]);
+        pline("%s", vomiting_texts[SIZE(vomiting_texts) - i - 1]);
 
     switch ((int)i) {
     case 0:
@@ -105,7 +110,7 @@ choke_dialogue(void)
             if (strchr(str, '%'))
                 pline(str, hcolor("blue"));
             else
-                pline(str);
+                pline("%s", str);
         }
     }
     exercise(A_STR, FALSE);
@@ -145,13 +150,11 @@ slime_dialogue(void)
                 }
             }
         } else
-            pline(str);
+            pline("%s", str);
     }
     if (i == 3L) {      /* limbs becoming oozy */
         HFast = 0L;     /* lose intrinsic speed */
-        stop_occupation();
-        if (multi > 0)
-            nomul(0, NULL);
+        action_interrupted();
     }
     exercise(A_DEX, FALSE);
 }
@@ -162,7 +165,6 @@ burn_away_slime(void)
     if (Slimed) {
         pline("The slime that covers you is burned away!");
         Slimed = 0L;
-        iflags.botl = 1;
     }
     return;
 }
@@ -172,18 +174,17 @@ burn_away_slime(void)
 void
 nh_timeout(void)
 {
-    struct prop *upp;
+    unsigned *upp;
     int sleeptime;
-    int m_idx;
     int baseluck = (flags.moonphase == FULL_MOON) ? 1 : 0;
 
     if (flags.friday13)
         baseluck -= 1;
 
     if (u.uluck != baseluck &&
-        moves % (u.uhave.amulet || u.ugangr ? 300 : 600) == 0) {
+        moves % (Uhave_amulet || u.ugangr ? 300 : 600) == 0) {
         /* Cursed luckstones stop bad luck from timing out; blessed luckstones
-           stop good luck from timing out; normal luckstones stop both; neither 
+           stop good luck from timing out; normal luckstones stop both; neither
            is stopped if you don't have a luckstone. Luck is based at 0
            usually, +1 if a full moon and -1 on Friday 13th */
         int time_luck = stone_luck(FALSE);
@@ -208,7 +209,7 @@ nh_timeout(void)
         if (Unchanging)
             u.mtimedone = rnd(100 * youmonst.data->mlevel + 1);
         else
-            rehumanize();
+            rehumanize(DIED, NULL);
     }
     if (u.ucreamed)
         u.ucreamed--;
@@ -218,10 +219,9 @@ nh_timeout(void)
         if (--u.usptime == 0 && u.uspellprot) {
             u.usptime = u.uspmtime;
             u.uspellprot--;
-            find_ac();
             if (!Blind)
-                Norep("The %s haze around you %s.", hcolor("golden"),
-                      u.uspellprot ? "becomes less dense" : "disappears");
+                pline_once("The %s haze around you %s.", hcolor("golden"),
+                           u.uspellprot ? "becomes less dense" : "disappears");
         }
     }
 
@@ -230,51 +230,21 @@ nh_timeout(void)
             pline("%s stops galloping.", Monnam(u.usteed));
     }
 
-    for (upp = u.uprops; upp < u.uprops + SIZE(u.uprops); upp++)
-        if ((upp->intrinsic & TIMEOUT) && !(--upp->intrinsic & TIMEOUT)) {
-            switch (upp - u.uprops) {
+    for (upp = u.uintrinsic; upp < u.uintrinsic + SIZE(u.uintrinsic); upp++)
+        if ((*upp & TIMEOUT) && !(--*upp & TIMEOUT)) {
+            switch (upp - u.uintrinsic) {
             case STONED:
-                if (delayed_killer && !killer) {
-                    killer = delayed_killer;
-                    delayed_killer = 0;
-                }
-                if (!killer) {
-                    /* leaving killer_format would make it "petrified by
-                       petrification" */
-                    killer_format = NO_KILLER_PREFIX;
-                    killer = "killed by petrification";
-                }
-                done(STONING);
+                done(STONING, delayed_killer(STONING));
                 break;
             case SLIMED:
-                if (delayed_killer && !killer) {
-                    killer = delayed_killer;
-                    delayed_killer = 0;
-                }
-                if (!killer) {
-                    killer_format = NO_KILLER_PREFIX;
-                    killer = "turned into green slime";
-                }
-                done(TURNED_SLIME);
+                done(TURNED_SLIME, delayed_killer(TURNED_SLIME));
                 break;
             case VOMITING:
                 make_vomiting(0L, TRUE);
                 break;
             case SICK:
                 pline("You die from your illness.");
-                killer_format = KILLED_BY_AN;
-                killer = u.usick_cause;
-                if ((m_idx = name_to_mon(killer)) >= LOW_PM) {
-                    if (type_is_pname(&mons[m_idx])) {
-                        killer_format = KILLED_BY;
-                    } else if (mons[m_idx].geno & G_UNIQ) {
-                        killer = the(killer);
-                        strcpy(u.usick_cause, killer);
-                        killer_format = KILLED_BY;
-                    }
-                }
-                u.usick_type = 0;
-                done(POISONING);
+                done(POISONING, delayed_killer(POISONING));
                 break;
             case FAST:
                 if (!Very_fast)
@@ -284,72 +254,75 @@ nh_timeout(void)
             case CONFUSION:
                 HConfusion = 1; /* So make_confused works properly */
                 make_confused(0L, TRUE);
-                stop_occupation();
+                action_interrupted();
                 break;
             case STUNNED:
                 HStun = 1;
                 make_stunned(0L, TRUE);
-                stop_occupation();
+                action_interrupted();
                 break;
             case BLINDED:
                 Blinded = 1;
                 make_blinded(0L, TRUE);
-                stop_occupation();
+                action_interrupted();
                 break;
             case INVIS:
                 newsym(u.ux, u.uy);
                 if (!Invis && !BInvis && !Blind) {
                     pline(!See_invisible ? "You are no longer invisible." :
                           "You can no longer see through yourself.");
-                    stop_occupation();
+                    action_interrupted();
                 }
                 break;
             case SEE_INVIS:
                 set_mimic_blocking();   /* do special mimic handling */
-                see_monsters(); /* make invis mons appear */
+                see_monsters(FALSE);    /* make invis mons appear */
                 newsym(u.ux, u.uy);     /* make self appear */
-                stop_occupation();
+                action_interrupted();
                 break;
-            case WOUNDED_LEGS:
-                heal_legs();
-                stop_occupation();
+            case LWOUNDED_LEGS:
+                heal_legs(LEFT_SIDE);
+                action_interrupted();
+                break;
+            case RWOUNDED_LEGS:
+                heal_legs(RIGHT_SIDE);
+                action_interrupted();
                 break;
             case HALLUC:
                 HHallucination = 1;
-                make_hallucinated(0L, TRUE, 0L);
-                stop_occupation();
+                make_hallucinated(0L, TRUE);
+                action_interrupted();
                 break;
             case SLEEPING:
-                if (unconscious() || Sleep_resistance)
+                if (u_helpless(hm_unconscious) || Sleep_resistance)
                     HSleeping += rnd(100);
                 else if (Sleeping) {
                     pline("You fall asleep.");
                     sleeptime = rnd(20);
-                    fall_asleep(-sleeptime, TRUE);
+                    helpless(sleeptime, hr_asleep, "sleeping", NULL);
                     HSleeping += sleeptime + rnd(100);
                 }
                 break;
             case LEVITATION:
-                float_down(I_SPECIAL | TIMEOUT, 0L);
+                float_down(I_SPECIAL | TIMEOUT);
                 break;
             case STRANGLED:
-                killer_format = KILLED_BY;
-                killer = (u.uburied) ? "suffocation" : "strangulation";
-                done(DIED);
+                done(SUFFOCATION, killer_msg(
+                         SUFFOCATION, u.uburied ?
+                         "suffocation" : "strangulation"));
                 break;
             case FUMBLING:
                 /* call this only when a move took place.  */
                 /* otherwise handle fumbling msgs locally. */
                 if (u.umoved && !Levitation) {
                     slip_or_trip();
-                    nomul(-2, "fumbling");
-                    nomovemsg = "";
+                    helpless(2, hr_moving, "fumbling", "");
                     /* The more you are carrying the more likely you are to
                        make noise when you fumble.  Adjustments to this number
                        must be thoroughly play tested. */
                     if ((inv_weight() > -500)) {
                         pline("You make a lot of noise!");
-                        wake_nearby();
+                        wake_nearby(FALSE);
                     }
                 }
                 /* from outside means slippery ice; don't reset counter if
@@ -359,7 +332,7 @@ nh_timeout(void)
                     HFumbling += rnd(20);
                 break;
             case DETECT_MONSTERS:
-                see_monsters();
+                see_monsters(FALSE);
                 break;
             }
         }
@@ -367,26 +340,6 @@ nh_timeout(void)
     run_timers();
 }
 
-
-void
-fall_asleep(int how_long, boolean wakeup_msg)
-{
-    stop_occupation();
-    nomul(how_long, "sleeping");
-    /* generally don't notice sounds while sleeping */
-    if (wakeup_msg && multi == how_long) {
-        /* caller can follow with a direct call to Hear_again() if there's a
-           need to override this when wakeup_msg is true */
-        flags.soundok = 0;
-        afternmv = Hear_again;  /* this won't give any messages */
-    }
-    /* early wakeup from combat won't be possible until next monster turn */
-    u.usleep = moves;
-    nomovemsg = wakeup_msg ? "You wake up." : "You can move again.";
-    see_monsters();
-    see_objects();
-    vision_full_recalc = 1;
-}
 
 /* Attach an egg hatch timeout to the given egg. */
 void
@@ -397,7 +350,7 @@ attach_egg_hatch_timeout(struct obj *egg)
     /* stop previous timer, if any */
     stop_timer(egg->olev, HATCH_EGG, egg);
 
-    /* 
+    /*
      * Decide if and when to hatch the egg.  The old hatch_it() code tried
      * once a turn from age 151 to 200 (inclusive), hatching if it rolled
      * a number x, 1<=x<=age, where x>150.  This yields a chance of
@@ -439,7 +392,7 @@ hatch_egg(void *arg, long timeout)
     mon = mon2 = NULL;
     mnum = big_to_little(egg->corpsenm);
     /* The identity of one's father is learned, not innate */
-    yours = (egg->spe || (!flags.female && carried(egg) && !rn2(2)));
+    yours = (egg->spe || (!u.ufemale && carried(egg) && !rn2(2)));
     silent = (timeout != moves);        /* hatched while away */
 
     /* only can hatch when in INVENT, FLOOR, MINVENT */
@@ -450,11 +403,11 @@ hatch_egg(void *arg, long timeout)
             !(mvitals[mnum].mvflags & (G_GENOD | G_EXTINCT))) {
             for (i = hatchcount; i > 0; i--) {
                 if (!enexto(&cc, level, x, y, &mons[mnum]) ||
-                    !(mon =
-                      makemon(&mons[mnum], level, cc.x, cc.y, NO_MINVENT)))
+                    !((mon = makemon(&mons[mnum], level,
+                                     cc.x, cc.y, NO_MINVENT))))
                     break;
                 /* tame if your own egg hatches while you're on the same
-                   dungeon level, or any dragon egg which hatches while it's in 
+                   dungeon level, or any dragon egg which hatches while it's in
                    your inventory */
                 if ((yours && !silent) ||
                     (carried(egg) && mon->data->mlet == S_DRAGON)) {
@@ -476,17 +429,18 @@ hatch_egg(void *arg, long timeout)
     }
 
     if (mon) {
-        char monnambuf[BUFSZ], carriedby[BUFSZ];
+        const char *monnambuf, *carriedby;
         boolean siblings = (hatchcount > 1), redraw = FALSE;
 
-        if (cansee_hatchspot) {
-            sprintf(monnambuf, "%s%s", siblings ? "some " : "",
-                    siblings ? makeplural(m_monnam(mon)) : an(m_monnam(mon)));
-            /* we don't learn the egg type here because learning an egg type
-               requires either seeing the egg hatch or being familiar with the
-               egg already, as well as being able to see the resulting monster, 
-               checked below */
-        }
+
+        monnambuf = msgcat(siblings ? "some " : "",
+                           siblings ? makeplural(m_monnam(mon)) :
+                           an(m_monnam(mon)));
+        /* we don't learn the egg type here because learning an egg type
+           requires either seeing the egg hatch or being familiar with the
+           egg already, as well as being able to see the resulting monster,
+           checked below */
+
         switch (egg->where) {
         case OBJ_INVENT:
             knows_egg = TRUE;   /* true even if you are blind */
@@ -499,7 +453,7 @@ hatch_egg(void *arg, long timeout)
             if (yours) {
                 pline("%s cries sound like \"%s%s\"",
                       siblings ? "Their" : "Its",
-                      flags.female ? "mommy" : "daddy", egg->spe ? "." : "?");
+                      u.ufemale ? "mommy" : "daddy", egg->spe ? "." : "?");
             } else if (mon->data->mlet == S_DRAGON) {
                 verbalize("Gleep!");    /* Mything eggs :-) */
             }
@@ -515,15 +469,17 @@ hatch_egg(void *arg, long timeout)
 
         case OBJ_MINVENT:
             if (cansee_hatchspot) {
-                /* egg carring monster might be invisible */
+                /* egg carring monster might be invisible; if the egg carrying
+                   monster is sensed by telepathy or the like, you can't sense
+                   its pack */
                 if (canseemon(egg->ocarry)) {
-                    sprintf(carriedby, "%s pack",
-                            s_suffix(a_monnam(egg->ocarry)));
+                    carriedby = msgcat(s_suffix(a_monnam(egg->ocarry)),
+                                       " pack");
                     knows_egg = TRUE;
                 } else if (is_pool(level, mon->mx, mon->my))
-                    strcpy(carriedby, "empty water");
+                    carriedby = "empty water";
                 else
-                    strcpy(carriedby, "thin air");
+                    carriedby = "thin air";
                 pline("You see %s %s out of %s!", monnambuf,
                       locomotion(mon->data, "drop"), carriedby);
             }
@@ -535,6 +491,10 @@ hatch_egg(void *arg, long timeout)
 
         if (cansee_hatchspot && knows_egg)
             learn_egg_type(mnum);
+
+        /* Sanity check. */
+        if (egg->olev != level)
+            impossible("Egg hatched off-level?");
 
         if (egg->quan > 0) {
             /* still some eggs left */
@@ -577,7 +537,7 @@ attach_fig_transform_timeout(struct obj *figurine)
     /* stop previous timer, if any */
     stop_timer(figurine->olev, FIG_TRANSFORM, figurine);
 
-    /* 
+    /*
      * Decide when to transform the figurine.
      */
     i = rnd(9000) + 200;
@@ -591,7 +551,6 @@ slip_or_trip(void)
 {
     struct obj *otmp = vobj_at(u.ux, u.uy);
     const char *what, *pronoun;
-    char buf[BUFSZ];
     boolean on_foot = TRUE;
 
     if (u.usteed)
@@ -601,7 +560,7 @@ slip_or_trip(void)
         otmp = 0;
 
     if (otmp && on_foot) {      /* trip over something in particular */
-        /* 
+        /*
            If there is only one item, it will have just been named during the
            move, so refer to by via pronoun; otherwise, if the top item has
            been or can be seen, refer to it by name; if not, look for rocks to
@@ -613,9 +572,7 @@ slip_or_trip(void)
             ((otmp = sobj_at(ROCK, level, u.ux, u.uy)) == 0 ? "something" :
              (otmp-> quan == 1L ? "a rock" : "some rocks"));
         if (Hallucination) {
-            what = strcpy(buf, what);
-            buf[0] = highc(buf[0]);
-            pline("Egads!  %s bite%s your %s!", what,
+            pline("Egads!  %s bite%s your %s!", msgupcasefirst(what),
                   (!otmp || otmp->quan == 1L) ? "s" : "", body_part(FOOT));
         } else {
             pline("You trip over %s.", what);
@@ -623,10 +580,10 @@ slip_or_trip(void)
     } else if (rn2(3) && is_ice(level, u.ux, u.uy)) {
         pline("%s %s%s on the ice.",
               u.usteed ?
-              upstart(x_monnam(u.usteed,
-                               u.usteed->mnamelth ?
-                               ARTICLE_NONE : ARTICLE_THE, NULL,
-                               SUPPRESS_SADDLE, FALSE)) : "You",
+              msgupcasefirst(x_monnam(u.usteed,
+                                      u.usteed->mnamelth ?
+                                      ARTICLE_NONE : ARTICLE_THE, NULL,
+                                      SUPPRESS_SADDLE, FALSE)) : "You",
               rn2(2) ? "slip" : "slide", on_foot ? "" : "s");
     } else {
         if (on_foot) {
@@ -718,7 +675,7 @@ burn_object(void *arg, long timeout)
     struct obj *obj = (struct obj *)arg;
     boolean canseeit, many, menorah, need_newsym;
     xchar x, y;
-    char whose[BUFSZ];
+    const char *whose;
 
     menorah = obj->otyp == CANDELABRUM_OF_INVOCATION;
     many = menorah ? obj->spe > 1 : obj->quan > 1L;
@@ -747,11 +704,12 @@ burn_object(void *arg, long timeout)
         return;
     }
 
+    /* set up `whose[]' to be "Your" or "Fred's" or "The goblin's" */
+    whose = Shk_Your(obj);
+
     /* only interested in INVENT, FLOOR, and MINVENT */
     if (get_obj_location(obj, &x, &y, 0)) {
         canseeit = !Blind && cansee(x, y);
-        /* set up `whose[]' to be "Your" or "Fred's" or "The goblin's" */
-        Shk_Your(whose, obj);
     } else {
         canseeit = FALSE;
     }
@@ -840,7 +798,7 @@ burn_object(void *arg, long timeout)
             break;
 
         default:
-            /* 
+            /*
              * Someone added fuel to the lamp while it was
              * lit.  Just fall through and let begin burn
              * handle the new age.
@@ -921,7 +879,7 @@ burn_object(void *arg, long timeout)
                         obj->known = 1;
                         break;
                     case OBJ_FLOOR:
-                        /* 
+                        /*
                            You see some wax candles consumed! You see a wax
                            candle consumed! */
                         pline("You see %s%s consumed!", many ? "some " : "",
@@ -951,7 +909,7 @@ burn_object(void *arg, long timeout)
             break;
 
         default:
-            /* 
+            /*
              * Someone added fuel (candles) to the menorah while
              * it was lit.  Just fall through and let begin burn
              * handle the new age.
@@ -1156,7 +1114,7 @@ do_storms(void)
     for (nstrike = rnd(64); nstrike <= 64; nstrike *= 2) {
         count = 0;
         do {
-            x = rnd(COLNO - 1);
+            x = rn2(COLNO);
             y = rn2(ROWNO);
         } while (++count < 100 && level->locations[x][y].typ != CLOUD);
 
@@ -1172,11 +1130,8 @@ do_storms(void)
     if (level->locations[u.ux][u.uy].typ == CLOUD) {
         /* inside a cloud during a thunder storm is deafening */
         pline("Kaboom!!!  Boom!!  Boom!!");
-        if (!u.uinvulnerable) {
-            stop_occupation();
-            nomovemsg = 0;      /* default: "You can move again." */
-            nomul(-3, "hiding from a thunderstorm");
-        }
+        if (!u.uinvulnerable)
+            helpless(3, hr_afraid, "hiding from a thunderstorm", NULL);
     } else
         You_hear("a rumbling noise.");
 }
@@ -1220,7 +1175,8 @@ do_storms(void)
  *         are saved with a level.  Object and monster timers are
  *         saved using their respective id's instead of pointers.
  *
- *      void restore_timers(struct memfile *mf, int range, boolean ghostly, long adjust)
+ *      void restore_timers(struct memfile *mf, int range, boolean ghostly,
+ *                          long adjust)
  *         Restore timers of range 'range'.  If from a ghost pile,
  *         adjust the timeout by 'adjust'.  The object and monster
  *         ids are not restored until later.
@@ -1241,37 +1197,30 @@ do_storms(void)
  */
 
 static const char *kind_name(short);
-static void print_queue(struct menulist *menu, timer_element *);
+static void print_queue(struct nh_menulist *menu, timer_element *);
 static void insert_timer(struct level *lev, timer_element * gnu);
 static timer_element *remove_timer(timer_element **, short, void *);
-static timer_element *peek_timer(timer_element **, short, void *);
+static timer_element *peek_timer(timer_element **, short, const void *);
 static void write_timer(struct memfile *mf, timer_element *);
 static boolean mon_is_local(struct monst *);
 static boolean timer_is_local(timer_element *);
 static int maybe_write_timer(struct memfile *mf, struct level *lev, int range,
                              boolean write_it);
 
-/* If defined, then include names when printing out the timer queue */
-#define VERBOSE_TIMER
-
 typedef struct {
     timeout_proc f, cleanup;
-#ifdef VERBOSE_TIMER
     const char *name;
-# define TTAB(a, b, c) {a,b,c}
-#else
-# define TTAB(a, b, c) {a,b}
-#endif
 } ttable;
 
 /* table of timeout functions */
+#define TTAB(a, b) {a, b, #a}
 static const ttable timeout_funcs[NUM_TIME_FUNCS] = {
-    TTAB(rot_organic, (timeout_proc) 0, "rot_organic"),
-    TTAB(rot_corpse, (timeout_proc) 0, "rot_corpse"),
-    TTAB(revive_mon, (timeout_proc) 0, "revive_mon"),
-    TTAB(burn_object, cleanup_burn, "burn_object"),
-    TTAB(hatch_egg, (timeout_proc) 0, "hatch_egg"),
-    TTAB(fig_transform, (timeout_proc) 0, "fig_transform")
+    TTAB(rot_organic,	NULL),
+    TTAB(rot_corpse,	NULL),
+    TTAB(revive_mon,	NULL),
+    TTAB(burn_object,	cleanup_burn),
+    TTAB(hatch_egg,	NULL),
+    TTAB(fig_transform,	NULL)
 };
 
 #undef TTAB
@@ -1292,47 +1241,39 @@ kind_name(short kind)
 }
 
 static void
-print_queue(struct menulist *menu, timer_element * base)
+print_queue(struct nh_menulist *menu, timer_element * base)
 {
     timer_element *curr;
-    char buf[BUFSZ];
 
     if (!base) {
         add_menutext(menu, "<empty>");
     } else {
-        add_menutext(menu, "timeout  id   kind   call");
+        add_menutext(menu, "timeout\tid\tkind\tcall");
         for (curr = base; curr; curr = curr->next) {
-#ifdef VERBOSE_TIMER
-            sprintf(buf, " %4u   %4u  %-6s %s(%p)", curr->timeout, curr->tid,
-                    kind_name(curr->kind), timeout_funcs[curr->func_index].name,
-                    curr->arg);
-#else
-            sprintf(buf, " %4u   %4u  %-6s #%d(%p)", curr->timeout, curr->tid,
-                    kind_name(curr->kind), curr->func_index, curr->arg);
-#endif
-            add_menutext(menu, buf);
+            add_menutext(menu, msgprintf(
+                             " %4u\t%4u\t%-6s #%d\t%s(%p)", curr->timeout,
+                             curr->tid, kind_name(curr->kind), curr->func_index,
+                             timeout_funcs[curr->func_index].name, curr->arg));
         }
     }
 }
 
 int
-wiz_timeout_queue(void)
+wiz_timeout_queue(const struct nh_cmd_arg *arg)
 {
-    char buf[BUFSZ];
-    struct menulist menu;
+    struct nh_menulist menu;
+
+    (void) arg;
 
     init_menulist(&menu);
 
-    sprintf(buf, "Current time = %u.", moves);
-    add_menutext(&menu, buf);
+    add_menutext(&menu, msgprintf("Current time = %u.", moves));
     add_menutext(&menu, "");
     add_menutext(&menu, "Active timeout queue:");
     add_menutext(&menu, "");
     print_queue(&menu, level->lev_timers);
 
-    display_menu(menu.items, menu.icount, NULL, PICK_NONE, PLHINT_ANYWHERE,
-                 NULL);
-    free(menu.items);
+    display_menu(&menu, NULL, PICK_NONE, PLHINT_ANYWHERE, NULL);
 
     return 0;
 }
@@ -1347,7 +1288,7 @@ run_timers(void)
 {
     timer_element *curr;
 
-    /* 
+    /*
      * Always use the first element.  Elements may be added or deleted at
      * any time.  The list is ordered, we are done when the first element
      * is in the future.
@@ -1424,7 +1365,7 @@ stop_timer(struct level *lev, short func_index, void *arg)
  * scheduled to go off, 0 if not found.
  */
 long
-report_timer(struct level *lev, short func_index, void *arg)
+report_timer(struct level *lev, short func_index, const void *arg)
 {
     timer_element *checking;
 
@@ -1511,6 +1452,11 @@ insert_timer(struct level *lev, timer_element * gnu)
     timer_element *curr, *prev;
 
     for (prev = 0, curr = lev->lev_timers; curr; prev = curr, curr = curr->next)
+        /* For most purposes, > vs. >= has little effect. Using >=, however,
+           ensures that we load timers in the same order as when they were saved
+           to a file, which avoids desyncing the save. (We used to use > for
+           the same reason, but timers are now loaded in reverse order in order
+           to avoid a performance bottleneck.) */
         if (curr->timeout >= gnu->timeout)
             break;
 
@@ -1542,7 +1488,7 @@ remove_timer(timer_element ** base, short func_index, void *arg)
 }
 
 static timer_element *
-peek_timer(timer_element ** base, short func_index, void *arg)
+peek_timer(timer_element ** base, short func_index, const void *arg)
 {
     timer_element *curr;
 
@@ -1556,19 +1502,19 @@ peek_timer(timer_element ** base, short func_index, void *arg)
 static void
 write_timer(struct memfile *mf, timer_element * timer)
 {
-    long argval;
+    intptr_t argval;
     boolean needs_fixup = FALSE;
 
     switch (timer->kind) {
     case TIMER_GLOBAL:
     case TIMER_LEVEL:
         /* assume no pointers in arg */
-        argval = (long)timer->arg;
+        argval = (intptr_t) timer->arg;
         break;
 
     case TIMER_OBJECT:
         if (timer->needs_fixup)
-            argval = (long)timer->arg;
+            argval = (intptr_t) timer->arg;
         else {
             /* replace object pointer with id */
             argval = ((struct obj *)timer->arg)->o_id;
@@ -1600,6 +1546,7 @@ obj_is_local(struct obj *obj)
 {
     switch (obj->where) {
     case OBJ_INVENT:
+    case OBJ_MIGRATING:
         return FALSE;
     case OBJ_FLOOR:
     case OBJ_BURIED:
@@ -1626,8 +1573,7 @@ mon_is_local(struct monst *mon)
     for (curr = migrating_mons; curr; curr = curr->nmon)
         if (curr == mon)
             return FALSE;
-    /* `mydogs' is used during level changes, never saved and restored */
-    for (curr = mydogs; curr; curr = curr->nmon)
+    for (curr = turnstate.migrating_pets; curr; curr = curr->nmon)
         if (curr == mon)
             return FALSE;
     return TRUE;
@@ -1692,21 +1638,27 @@ maybe_write_timer(struct memfile *mf, struct level *lev, int range,
 
 
 void
-transfer_timers(struct level *oldlev, struct level *newlev)
+transfer_timers(struct level *oldlev, struct level *newlev,
+                unsigned int obj_id)
 {
     timer_element *curr, *prev = NULL, *next_timer = NULL;
+
+    if (newlev == oldlev)
+        return;
 
     for (curr = oldlev->lev_timers; curr; curr = next_timer) {
         next_timer = curr->next;        /* in case curr is removed */
 
-        if (!timer_is_local(curr)) {
+	/* transfer global timers or timers of requested object */
+	if ((!obj_id && !timer_is_local(curr)) ||
+	    (obj_id && curr->kind == TIMER_OBJECT &&
+	     ((struct obj *)curr->arg)->o_id == obj_id)) {
             if (prev)
                 prev->next = curr->next;
             else
                 oldlev->lev_timers = curr->next;
 
-            curr->next = newlev->lev_timers;
-            newlev->lev_timers = curr;
+            insert_timer(newlev, curr);
             /* prev stays the same */
         } else {
             prev = curr;
@@ -1767,14 +1719,20 @@ restore_timers(struct memfile *mf, struct level *lev, int range,
 {
     int count;
     timer_element *curr;
-    long argval;
+    intptr_t argval;
 
     if (range == RANGE_GLOBAL)
         timer_id = mread32(mf);
 
     /* restore elements */
     count = mread32(mf);
-    while (count-- > 0) {
+    if (!count)
+        return; /* don't generate a size-0 VLA */
+
+    timer_element *temp_timers[count];
+    int i = count;
+
+    while (i-- > 0) {
         curr = malloc(sizeof (timer_element));
 
         curr->tid = mread32(mf);
@@ -1787,14 +1745,27 @@ restore_timers(struct memfile *mf, struct level *lev, int range,
 
         if (ghostly)
             curr->timeout += adjust;
-        insert_timer(lev, curr);
+
+        /* The code here previously did `insert_timer(lev, curr);`. This is
+           correct in terms of code effect. However, because the timer list
+           is a linked list, and it's output front to back, and because the
+           list of timers must be maintained in order, that had quadratic
+           performance. Worse, during pudding farming, a /lot/ of timers are
+           generated (one for each pudding corpse).
+
+           Instead, we store the timers into an array temporarily, then add them
+           in the opposite order, making the performance linear rather than
+           quadratic. */
+        temp_timers[i] = curr;
     }
+    for (i = 0; i < count; i++)
+        insert_timer(lev, temp_timers[i]);
 }
 
 
-/* reset all timers that are marked for reseting */
+/* reset all timers that are marked for resetting */
 void
-relink_timers(boolean ghostly, struct level *lev)
+relink_timers(boolean ghostly, struct level *lev, struct trietable **table)
 {
     timer_element *curr;
     unsigned nid;
@@ -1803,11 +1774,30 @@ relink_timers(boolean ghostly, struct level *lev)
         if (curr->needs_fixup) {
             if (curr->kind == TIMER_OBJECT) {
                 if (ghostly) {
-                    if (!lookup_id_mapping((long)curr->arg, &nid))
+                    if (!lookup_id_mapping((intptr_t) curr->arg, &nid))
                         panic("relink_timers 1");
                 } else
-                    nid = (long)curr->arg;
-                curr->arg = find_oid(nid);
+                    nid = (intptr_t) curr->arg;
+
+                /* If necessary, we'll find the object in question using
+                   find_oid. However, if we happened to cache its location in
+                   a trietable, we can use that instead and save some time.
+
+                   The semantics here are that the trietable is allowed to be
+                   missing the object in question altogether; but if the
+                   object's ID is a key in the table, the value will be the
+                   object itself.
+
+                   (This optimization is necessary; I've seen games with over
+                   7000 timers, and without the optimization, they each had
+                   to loop over all the objects on the level to find the one
+                   they were applying to. That was quadratic performance, and
+                   not irrelevantly so either.) */
+                curr->arg = NULL;
+                if (table)
+                    curr->arg = trietable_find(table, nid);
+                if (!curr->arg)
+                    curr->arg = find_oid(nid);
                 if (!curr->arg)
                     panic("cant find o_id %d", nid);
                 curr->needs_fixup = 0;

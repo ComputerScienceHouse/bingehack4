@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-13 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -98,23 +99,21 @@ void
 more_experienced(int exp, int rexp)
 {
     u.uexp += exp;
-    iflags.botl = 1;
     if (u.uexp >= (Role_if(PM_WIZARD) ? 250 : 500))
         flags.beginner = 0;
 }
 
-/* e.g., hit by drain life attack */
-/* drainer: cause of death, if drain should be fatal */
+/* e.g., hit by drain life attack
+
+   TODO: We really ought to be driving the rng_charstats_* RNGs /backwards/.
+   That's left out for now for sanity reasons, but is definitely possible to
+   implement. For now, this is left as main RNG. */
 void
-losexp(const char *drainer)
+losexp(const char *killer, boolean override_res)
 {
     int num;
 
-    /* override life-drain resistance when handling an explicit wizard mode
-       request to reduce level; never fatal though */
-    if (drainer && !strcmp(drainer, "#levelchange"))
-        drainer = 0;
-    else if (resists_drli(&youmonst))
+    if (!override_res && resists_drli(&youmonst))
         return;
 
     if (u.ulevel > 1) {
@@ -123,11 +122,9 @@ losexp(const char *drainer)
         adjabil(u.ulevel + 1, u.ulevel);
         reset_rndmonst(NON_PM); /* new monster selection */
     } else {
-        if (drainer) {
-            killer_format = KILLED_BY;
-            killer = drainer;
-            done(DIED);
-        }
+        if (killer)
+            done(DIED, killer);
+
         /* no drainer or lifesaved */
         u.uexp = 0;
     }
@@ -161,7 +158,6 @@ losexp(const char *drainer)
 
     if (u.uexp > 0)
         u.uexp = newuexp(u.ulevel) - 1;
-    iflags.botl = 1;
 }
 
 /*
@@ -177,8 +173,9 @@ newexplevel(void)
         pluslvl(TRUE);
 }
 
-/* incr: true iff via incremental experience growth
- *      false for potion of gain level */
+/* incr: true iff via incremental experience growth, false for potion of gain
+   level; TODO: place this onto a separate RNG (probably requires changes to
+   the energy gain formula) */
 void
 pluslvl(boolean incr)
 {
@@ -223,7 +220,6 @@ pluslvl(boolean incr)
         adjabil(u.ulevel - 1, u.ulevel);        /* give new intrinsics */
         reset_rndmonst(NON_PM); /* new monster selection */
     }
-    iflags.botl = 1;
 }
 
 /* compute a random amount of experience points suitable for the hero's
@@ -256,3 +252,4 @@ rndexp(boolean gaining)
 }
 
 /*exper.c*/
+

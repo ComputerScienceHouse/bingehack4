@@ -1,3 +1,4 @@
+# Last modified by Alex Smith, 2013-09-21
 #	Copyright (c) 1989 by Jean-Christophe Collet
 #	Copyright (c) 1992 by Izchak Miller
 # NetHack may be freely redistributed.  See license for details.
@@ -30,7 +31,7 @@ ENDMAP
 # Non diggable walls
 NON_DIGGABLE:(00,00,75,19)
 # Portal arrival point
-BRANCH:(08,16,08,16),(0,0,0,0)
+BRANCH:(08,16,08,16),levregion()
 #   Throne room, with Croesus on the throne
 REGION:(37,08,46,11),lit,"throne"
 MONSTER:'@',"Croesus",(43,10),hostile

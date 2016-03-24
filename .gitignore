@@ -1,9 +1,11 @@
+# Last modified by Alex Smith, 2014-03-11
 build/*
 *.swp
 *.kate-swp
 *~
 .emacs.desktop
 .emacs.desktop.lock
+aimake.local
 CMakeFiles/
 CMakeCache.txt
 Makefile
@@ -11,3 +13,5 @@ cscope.*
 cmake_install.cmake
 install_manifest.txt
 tags
+TAGS
+libnethack/util/savemap.txt

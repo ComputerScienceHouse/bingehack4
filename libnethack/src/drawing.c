@@ -1,10 +1,40 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2014-10-05 */
 /* Copyright (c) NetHack Development Team 1992.                   */
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
+#include "xmalloc.h"
 
-/* Relevent header information in rm.h and objclass.h. */
+#include <stdio.h>
+
+
+/* Be very, very careful about what functions you call from this file. It's
+   linked into the tiles ports, and other things that aren't part of libnethack;
+   the basic rule is that this file serves the purpose of explaining to other
+   parts of NetHack 4 (libnethack, nethack clients, tilesequence.c):
+
+   * What exists in the game;
+   * What the things that exist in the game are for.
+
+   The current list of dependencies is:
+
+   xmalloc.c
+   objects.c
+   symclass.c
+   monst.c
+   hacklib.c
+
+   Apart from xmalloc.c, which is basically just memory allocation functions,
+   these are basically just files like this one that declare arrays of strings
+   and accessor functions. Please keep it that way; there should be no game
+   logic reachable via this file at all. In particular, avoid any kind of state
+   in the referenced files.
+ */
+
+static struct xmalloc_block *xm_drawing = 0;
+
+/* Relevant header information in rm.h and objclass.h. */
 
 /* Object class names.  Used in object_detect(). */
 const char *const oclass_names[] = {
@@ -38,6 +68,7 @@ const char *const warnexplain[] = {
     "unknown creature causing you dread"
 };
 
+const char *const invismonexplain = "invisible monster";
 
 const struct nh_symdef warnsyms[WARNCOUNT] = {
     {'0', "warn1", CLR_WHITE},  /* white warning */
@@ -48,63 +79,60 @@ const struct nh_symdef warnsyms[WARNCOUNT] = {
     {'5', "warn6", CLR_BRIGHT_MAGENTA}  /* black warning */
 };
 
+/* Note: these descriptions are used to name tiles, so should not be changed
+   without a good reason. If two descriptions are the same, they must be
+   consecutive in the list; and the list itself must be in the same order as
+   the S_ symbols in rm.h. */
 const char *const defexplain[] = {
-    /* 0 */ "unexplored area",
-    /* unexplored */
-    "solid rock",       /* stone */
-    "wall",     /* vwall */
-    "wall",     /* hwall */
-    "wall",     /* tlcorn */
-    "wall",     /* trcorn */
-    "wall",     /* blcorn */
-    "wall",     /* brcorn */
-    "wall",     /* crwall */
-    "wall",     /* tuwall */
-    /* 10 */ "wall",
-    /* tdwall */
-    "wall",     /* tlwall */
-    "wall",     /* trwall */
-    "corridor", /* dark corr */
-    "lit corridor",     /* lit corr */
-    "the floor of a room",      /* room */
-    "dark part of a room",      /* darkroom */
-    "water",    /* pool */
-    "air",      /* open air */
-    "cloud",    /* [part of] a cloud */
-    /* 20 */ "water",
-    /* under water */
-    "ice",      /* ice */
-    "molten lava",      /* lava */
-    "doorway",  /* ndoor */
-    /* "features" start here */
-    "open door",        /* vodoor */
-    "open door",        /* hodoor */
-    "closed door",      /* vcdoor */
-    "closed door",      /* hcdoor */
-    "iron bars",        /* bars */
-    "tree",     /* tree */
-    /* 30 */ "staircase up",
-    /* upstair */
-    "staircase down",   /* dnstair */
-    "ladder up",        /* upladder */
-    "ladder down",      /* dnladder */
-    "long staircase up",        /* upsstair */
-    "long staircase down",      /* dnsstair */
-    "altar",    /* altar */
-    "grave",    /* grave */
-    "opulent throne",   /* throne */
-    "sink",     /* sink */
-    /* 40 */ "fountain",
-    /* fountain */
-    "lowered drawbridge",       /* vodbridge */
-    "lowered drawbridge",       /* hodbridge */
-    "raised drawbridge",        /* vcdbridge */
-    "raised drawbridge",        /* hcdbridge */
+     /* 0 */ "unexplored area",     /* unexplored */
+             "solid rock",          /* stone */
+             "wall",                /* vwall */
+             "wall",                /* hwall */
+             "wall",                /* tlcorn */
+             "wall",                /* trcorn */
+             "wall",                /* blcorn */
+             "wall",                /* brcorn */
+             "wall",                /* crwall */
+             "wall",                /* tuwall */
+    /* 10 */ "wall"                 /* tdwall */,
+             "wall",                /* tlwall */
+             "wall",                /* trwall */
+             "corridor",            /* corr */
+             "the floor of a room", /* room */
+             "water",               /* pool */
+             "air",                 /* open air */
+             "cloud",               /* [part of] a cloud */
+             "underwater",          /* under water */
+             "ice",                 /* ice */
+    /* 20 */ "molten lava",         /* lava */
+             "doorway",             /* ndoor */
+             /* "features" start here */
+             "open door",           /* vodoor */
+             "open door",           /* hodoor */
+             "closed door",         /* vcdoor */
+             "closed door",         /* hcdoor */
+             "iron bars",           /* bars */
+             "tree",                /* tree */
+             "staircase up",        /* upstair */
+             "staircase down",      /* dnstair */
+    /* 30 */ "ladder up",           /* upladder */
+             "ladder down",         /* dnladder */
+             "long staircase up",   /* upsstair */
+             "long staircase down", /* dnsstair */
+             "altar",               /* altar */
+             "grave",               /* grave */
+             "opulent throne",      /* throne */
+             "sink",                /* sink */
+             "fountain",            /* fountain */
+             "lowered drawbridge",  /* vodbridge */
+    /* 40 */ "lowered drawbridge",  /* hodbridge */
+             "raised drawbridge",   /* vcdbridge */
+             "raised drawbridge",   /* hcdbridge */
 };
 
-
+/* Note: this starts at 1 not 0, there's a shift of 1 used for uses of it. */
 const char *const trapexplain[] = {
-    "arrow trap",
+/* 1*/ "arrow trap",
     "dart trap",
     "falling rock trap",
     "squeaky board",
@@ -113,7 +141,7 @@ const char *const trapexplain[] = {
     "rolling boulder trap",
     "sleeping gas trap",
     "rust trap",
-/*50*/ "fire trap",
+/*10*/ "fire trap",
     "pit",
     "spiked pit",
     "hole",
@@ -123,7 +151,7 @@ const char *const trapexplain[] = {
     "level teleporter",
     "magic portal",
     "web",
-/*60*/ "statue trap",
+/*20*/ "statue trap",
     "magic trap",
     "anti-magic field",
     "polymorph trap"
@@ -147,9 +175,7 @@ const struct nh_symdef defsyms[] = {
     {'|', "tlwall", CLR_GRAY},
     {'|', "trwall", CLR_GRAY},
     {'#', "corr", CLR_GRAY},
-    {'#', "litcorr", CLR_WHITE},
     {'.', "room", CLR_GRAY},
-    {'.', "darkroom", CLR_BLACK},
     {'}', "pool", CLR_BLUE},
     {' ', "air", CLR_CYAN},
     {'#', "cloud", CLR_GRAY},
@@ -168,10 +194,10 @@ const struct nh_symdef defsyms[] = {
     {'>', "dnstair", CLR_WHITE},
     {'<', "upladder", CLR_YELLOW},
     {'>', "dnladder", CLR_YELLOW},
-    {'<', "upsstair", CLR_YELLOW},
-    {'>', "dnsstair", CLR_YELLOW},
+    {'<', "upsstair", CLR_YELLOW | HI_ULINE},
+    {'>', "dnsstair", CLR_YELLOW | HI_ULINE},
     {'_', "altar", CLR_GRAY},
-    {'|', "grave", CLR_GRAY},
+    {'|', "grave", CLR_BLACK},
     {'\\', "throne", HI_GOLD},
     {'#', "sink", CLR_GRAY},
 /*40*/ {'{', "fountain", CLR_BLUE},
@@ -181,7 +207,7 @@ const struct nh_symdef defsyms[] = {
     {'+', "hcdbridge", CLR_YELLOW}
 };
 
-static const struct nh_symdef trapsyms[] = {
+const struct nh_symdef trapsyms[] = {
 /* 0*/ {'^', "arrow trap", HI_METAL},
     {'^', "dart trap", HI_METAL},
     {'^', "falling rock trap", CLR_GRAY},
@@ -208,7 +234,7 @@ static const struct nh_symdef trapsyms[] = {
 };
 
 
-static const struct nh_symdef explsyms[] = {
+const struct nh_symdef explsyms[] = {
     {'/', "exp_top_l", CLR_ORANGE},     /* explosion top left */
     {'-', "exp_top_c", CLR_ORANGE},     /* explosion top center */
     {'\\', "exp_top_r", CLR_ORANGE},    /* explosion top right */
@@ -220,7 +246,7 @@ static const struct nh_symdef explsyms[] = {
     {'/', "exp_bot_r", CLR_ORANGE},     /* explosion bottom right */
 };
 
-static const struct nh_symdef expltypes[] = {
+const struct nh_symdef expltypes[] = {
     {0, "dark", CLR_BLACK},
     {0, "noxious", CLR_GREEN},
     {0, "muddy", CLR_BROWN},
@@ -230,7 +256,7 @@ static const struct nh_symdef expltypes[] = {
     {0, "frosty", CLR_WHITE}
 };
 
-static const struct nh_symdef zapsyms[NUM_ZAP] = {
+const struct nh_symdef zapsyms[NUM_ZAP] = {
     {'|', "zap_v", HI_ZAP},
     {'-', "zap_h", HI_ZAP},
     {'\\', "zap_ld", HI_ZAP},
@@ -240,7 +266,7 @@ static const struct nh_symdef zapsyms[NUM_ZAP] = {
 /*
  *  This must be the same order as used for buzz() in zap.c.
  */
-static const struct nh_symdef zaptypes[NUM_ZAP] = {
+const struct nh_symdef zaptypes[NUM_ZAP] = {
     {0, "missile", HI_ZAP},
     {0, "fire", CLR_ORANGE},
     {0, "frost", CLR_WHITE},
@@ -251,7 +277,7 @@ static const struct nh_symdef zaptypes[NUM_ZAP] = {
     {0, "acid", CLR_GREEN}
 };
 
-static const struct nh_symdef effectsyms[] = {
+const struct nh_symdef effectsyms[] = {
     {'*', "digbeam", CLR_WHITE},        /* dig beam */
     {'!', "flashbeam", CLR_WHITE},      /* camera flash beam */
     {')', "boomleft", HI_WOOD}, /* boomerang open left */
@@ -263,7 +289,7 @@ static const struct nh_symdef effectsyms[] = {
     {'#', "gascloud", CLR_GRAY}
 };
 
-static const struct nh_symdef swallowsyms[] = {
+const struct nh_symdef swallowsyms[] = {
     {'/', "swallow_top_l", CLR_ORANGE}, /* swallow top left */
     {'-', "swallow_top_c", CLR_ORANGE}, /* swallow top center */
     {'\\', "swallow_top_r", CLR_ORANGE},        /* swallow top right */
@@ -274,129 +300,172 @@ static const struct nh_symdef swallowsyms[] = {
     {'/', "swallow_bot_r", CLR_ORANGE}, /* swallow bottom right */
 };
 
-static int unnamed_cnt[MAXOCLASSES];
 
-/*
- * make unique, non-null names for all objects
- */
-static char *
-make_object_name(int otyp)
+/* Make unique, non-null names for all objects. */
+#define UNIQUE_OBJECT_NAME_LENGTH 80
+/* We cache the names to ease allocation issues; there are only a finite number
+   of them anyway. */
+static char unique_object_names[NUM_OBJECTS][UNIQUE_OBJECT_NAME_LENGTH+1];
+static boolean unique_object_names_initialized = FALSE;
+
+static void
+initialize_unique_object_names(void)
 {
-    char buffer[41], buf2[41];
     const char *nameptr;
-    char *ret;
-    int class = (int)const_objects[otyp].oc_class;
+    char *target;
+    int otyp, otyp2;
+    int class;
+    int object_matches_descr_of[NUM_OBJECTS];
 
+    /* We do two passes over the list: first we name the objects, then we
+       disambiguate names that would otherwise be the same. */
+    for (otyp = 0; otyp < NUM_OBJECTS; otyp++) {
+        class = (int)const_objects[otyp].oc_class;
+        
+        /* Name objects by their unidentified description, if we can, because
+           that's what determines what colour they'll be in ASCII, and what tile
+           will be used in tiles mode. */
+        nameptr = obj_descr[otyp].oc_descr;
+        if (!nameptr) nameptr = obj_descr[otyp].oc_name;
+        target = unique_object_names[otyp];
 
-    buffer[0] = buf2[0] = '\0';
-    buffer[40] = buf2[0] = '\0';
-
-    nameptr = obj_descr[otyp].oc_name;
-
-    /* catch dummy objects (scrolls, wands, ...) without names */
-    if (!nameptr) {
-        unnamed_cnt[(int)const_objects[otyp].oc_class]++;
-        snprintf(buf2, 40, "unnamed %d", unnamed_cnt[class]);
+        /* Add a suffix to some object types to disambiguate orange from orange
+           potion from orange spellbook, etc.. */
+        if (class == AMULET_CLASS && *nameptr != 'A')
+            snprintf(target, UNIQUE_OBJECT_NAME_LENGTH, "%s amulet", nameptr);
+        else if (class == WAND_CLASS)
+            snprintf(target, UNIQUE_OBJECT_NAME_LENGTH, "%s wand", nameptr);
+        else if (class == RING_CLASS)
+            snprintf(target, UNIQUE_OBJECT_NAME_LENGTH, "%s ring", nameptr);
+        else if (class == POTION_CLASS)
+            snprintf(target, UNIQUE_OBJECT_NAME_LENGTH, "%s potion", nameptr);
+        else if (class == SPBOOK_CLASS)
+            snprintf(target, UNIQUE_OBJECT_NAME_LENGTH, "%s spellbook",
+                     nameptr);
+        else if (class == GEM_CLASS)
+            snprintf(target, UNIQUE_OBJECT_NAME_LENGTH, "%s gem", nameptr);
+        else
+            snprintf(target, UNIQUE_OBJECT_NAME_LENGTH, "%s", nameptr);
+        target[UNIQUE_OBJECT_NAME_LENGTH] = '\0'; /* cut off, don't overflow */
     }
-
-    if (class == AMULET_CLASS && const_objects[otyp].oc_material == PLASTIC) {
-        snprintf(buf2, 40, "fake amulet of yendor");
-    } else if (class == GEM_CLASS && const_objects[otyp].oc_material == GLASS) {
-        snprintf(buf2, 40, "%s glass gem", obj_descr[otyp].oc_descr);
+    for (otyp = 0; otyp < NUM_OBJECTS; otyp++) {
+        object_matches_descr_of[otyp] = 0;
+        target = unique_object_names[otyp];
+        for (otyp2 = 0; otyp2 < NUM_OBJECTS; otyp2++) {
+            if (otyp == otyp2) continue;
+            if (strcmp(target, unique_object_names[otyp2]) == 0) {
+                object_matches_descr_of[otyp] = (otyp < otyp2 ? otyp : otyp2);
+                break;
+            }
+        }
     }
-
-    if (buf2[0])
-        nameptr = buf2;
-
-    /* add a prefix to some object types to disambiguate (wand of) fire from
-       (scroll of) fire */
-    if (class == WAND_CLASS)
-        snprintf(buffer, 40, "wand of %s", nameptr);
-    else if (class == RING_CLASS)
-        snprintf(buffer, 40, "ring of %s", nameptr);
-    else if (class == POTION_CLASS)
-        snprintf(buffer, 40, "potion of %s", nameptr);
-    else if (class == SPBOOK_CLASS)
-        snprintf(buffer, 40, "spellbook of %s", nameptr);
-    else if (class == SCROLL_CLASS)
-        snprintf(buffer, 40, "scroll of %s", nameptr);
-    else
-        snprintf(buffer, 40, "%s", nameptr);
-
-    ret = xmalloc(strlen(buffer) + 1);
-    strcpy(ret, buffer);
-
-    return ret;
+    for (otyp = 0; otyp < NUM_OBJECTS; otyp++) {
+        if (!object_matches_descr_of[otyp]) continue;
+        target = unique_object_names[otyp];    
+        /* Append 's ' and a number, just as is done to disambiguate tiles.
+           This leads to some weird constructions sometimes (probably just
+           "Amulet of Yendors 0"), but maximizes the compatibility with
+           foreign tilesets. */
+        int nth = 0;
+        for (otyp2 = 0; otyp2 < otyp; otyp2++) {
+            if (object_matches_descr_of[otyp] ==
+                object_matches_descr_of[otyp2]) nth++;
+        }
+        snprintf(target + strlen(target),
+                 UNIQUE_OBJECT_NAME_LENGTH - strlen(target),
+                 "s %d", nth);
+    }
 }
 
+char *
+make_object_name(int otyp)
+{
+    if (!unique_object_names_initialized)
+        initialize_unique_object_names();
+    unique_object_names_initialized = TRUE;
+    return unique_object_names[otyp];
+}
 
-static const char *
+const char *
 make_mon_name(int mnum)
 {
     char *name;
 
     if (mons[mnum].mlet == S_HUMAN && !strncmp(mons[mnum].mname, "were", 4)) {
-        name = xmalloc(strlen(mons[mnum].mname) + strlen("human ") + 1);
+        name = xmalloc(&xm_drawing,
+                       strlen(mons[mnum].mname) + strlen("human ") + 1);
         sprintf(name, "human %s", mons[mnum].mname);
         return name;
     }
     return mons[mnum].mname;
 }
 
+void
+populate_mon_symdef(int mnum, struct nh_symdef *rv)
+{
+    rv->ch = def_monsyms[(int)mons[mnum].mlet];
+    rv->symname = make_mon_name(mnum);
+    rv->color = mons[mnum].mcolor;
+}
 
-#include <stdio.h>
+void
+populate_obj_symdef(int otyp, struct nh_symdef *rv)
+{
+    rv->ch = def_oc_syms[(int)const_objects[otyp].oc_class];
+    rv->symname = make_object_name(otyp);
+    rv->color = const_objects[otyp].oc_color;
+}
+
 struct nh_drawing_info *
 nh_get_drawing_info(void)
 {
     int i;
     struct nh_symdef *tmp;
-    struct nh_drawing_info *di = xmalloc(sizeof (struct nh_drawing_info));
+    struct nh_drawing_info *di;
+
+    xmalloc_cleanup(&xm_drawing);
+
+    di = xmalloc(&xm_drawing, sizeof (struct nh_drawing_info));
 
     di->num_bgelements = SIZE(defsyms);
-    di->bgelements = (struct nh_symdef *)defsyms;
+    di->bgelements = defsyms;
 
     di->num_traps = SIZE(trapsyms);
-    di->traps = (struct nh_symdef *)trapsyms;
+    di->traps = trapsyms;
 
     di->num_objects = NUM_OBJECTS;
-    tmp = xmalloc(sizeof (struct nh_symdef) * di->num_objects);
-    for (i = 0; i < di->num_objects; i++) {
-        tmp[i].ch = def_oc_syms[(int)const_objects[i].oc_class];
-        tmp[i].symname = make_object_name(i);
-        tmp[i].color = const_objects[i].oc_color;
-    }
+    tmp = xmalloc(&xm_drawing, sizeof (struct nh_symdef) * di->num_objects);
+    for (i = 0; i < di->num_objects; i++)
+        populate_obj_symdef(i, tmp + i);
     di->objects = tmp;
 
-    tmp = xmalloc(sizeof (struct nh_symdef));
+    tmp = xmalloc(&xm_drawing, sizeof (struct nh_symdef));
     tmp->ch = DEF_INVISIBLE;
-    tmp->color = NO_COLOR;
-    tmp->symname = "invisible monster";
+    tmp->color = CLR_BRIGHT_BLUE;
+    tmp->symname = invismonexplain;
     di->invis = tmp;
 
     di->num_monsters = NUMMONS;
-    tmp = xmalloc(sizeof (struct nh_symdef) * di->num_monsters);
-    for (i = 0; i < di->num_monsters; i++) {
-        tmp[i].ch = def_monsyms[(int)mons[i].mlet];
-        tmp[i].symname = make_mon_name(i);
-        tmp[i].color = mons[i].mcolor;
-    }
+    tmp = xmalloc(&xm_drawing, sizeof (struct nh_symdef) * di->num_monsters);
+    for (i = 0; i < di->num_monsters; i++)
+        populate_mon_symdef(i, tmp + i);
     di->monsters = tmp;
 
     di->num_warnings = SIZE(warnsyms);
-    di->warnings = (struct nh_symdef *)warnsyms;
+    di->warnings = warnsyms;
 
     di->num_expltypes = SIZE(expltypes);
-    di->expltypes = (struct nh_symdef *)expltypes;
-    di->explsyms = (struct nh_symdef *)explsyms;
+    di->expltypes = expltypes;
+    di->explsyms = explsyms;
 
     di->num_zaptypes = SIZE(zaptypes);
-    di->zaptypes = (struct nh_symdef *)zaptypes;
-    di->zapsyms = (struct nh_symdef *)zapsyms;
+    di->zaptypes = zaptypes;
+    di->zapsyms = zapsyms;
 
     di->num_effects = SIZE(effectsyms);
-    di->effects = (struct nh_symdef *)effectsyms;
+    di->effects = effectsyms;
 
-    di->swallowsyms = (struct nh_symdef *)swallowsyms;
+    di->swallowsyms = swallowsyms;
 
     di->bg_feature_offset = DUNGEON_FEATURE_OFFSET;
 
@@ -404,3 +473,4 @@ nh_get_drawing_info(void)
 }
 
 /*drawing.c*/
+

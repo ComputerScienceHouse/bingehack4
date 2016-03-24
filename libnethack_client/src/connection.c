@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-03-17 */
 /* Copyright (c) Daniel Thaler, 2012. */
 /* The NetHack client lib may be freely redistributed under the terms of either:
  *  - the NetHack license
@@ -6,18 +7,25 @@
  */
 
 #include "nhclient.h"
+#include "netconnect.h"
 
 struct nhnet_server_version nhnet_server_ver;
 
 static int sockfd = -1;
-static int connection_id;
+/* We use a limited-size buffer for the unread messages to avoid/reduce the risk
+   of DOS attacks, and to detect mistakes where the server is continuously
+   sending characters that don't form valid messages. startptr is the start of
+   the unread data; endptr the end of the received data. Whenever endptr
+   catches startptr, they both reset to the start of the buffer. */
+static char unread_messages[1024 * 1024 * 16];
+static char *unread_message_startptr = unread_messages;
+static char *unread_message_endptr = unread_messages;
 static int net_active;
 int conn_err, error_retry_ok;
 
-/* Prevent automatic retries during connection setup or teardown.
- * When the connection is being set up, it is better to report a failure
- * immediately; when the connection is being closed it doesn't matter if it
- * already is */
+/* Prevent automatic retries during connection setup or teardown. When the
+   connection is being set up, it is better to report a failure immediately;
+   when the connection is being closed it doesn't matter if it already is */
 static int in_connect_disconnect;
 
 /* saved connection details */
@@ -29,10 +37,14 @@ char saved_password[200];
 jmp_buf ex_jmp_buf;
 int ex_jmp_buf_valid;
 
+static jmp_buf playgame_jmp_buf;
+static int playgame_jmp_buf_valid = 0;
+static json_t *send_receive_recent_response;
+
 void
 print_error(const char *msg)
 {
-    windowprocs.win_raw_print(msg);
+    client_windowprocs.win_raw_print(msg);
 }
 
 /* Test for a closed network connection and try to reopen it.
@@ -54,6 +66,9 @@ test_restore_connection(void)
     fd_set rfds;
     struct timeval tv = { 0, 0 };
     char testbuf[1];
+
+    if (sockfd < 0)
+        return restart_connection();
 
     FD_ZERO(&rfds);
     FD_SET(sockfd, &rfds);
@@ -104,8 +119,7 @@ send_json_msg(json_t * jmsg)
 static json_t *
 receive_json_msg(void)
 {
-    char *rbuf, *bp;
-    int datalen, ret, rbufsize;
+    int datalen, ret;
     json_t *recv_msg;
     json_error_t err;
     fd_set rfds;
@@ -114,82 +128,81 @@ receive_json_msg(void)
     FD_ZERO(&rfds);
     FD_SET(sockfd, &rfds);
 
-    rbufsize = 1024 * 1024;     /* initial size: 1MB */
-    rbuf = malloc(rbufsize);
-    memset(rbuf, 0, rbufsize);
     recv_msg = NULL;
     datalen = 0;
     while (!recv_msg) {
-        /* select before reading so that we get a timeout. Otherwise the
-           program might hang indefinitely in read if the connection has failed 
-         */
-        tv.tv_sec = 10; /* 10s * 3 retries results in a long wait on failed
-                           connections... */
-        tv.tv_usec = 0;
-        ret = select(sockfd + 1, &rfds, NULL, NULL, &tv);
-        if (ret <= 0) {
-            /* we aren't expecting any signals, so it seems ok to abort even if
-               ret == -1 && errno == EINTR */
-            free(rbuf);
-            return NULL;
-        }
+        /* Do we have unread messages to return? We have a complete unread
+           message if there's a NUL byte anywhere in the unread region. */
+        char *eom = memchr(unread_message_startptr, '\0',
+                           unread_message_endptr - unread_message_startptr);
+        if (eom) {
+            recv_msg = json_loads(unread_message_startptr,
+                                  JSON_REJECT_DUPLICATES, &err);
+            unread_message_startptr = eom+1;
 
-        /* leave the last byte in the buffer free for the '\0' */
-        ret = recv(sockfd, &rbuf[datalen], rbufsize - datalen - 1, 0);
-        if (ret == -1 && errno == EINTR)
-            continue;
-        else if (ret <= 0) {
-            free(rbuf);
-            return NULL;
-        }
-        datalen += ret;
-
-        rbuf[datalen] = '\0';   /* terminate the string */
-        bp = &rbuf[datalen - 1];
-        while (isspace(*bp))
-            bp--;
-
-        recv_msg = NULL;
-        if (*bp == '}') {       /* possibly the end of the json object */
-            recv_msg = json_loads(rbuf, JSON_REJECT_DUPLICATES, &err);
             if (!recv_msg && err.position < datalen) {
-                print_error("Broken response received from server.");
-                free(rbuf);
+                unread_message_startptr = unread_message_endptr =
+                    unread_messages;
+                print_error("Broken response received from server");
                 return json_object();
             }
-        }
 
-        /* allow the receive buffer to grow to 16MB. Growing larger than 1MB is
-           extremely unlikely (I can't imagine how it would happen); 16MB or
-           more is clearly an error. */
-        if (!recv_msg && datalen >= rbufsize - 1) {
-            if (datalen < 16 * 1024 * 1024) {
-                rbufsize *= 2;
-                rbuf = realloc(rbuf, rbufsize);
-            } else {
-                print_error("Too much incoming data. Server error?");
-                free(rbuf);
+            if (unread_message_endptr == unread_message_startptr)
+                unread_message_startptr = unread_message_endptr =
+                    unread_messages;
+        } else {
+            /* select before reading so that we get a timeout. Otherwise the
+               program might hang indefinitely in read if the connection has
+               failed. */
+            tv.tv_sec = 10;
+            tv.tv_usec = 0;
+            do {
+                ret = select(sockfd + 1, &rfds, NULL, NULL, &tv);
+            } while (ret == -1 && errno == EINTR);
+            
+            if (ret <= 0) {
+                unread_message_startptr = unread_message_endptr =
+                    unread_messages;
+                return NULL;
+            }
+
+            ret = recv(sockfd, unread_message_endptr,
+                       unread_messages + sizeof unread_messages -
+                       unread_message_endptr, 0);
+            if (ret == -1 && errno == EINTR)
+                continue;
+            else if (ret <= 0)
+                return NULL;
+            if (unread_message_endptr >
+                unread_messages + sizeof unread_messages - 2) {
+                unread_message_startptr = unread_message_endptr =
+                    unread_messages;
+                print_error("The server is sending messages too quickly.");
                 return json_object();
             }
+            unread_message_endptr += ret;
+            /* loop back and see if we have a complete message yet */
         }
     }
 
-    free(rbuf);
     return recv_msg;
 }
 
 
 /* send a command to the server, handle callbacks (menus, getline, etc) and
- * display data (map data, pline, player status, ...) and finally return the
- * response to the command. */
+   display data (map data, pline, player status, ...) and finally return the
+   response to the command.
+
+   A play_game response will longjmp() to the matching play_game request, so
+   beware! */
 json_t *
-send_receive_msg(const char *msgtype, json_t * jmsg)
+send_receive_msg(const char *const volatile msgtype, json_t *volatile jmsg)
 {
-    json_t *recv_msg, *jobj, *jdisplay;
-    const char *sendkey;
+    const char *volatile sendkey;
     char key[BUFSZ];
+    char oldkey[BUFSZ];
     void *iter;
-    int retry_count = 3;
+    volatile int retry_count = 3;
 
     if (conn_err && ex_jmp_buf_valid)
         longjmp(ex_jmp_buf, 1);
@@ -204,28 +217,30 @@ send_receive_msg(const char *msgtype, json_t * jmsg)
     sendkey = msgtype;
     while (1) {
         /* send the message; keep the reference to jmsg */
-        jobj = json_pack("{sO}", sendkey, jmsg);
-        if (!send_json_msg(jobj)) {
-            json_decref(jobj);
+        json_t *send_msg = json_pack("{sO}", sendkey, jmsg);
+        if (!send_json_msg(send_msg)) {
+            json_decref(send_msg);
             if (retry_count-- > 0 && restart_connection())
                 continue;
             goto error;
         }
+        json_decref(send_msg);
 
+    receive_without_sending:
+        ;
         /* receive the response */
-        recv_msg = receive_json_msg();
+        json_t *recv_msg = receive_json_msg();
         if (!recv_msg) {
-            json_decref(jobj);
             /* If no data is received, there must have been a network error.
                Presumably the send didn't succeed either and the sent data
-               vanished, so reconnect and retry both send and receive. */
+               vanished, so reconnect. restart_connection() can longjmp back to
+               play_game; if it doesn't, retry both send and receive. */
             if (retry_count-- > 0 && restart_connection())
                 continue;
             goto error;
         }
 
-        json_decref(jobj);
-        jdisplay = json_object_get(recv_msg, "display");
+        json_t *jdisplay = json_object_get(recv_msg, "display");
         if (jdisplay) {
             if (json_is_array(jdisplay))
                 handle_display_list(jdisplay);
@@ -245,149 +260,172 @@ send_receive_msg(const char *msgtype, json_t * jmsg)
 
         /* The string returned by json_object_iter_key is only valid while
            recv_msg exists. Since we still want the value afterwards, it must
-           be copied */
+           be copied. */
         strncpy(key, json_object_iter_key(iter), BUFSZ - 1);
-        jobj = json_object_iter_value(iter);
+
+        if (!strcmp(key, "server_cancel")) {
+            /* This message is special in that it can be called out of
+               sequence, and has no response. */
+            json_decref(recv_msg); /* free it */
+            client_windowprocs.win_server_cancel();
+            goto receive_without_sending;
+        }
+        if (!strcmp(key, "load_progress")) {
+            /* This message is only called in-sequence, but it still has no
+               response. */
+            int progress;
+            if (json_unpack(json_object_iter_value(iter), "{si!}",
+                            "progress", &progress) != -1)
+                client_windowprocs.win_load_progress(progress);
+            json_decref(recv_msg); /* free it */
+            goto receive_without_sending;
+        }
+
+        send_receive_recent_response = json_object_iter_value(iter);
 
         if (json_object_iter_next(recv_msg, iter))
             print_error("Too many JSON objects in response data.");
 
         /* keep only the core of the response and throw away the wrapper */
-        json_incref(jobj);
+        json_incref(send_receive_recent_response);
         json_decref(recv_msg);
 
-        /* if the response type doesn't match the request type this must be a
-           callback that needs to be handled first. */
-        if (strcmp(key, msgtype)) {
-            jobj = handle_netcmd(key, jobj);
-            if (!jobj) {        /* this only happens after server errors */
-                if (error_retry_ok && retry_count-- > 0 && restart_connection())
-                    continue;
+        if (strcmp(sendkey, "play_game") == 0) {
+            /* We might need to longjmp back here. */
+            if (setjmp(playgame_jmp_buf) == 0) {
+                playgame_jmp_buf_valid = 1;
+            } else {
+                playgame_jmp_buf_valid = 0;
+                /* key, sendkey might have any value right now, but we know what
+                   they should be from the position in the control flow */
+                sendkey = "play_game";
+                memset(key, 0, sizeof key);
+                strcpy(key, "play_game");
+            }
+        }
 
-                json_decref(jmsg);
-                return NULL;
+        /* If the response type doesn't match the request type then either:
+           - this is a callback that needs to be handled first;
+           - this is a request to longjmp() back to nhnet_play_game.
+
+           To simplify the control flow, our longjmp back upon receiving a
+           play_game response is unconditional, and ends up cancelling itself
+           out if a play_game message gets a play_game response. This also
+           guarantees that playgame_jmp_buf_valid is only set while
+           playgame_jmp_buf is actually on the call stack. */
+        if (strcmp(key, "play_game") == 0 && playgame_jmp_buf_valid)
+            longjmp(playgame_jmp_buf, 1);
+
+        if (strcmp(key, msgtype)) {
+            json_t *srvmsg = send_receive_recent_response;
+            /* The next line is unneccessary, but makes the control flow easier
+               to follow in a debugger. */
+            send_receive_recent_response = 0;
+            json_t *newmsg = handle_netcmd(key, msgtype, srvmsg);
+            if (!newmsg) {     /* server error */
+                if (error_retry_ok && retry_count-- > 0 && restart_connection())
+                    continue;  /* jmsg is still alive, use it again */
+                goto error;
             }
 
             json_decref(jmsg);
-            jmsg = jobj;
-            sendkey = key;
+            jmsg = newmsg;
+            strcpy(oldkey, key);
+            sendkey = oldkey;
 
             /* send the callback data to the server and get a new response */
             continue;
         }
+
         json_decref(jmsg);
         break;  /* only loop via continue */
     }
 
-    return jobj;
+    json_t *response = send_receive_recent_response;
+    send_receive_recent_response = 0;
+
+    return response;
 
 error:
     json_decref(jmsg);
     close(sockfd);
     sockfd = -1;
     conn_err = TRUE;
+    playgame_jmp_buf_valid = 0;
     if (ex_jmp_buf_valid)
         longjmp(ex_jmp_buf, 1);
     return NULL;
 }
 
 
-/* convert a string (address or hosname) into an address */
-static int
-parse_ip_addr(const char *host, int port, int want_v4,
-              struct sockaddr_storage *out)
+int
+nhnet_get_socket_fd(void)
 {
-    int res;
-    char portstr[16];
-    struct addrinfo *gai_res = NULL;
-    struct addrinfo *next;
-    struct addrinfo gai_hints;
-
-    memset(&gai_hints, 0, sizeof (gai_hints));
-    gai_hints.ai_flags = AI_NUMERICSERV;
-    gai_hints.ai_family = want_v4 ? AF_INET : AF_INET6;
-    gai_hints.ai_socktype = SOCK_STREAM;
-
-    sprintf(portstr, "%d", port);
-
-    res = getaddrinfo(host, portstr, &gai_hints, &gai_res);
-    if (res != 0)
-        return FALSE;
-    if (want_v4)
-        memcpy(out, gai_res->ai_addr, sizeof (struct sockaddr_in));
-    else
-        memcpy(out, gai_res->ai_addr, sizeof (struct sockaddr_in6));
-
-#ifndef WIN32   /* it seems the result structures should not be free'd on
-                   Windows */
-    do {
-        next = gai_res->ai_next;
-        free(gai_res);
-        gai_res = next;
-    } while (gai_res);
-#endif
-
-    return TRUE;
+    return sockfd;
 }
 
 
-static int
-connect_server(const char *host, int port, int want_v4, char *errmsg,
-               int msglen)
+/* Should only be called when the return value of nhnet_get_socket_fd refers to
+   a readable file descriptor (otherwise it may well hang); and should be called
+   in that situation. The client library will check for server cancels, and call
+   win_server_cancel if it finds one; it will error out if it finds any other
+   sort of message (because the server shouldn't be sending asynchronously
+   otherwise).
+
+   If the connection has dropped, this function will attempt to restart the
+   connection; this may involve longjmping back to play_game in the process.
+
+   This function is not async-signal-safe. (Most functions aren't, but it's less
+   obvious with this one because its main purpose is to call win_server_cancel,
+   which is signal-safe, and it's not unreasonable to want to call it directly
+   from a SIGIO handler. You should handle the signal in the normal way instead,
+   via bouncing it off your event loop.) */
+void 
+nhnet_check_socket_fd(void)
 {
-    struct sockaddr_storage sa;
-    int fd = -1;
+    json_t *j = receive_json_msg();
+    void *iter;
 
-    errmsg[0] = '\0';
-    if (parse_ip_addr(host, port, want_v4, &sa)) {
-        fd = socket(sa.ss_family, SOCK_STREAM, 0);
-        if (fd == -1) {
-            snprintf(errmsg, msglen, "failed to create a socket: %s\n",
-                     strerror(errno));
-            return -1;
-        }
+    if (j == NULL) {
+        /* connection failure */
+        if (restart_connection()) /* might longjmp or return normally */
+            return;
 
-        if (connect(fd, (struct sockaddr *)&sa,
-                    want_v4 ? sizeof (struct sockaddr_in) :
-                    sizeof (struct sockaddr_in6)) == -1) {
-            snprintf(errmsg, msglen, "could not connect: %s\n",
-                     strerror(errno));
-            close(fd);
-            return -1;
-        }
+        /* we couldn't restart it */
+        close(sockfd);
+        sockfd = -1;
+        conn_err = TRUE;
+        playgame_jmp_buf_valid = 0;
+        if (ex_jmp_buf_valid)
+            longjmp(ex_jmp_buf, 1);
+        /* otherwise we can't do anything about the error */
+        return;
     }
 
-    return fd;
+    iter = json_object_iter(j);
+    if (!iter || strcmp(json_object_iter_key(iter), "server_cancel") != 0) {
+        /* Misbehaving server, it shouldn't be sending out of sequence */
+        print_error("Server sent a JSON object out of sequence");
+        if (ex_jmp_buf_valid) {
+            playgame_jmp_buf_valid = 0;
+            longjmp(ex_jmp_buf, 1);
+        }
+        /* otherwise we can't do anything about the error */
+        return;
+    }
+
+    json_decref(j);
+    client_windowprocs.win_server_cancel();
 }
 
 
 static int
 do_connect(const char *host, int port, const char *user, const char *pass,
-           const char *email, int reg_user, int connid)
+           const char *email, int reg_user)
 {
-    int fd = -1, authresult, copylen;
+    int fd = -1, authresult;
     char ipv6_error[120], ipv4_error[120], errmsg[256];
     json_t *jmsg, *jarr;
-
-#ifdef UNIX
-    /* try to connect to a local unix socket */
-    struct sockaddr_un sun;
-
-    sun.sun_family = AF_UNIX;
-
-    copylen = strlen(host) + 1;
-    if (copylen > sizeof (sun.sun_path) - 1)
-        copylen = sizeof (sun.sun_path) - 1;
-    memcpy(sun.sun_path, host, copylen);
-    sun.sun_path[sizeof (sun.sun_path) - 1] = '\0';
-    fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd >= 0) {
-        if (connect(fd, (struct sockaddr *)&sun, sizeof (sun)) == -1) {
-            close(fd);
-            fd = -1;
-        }
-    }
-#endif
 
     /* try ipv6 */
     if (fd == -1)
@@ -413,6 +451,9 @@ do_connect(const char *host, int port, const char *user, const char *pass,
             snprintf(errmsg, 256, "IPv4: %s", ipv4_error);
             print_error(errmsg);
         }
+
+        sockfd = -1;
+        net_active = FALSE;
         return NO_CONNECTION;
     }
 
@@ -424,18 +465,17 @@ do_connect(const char *host, int port, const char *user, const char *pass,
             json_object_set_new(jmsg, "email", json_string(email));
         jmsg = send_receive_msg("register", jmsg);
     } else {
-        if (connid)
-            json_object_set_new(jmsg, "reconnect", json_integer(connid));
         jmsg = send_receive_msg("auth", jmsg);
     }
     in_connect_disconnect = FALSE;
 
     if (!jmsg ||
-        json_unpack(jmsg, "{si,si*}", "return", &authresult, "connection",
-                    &connection_id) == -1) {
+        json_unpack(jmsg, "{si*}", "return", &authresult) == -1) {
         if (jmsg)
             json_decref(jmsg);
         close(fd);
+        net_active = FALSE;
+        sockfd = -1;
         return NO_CONNECTION;
     }
     /* the "version" field in the response is optional */
@@ -455,8 +495,14 @@ do_connect(const char *host, int port, const char *user, const char *pass,
     if (pass != saved_password)
         strncpy(saved_password, pass, sizeof (saved_password));
     saved_port = port;
-    conn_err = FALSE;
-    net_active = TRUE;
+
+    if (authresult == AUTH_SUCCESS_NEW) {
+        conn_err = FALSE;
+        net_active = TRUE;
+    } else {
+        net_active = FALSE;
+        sockfd = -1;
+    }
 
     return authresult;
 }
@@ -469,7 +515,7 @@ nhnet_connect(const char *host, int port, const char *user, const char *pass,
     if (port == 0)
         port = DEFAULT_PORT;
 
-    return do_connect(host, port, user, pass, email, reg_user, 0);
+    return do_connect(host, port, user, pass, email, reg_user);
 }
 
 
@@ -487,12 +533,8 @@ nhnet_disconnect(void)
         close(sockfd);
     }
     sockfd = -1;
-    connection_id = 0;
-    current_game = 0;
     conn_err = FALSE;
     net_active = FALSE;
-    xmalloc_cleanup();
-    free_option_lists();
     memset(&nhnet_server_ver, 0, sizeof (nhnet_server_ver));
 }
 
@@ -513,9 +555,8 @@ nhnet_connected(void)
 }
 
 
-/* an error has happened and the connection referred to by sockfd is no longer OK.
- * close the old connection and try to open a new one.
- */
+/* An error has happened and the connection referred to by sockfd is no longer
+   OK; close the old connection and try to open a new one. */
 int
 restart_connection(void)
 {
@@ -530,15 +571,18 @@ restart_connection(void)
 
     ret =
         do_connect(saved_hostname, saved_port, saved_username, saved_password,
-                   NULL, 0, connection_id);
-    if (ret != AUTH_SUCCESS_NEW && ret != AUTH_SUCCESS_RECONNECT)
+                   NULL, 0);
+    if (ret != AUTH_SUCCESS_NEW)
         return FALSE;
 
-    if (ret == AUTH_SUCCESS_NEW && current_game) {
-        ret = nhnet_restore_game(current_game, NULL);
-        if (ret == GAME_RESTORED)
-            return TRUE;
-        return FALSE;
+    /* If we were in a game when the connection went down, we want to reload the
+       game. This is done using by longjmping out of any prompts that might be
+       open at the time (yay, disconnection works correctly at prompts now!),
+       and getting the client's main loop to reconnect. */
+    if (ret == AUTH_SUCCESS_NEW && playgame_jmp_buf_valid) {
+        send_receive_recent_response =
+            json_pack("{si}", "return", RESTART_PLAY);
+        longjmp(playgame_jmp_buf, 1);
     }
 
     return TRUE;

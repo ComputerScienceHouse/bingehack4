@@ -1,4 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
+/* Last modified by Alex Smith, 2015-06-15 */
 /* Copyright (c) Daniel Thaler, 2011. */
 /* The NetHack server may be freely redistributed under the terms of either:
  *  - the NetHack license
@@ -6,7 +7,7 @@
  */
 
 #include "nhserver.h"
-
+#include "menulist.h"
 
 static void srv_raw_print(const char *str);
 static void srv_pause(enum nh_pause_reason r);
@@ -16,40 +17,31 @@ static void srv_print_message_nonblocking(int turn, const char *msg);
 static void srv_update_screen(struct nh_dbuf_entry dbuf[ROWNO][COLNO], int ux,
                               int uy);
 static void srv_delay_output(void);
+static void srv_load_progress(int progress);
 static void srv_level_changed(int displaymode);
-static void srv_outrip(struct nh_menuitem *items, int icount, nh_bool tombstone,
+static void srv_outrip(struct nh_menulist *ml, nh_bool tombstone,
                        const char *name, int gold, const char *killbuf,
                        int end_how, int year);
-static int srv_display_menu(struct nh_menuitem *items, int icount,
-                            const char *title, int how, int placement_hint,
-                            int *results);
-static int srv_display_objects(struct nh_objitem *items, int icount,
-                               const char *title, int how, int placement_hint,
-                               struct nh_objresult *pick_list);
-static nh_bool srv_list_items(struct nh_objitem *items, int icount,
-                              nh_bool invent);
-static char srv_query_key(const char *query, int *count);
-static int srv_getpos(int *x, int *y, nh_bool force, const char *goal);
+static void srv_request_command(nh_bool debug, nh_bool completed,
+                                nh_bool interrupted, void *callbackarg,
+                                void (*)(const struct nh_cmd_and_arg *arg,
+                                         void *callbackarg));
+static void srv_display_menu(struct nh_menulist *ml, const char *title,
+                             int how, int placement_hint, void *callbackarg,
+                             void (*)(const int *, int, void *));
+static void srv_display_objects(struct nh_objlist *objlist, const char *title,
+                                int how, int placement_hint, void *callbackarg,
+                                void (*)(const struct nh_objresult *,
+                                         int, void *));
+static void srv_list_items(struct nh_objlist *objlist, nh_bool invent);
+static struct nh_query_key_result srv_query_key(
+    const char *query, enum nh_query_key_flags flags, nh_bool allow_count);
+static struct nh_getpos_result srv_getpos(int xorig, int yorig,
+                                          nh_bool force, const char *goal);
 static enum nh_direction srv_getdir(const char *query, nh_bool restricted);
-static void srv_getline(const char *query, char *buf);
-
-static void srv_alt_raw_print(const char *str);
-static void srv_alt_pause(enum nh_pause_reason r);
-static void srv_alt_display_buffer(const char *buf, nh_bool trymove);
-static void srv_alt_update_status(struct nh_player_info *pi);
-static void srv_alt_print_message(int turn, const char *msg);
-static void
-srv_alt_update_screen(struct nh_dbuf_entry dbuf[ROWNO][COLNO], int ux, int uy)
-{
-}
-
-static void srv_alt_delay_output(void);
-static void srv_alt_level_changed(int displaymode);
-static void srv_alt_outrip(struct nh_menuitem *items, int icount,
-                           nh_bool tombstone, const char *name, int gold,
-                           const char *killbuf, int end_how, int year);
-static nh_bool srv_alt_list_items(struct nh_objitem *items, int icount,
-                                  nh_bool invent);
+static void srv_getline(const char *query, void *callbackarg,
+                        void (*callback)(const char *, void *));
+static void srv_server_cancel(void);
 
 /*---------------------------------------------------------------------------*/
 
@@ -59,13 +51,13 @@ static int prev_invent_icount, prev_floor_icount;
 static struct nh_objitem *prev_invent;
 static const struct nh_dbuf_entry zero_dbuf;    /* an entry of all zeroes */
 static json_t *display_data, *jinvent_items, *jfloor_items;
-static int altproc;
 
 struct nh_window_procs server_windowprocs = {
     srv_pause,
     srv_display_buffer,
     srv_update_status,
     srv_print_message,
+    srv_request_command,
     srv_display_menu,
     srv_display_objects,
     srv_list_items,
@@ -77,32 +69,11 @@ struct nh_window_procs server_windowprocs = {
     srv_yn_function,
     srv_getline,
     srv_delay_output,
+    srv_load_progress,
     srv_level_changed,
     srv_outrip,
     srv_print_message_nonblocking,
-};
-
-
-/* alternative window procs for replay*/
-struct nh_window_procs server_alt_windowprocs = {
-    srv_alt_pause,
-    srv_alt_display_buffer,
-    srv_alt_update_status,
-    srv_alt_print_message,
-    NULL,
-    NULL,
-    srv_alt_list_items,
-    srv_alt_update_screen,
-    srv_alt_raw_print,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    srv_alt_delay_output,
-    srv_alt_level_changed,
-    srv_alt_outrip,
-    srv_alt_print_message,
+    srv_server_cancel,
 };
 
 /*---------------------------------------------------------------------------*/
@@ -119,6 +90,8 @@ client_request(const char *funcname, json_t * request_msg)
 
     /* client response */
     jret = read_input();
+    if (!jret)
+        exit_client("Incorrect or damaged response", 0);
 
     jobj = json_object_get(jret, funcname);
     while (!jobj || !json_is_object(jobj)) {
@@ -131,18 +104,16 @@ client_request(const char *funcname, json_t * request_msg)
         if (clientcmd[i].name) {
             /* The received object contains a valid command in the toplevel
                context. For some commands, we can and should process them even
-               with the game waiting for input. We have a problem, though, if
-               we can't. What to do? Longjumping around is fugly and where
-               would we jump to? Alternative: exit without an error status and
-               hope the client retries the command... */
+               with the game waiting for input. Otherwise, tell the client to
+               behave itself. */
             if (clientcmd[i].can_run_async)
                 clientcmd[i].func(json_object_iter_value(iter));
             else {
-                exit_client(NULL);
+                exit_client("Command sent out of sequence", 0);
                 break;
             }
         } else {
-            exit_client("Incorrect or damaged response");
+            exit_client("Incorrect or damaged response", 0);
             break;
         }
         json_decref(jret);
@@ -150,7 +121,8 @@ client_request(const char *funcname, json_t * request_msg)
         jobj = json_object_get(jret, funcname);
     }
 
-    json_incref(jobj);
+    if (jobj)
+        json_incref(jobj);
     json_decref(jret);
 
     return jobj;
@@ -161,13 +133,6 @@ static void
 add_display_data(const char *key, json_t * data)
 {
     json_t *tmpobj;
-    char keystr[BUFSZ];
-
-    if (altproc) {
-        snprintf(keystr, BUFSZ - 1, "alt_%s", key);
-        keystr[BUFSZ - 1] = '\0';
-        key = keystr;
-    }
 
     if (!display_data)
         display_data = json_array();
@@ -252,6 +217,12 @@ srv_update_status(struct nh_player_info *pi)
     }
     if (all || strcmp(pi->rank, oi->rank))
         json_object_set_new(jobj, "rank", json_string(pi->rank));
+    if (all || strcmp(pi->racename, oi->racename))
+        json_object_set_new(jobj, "racename", json_string(pi->racename));
+    if (all || strcmp(pi->rolename, oi->rolename))
+        json_object_set_new(jobj, "rolename", json_string(pi->rolename));
+    if (all || strcmp(pi->gendername, oi->gendername))
+        json_object_set_new(jobj, "gendername", json_string(pi->gendername));
     if (all || strcmp(pi->level_desc, oi->level_desc))
         json_object_set_new(jobj, "level_desc", json_string(pi->level_desc));
     if (all || pi->x != oi->x)
@@ -434,20 +405,21 @@ json_menuitem(struct nh_menuitem *mi)
 
 
 static void
-srv_outrip(struct nh_menuitem *items, int icount, nh_bool tombstone,
-           const char *name, int gold, const char *killbuf, int end_how,
-           int year)
+srv_outrip(struct nh_menulist *ml, nh_bool tombstone, const char *name,
+           int gold, const char *killbuf, int end_how, int year)
 {
     int i;
     json_t *jobj, *jarr;
 
     jarr = json_array();
-    for (i = 0; i < icount; i++)
-        json_array_append_new(jarr, json_menuitem(&items[i]));
-    jobj =
-        json_pack("{so,si,si,si,si,si,ss,ss}", "items", jarr, "icount", icount,
-                  "tombstone", tombstone, "gold", gold, "year", year, "how",
-                  end_how, "name", name, "killbuf", killbuf);
+    for (i = 0; i < ml->icount; i++)
+        json_array_append_new(jarr, json_menuitem(ml->items + i));
+    jobj = json_pack("{so,si,si,si,si,si,ss,ss}", "items", jarr,
+                     "icount", ml->icount, "tombstone", tombstone, "gold", gold,
+                     "year", year, "how", end_how, "name", name,
+                     "killbuf", killbuf);
+
+    dealloc_menulist(ml);
 
     add_display_data("outrip", jobj);
 }
@@ -457,34 +429,81 @@ srv_outrip(struct nh_menuitem *items, int icount, nh_bool tombstone,
  * Callbacks that require user input
  */
 
-static int
-srv_display_menu(struct nh_menuitem *items, int icount, const char *title,
-                 int how, int placement_hint, int *results)
+static void
+srv_request_command(nh_bool debug, nh_bool completed, nh_bool interrupted,
+                    void *callbackarg,
+                    void (*callback)(const struct nh_cmd_and_arg *, void *))
+{
+    json_t *jarg, *jobj;
+    const char *cmd, *str;
+    struct nh_cmd_and_arg ncaa;
+
+    jobj = json_pack("{sb,sb,sb}", "debug", debug, "completed", completed,
+                     "interrupted", interrupted);
+    jobj = client_request("request_command", jobj);
+
+    if (json_unpack(jobj, "{ss,so!}", "command", &cmd, "arg", &jarg))
+        exit_client("Bad set of parameters for request_command", 0);
+
+    ncaa.arg.argtype = 0;
+
+    if (json_unpack(jarg, "{si*}", "d", &(ncaa.arg.dir)) != -1)
+        ncaa.arg.argtype |= CMD_ARG_DIR;
+    if (json_unpack(jarg, "{si,si*}",
+                    "x", &(ncaa.arg.pos.x), "y", &(ncaa.arg.pos.y)) != -1)
+        ncaa.arg.argtype |= CMD_ARG_POS;
+    if (json_unpack(jarg, "{si*}", "invlet", &(ncaa.arg.invlet)) != -1)
+        ncaa.arg.argtype |= CMD_ARG_OBJ;
+    if (json_unpack(jarg, "{ss*}", "str", &str) != -1 && strlen(str) < BUFSZ) {
+        ncaa.arg.str = str;
+        ncaa.arg.argtype |= CMD_ARG_STR;
+    }
+    if (json_unpack(jarg, "{si*}", "spelllet", &(ncaa.arg.spelllet)) != -1)
+        ncaa.arg.argtype |= CMD_ARG_SPELL;
+    if (json_unpack(jarg, "{si*}", "limit", &(ncaa.arg.limit)) != -1)
+        ncaa.arg.argtype |= CMD_ARG_LIMIT;
+
+    ncaa.cmd = cmd;
+    /* sanitize for implausible/malicious input */
+    if (strlen(cmd) >= 60 ||
+        strspn(cmd, "abcdefghijklmnopqrstuvwxyz") != strlen(cmd))
+        ncaa.cmd = "invalid";
+
+    callback(&ncaa, callbackarg);
+}
+
+
+static void
+srv_display_menu(struct nh_menulist *ml, const char *title, int how,
+                 int placement_hint, void *callbackarg,
+                 void (*callback)(const int *, int, void *))
 {
     int i, ret;
     json_t *jobj, *jarr;
 
     jarr = json_array();
-    for (i = 0; i < icount; i++)
-        json_array_append_new(jarr, json_menuitem(&items[i]));
+    for (i = 0; i < ml->icount; i++)
+        json_array_append_new(jarr, json_menuitem(ml->items + i));
     jobj =
-        json_pack("{so,si,si,ss,si}", "items", jarr, "icount", icount, "how",
-                  how, "title", title ? title : "", "plhint", placement_hint);
+        json_pack("{so,si,ss,si}", "items", jarr, "how", how,
+                  "title", title ? title : "", "plhint", placement_hint);
 
-    if (how == PICK_NONE) {
-        add_display_data("display_menu", jobj);
-        return 0;
-    }
+    dealloc_menulist(ml);
 
     jobj = client_request("display_menu", jobj);
-    if (json_unpack(jobj, "{si,so!}", "return", &ret, "results", &jarr) == -1)
-        exit_client("Bad parameter for display_menu");
+    if (json_unpack(jobj, "{si,so!}", "howclosed", &ret, "results", &jarr) == -1
+        || !json_is_array(jarr))
+        exit_client("Bad parameter for display_menu", 0);
 
+    int results[json_array_size(jarr) < 1 ? 1 :
+                json_array_size(jarr)];
     for (i = 0; i < json_array_size(jarr); i++)
         results[i] = json_integer_value(json_array_get(jarr, i));
 
+    callback(results, ret == NHCR_CLIENT_CANCEL ? -1 :
+             json_array_size(jarr), callbackarg);
+
     json_decref(jobj);
-    return ret;
 }
 
 
@@ -503,70 +522,82 @@ json_objitem(struct nh_objitem *oi)
 }
 
 
-static int
-srv_display_objects(struct nh_objitem *items, int icount, const char *title,
-                    int how, int placement_hint, struct nh_objresult *pick_list)
+static void
+srv_display_objects(struct nh_objlist *objlist, const char *title,
+                    int how, int placement_hint, void *callbackarg,
+                    void (*callback)(const struct nh_objresult *, int, void *))
 {
     int i, ret;
     json_t *jobj, *jarr, *jobj2;
 
     jarr = json_array();
-    for (i = 0; i < icount; i++)
-        json_array_append_new(jarr, json_objitem(&items[i]));
+    for (i = 0; i < objlist->icount; i++)
+        json_array_append_new(jarr, json_objitem(objlist->items + i));
     jobj =
-        json_pack("{so,si,si,ss,si}", "items", jarr, "icount", icount, "how",
-                  how, "title", title ? title : "", "plhint", placement_hint);
+        json_pack("{so,si,ss,si}", "items", jarr, "how", how,
+                  "title", title ? title : "", "plhint", placement_hint);
 
-    if (how == PICK_NONE) {
-        add_display_data("display_objects", jobj);
-        return 0;
-    }
+    dealloc_objmenulist(objlist);
 
     jobj = client_request("display_objects", jobj);
-    if (json_unpack(jobj, "{si,so!}", "return", &ret, "pick_list", &jarr) == -1)
-        exit_client("Bad parameter for display_objects");
+    if (json_unpack(jobj, "{si,so!}", "howclosed", &ret, "pick_list", &jarr)
+        == -1 || !json_is_array(jarr))
+        exit_client("Bad parameter for display_objects", 0);
 
+    struct nh_objresult pick_list[json_array_size(jarr) > 0 ?
+                                  json_array_size(jarr) : 1];
     for (i = 0; i < json_array_size(jarr); i++) {
         jobj2 = json_array_get(jarr, i);
         if (json_unpack
             (jobj2, "{si,si!}", "id", &pick_list[i].id, "count",
              &pick_list[i].count) == -1)
-            exit_client("Bad pick_list in display_objects");
+            exit_client("Bad pick_list in display_objects", 0);
     }
 
+    callback(pick_list, ret == NHCR_CLIENT_CANCEL ? -1 :
+             json_array_size(jarr), callbackarg);
+
     json_decref(jobj);
-    return ret;
 }
 
 
-static nh_bool
-srv_list_items(struct nh_objitem *items, int icount, nh_bool invent)
+static void
+srv_list_items(struct nh_objlist *objlist, nh_bool invent)
 {
     int i;
     json_t *jobj, *jarr;
 
-    if (invent && prev_invent && icount == prev_invent_icount &&
-        !memcmp(items, prev_invent, sizeof (struct nh_objitem) * icount))
-        return TRUE;
-    if (!invent && icount == 0 && prev_floor_icount == 0)
-        return TRUE;
+    if (invent && prev_invent && objlist->icount == prev_invent_icount &&
+        !memcmp(objlist->items, prev_invent,
+                sizeof (struct nh_objitem) * objlist->icount)) {
+        dealloc_objmenulist(objlist);
+        return;
+    }
+
+    if (!invent && objlist->icount == 0 && prev_floor_icount == 0) {
+        dealloc_objmenulist(objlist);
+        return;
+    }
 
     if (invent) {
-        prev_invent_icount = icount;
+        prev_invent_icount = objlist->icount;
         free(prev_invent);
-        prev_invent = malloc(sizeof (struct nh_objitem) * icount);
-        memcpy(prev_invent, items, sizeof (struct nh_objitem) * icount);
+        prev_invent = malloc(sizeof (struct nh_objitem) * objlist->icount);
+        memcpy(prev_invent, objlist->items,
+               sizeof (struct nh_objitem) * objlist->icount);
     } else
-        prev_floor_icount = icount;
+        prev_floor_icount = objlist->icount;
 
     jarr = json_array();
-    for (i = 0; i < icount; i++)
-        json_array_append_new(jarr, json_objitem(&items[i]));
+    for (i = 0; i < objlist->icount; i++)
+        json_array_append_new(jarr, json_objitem(objlist->items + i));
     jobj =
-        json_pack("{so,si,si}", "items", jarr, "icount", icount, "invent",
-                  invent);
+        json_pack("{so,si,si}", "items", jarr, "icount",
+                  objlist->icount, "invent", invent);
 
-    /* there cold be lots of list_item calls after each other if the player is
+    dealloc_objmenulist(objlist);
+
+    /* there could be lots of list_item calls after each other if the player is
        picking up or dropping large numbers of items. We only care about the
        last state. */
     if (invent) {
@@ -578,53 +609,44 @@ srv_list_items(struct nh_objitem *items, int icount, nh_bool invent)
             json_decref(jfloor_items);
         jfloor_items = jobj;
     }
-
-    /* If list_items returns TRUE, the dialog "Things that are here" is not
-       shown. The return value doesn't matter at all if the list doesn't
-       concern items on the floor (invent == TRUE) or if the list is empty. For 
-       items on the floor it is technically not always correct to return TRUE
-       (it should actually depend on whether the client has a sidebar or not),
-       but sending a message to the client just for this seems rather silly */
-    return TRUE;
 }
 
 
-static char
-srv_query_key(const char *query, int *count)
+static struct nh_query_key_result
+srv_query_key(const char *query, enum nh_query_key_flags flags,
+              nh_bool allow_count)
 {
     int ret, c;
     json_t *jobj;
 
-    jobj = json_pack("{ss,sb}", "query", query, "allow_count", ! !count);
+    jobj = json_pack("{ss,si,sb}", "query", query, "flags", (int)flags,
+                     "allow_count", (int)allow_count);
 
     jobj = client_request("query_key", jobj);
     if (json_unpack(jobj, "{si,si!}", "return", &ret, "count", &c) == -1)
-        exit_client("Bad parameters for query_key");
+        exit_client("Bad parameters for query_key", 0);
     json_decref(jobj);
 
-    if (count)
-        *count = c;
-
-    return ret;
+    return (struct nh_query_key_result){.key = ret, .count = c};
 }
 
 
-static int
-srv_getpos(int *x, int *y, nh_bool force, const char *goal)
+static struct nh_getpos_result
+srv_getpos(int origx, int origy, nh_bool force, const char *goal)
 {
-    int ret;
+    int ret, x, y;
     json_t *jobj;
 
-    jobj =
-        json_pack("{ss,si,si,si}", "goal", goal, "force", force, "x", *x, "y",
-                  *y);
+    jobj = json_pack("{ss,si,si,si}", "goal", goal, "force", force,
+                     "x", origx, "y", origy);
     jobj = client_request("getpos", jobj);
 
-    if (json_unpack(jobj, "{si,si,si!}", "return", &ret, "x", x, "y", y) == -1)
-        exit_client("Bad parameters for getpos");
+    if (json_unpack(jobj, "{si,si,si!}",
+                    "return", &ret, "x", &x, "y", &y) == -1)
+        exit_client("Bad parameters for getpos", 0);
 
     json_decref(jobj);
-    return ret;
+    return (struct nh_getpos_result){.howclosed = ret, .x = x, .y = y};
 }
 
 
@@ -638,7 +660,7 @@ srv_getdir(const char *query, nh_bool restricted)
     jobj = client_request("getdir", jobj);
 
     if (json_unpack(jobj, "{si!}", "return", &ret) == -1)
-        exit_client("Bad parameters for getdir");
+        exit_client("Bad parameters for getdir", 0);
 
     json_decref(jobj);
     return ret;
@@ -655,7 +677,7 @@ srv_yn_function(const char *query, const char *set, char def)
     jobj = client_request("yn", jobj);
 
     if (json_unpack(jobj, "{si!}", "return", &ret) == -1)
-        exit_client("Bad parameters for yn");
+        exit_client("Bad parameters for yn", 0);
 
     json_decref(jobj);
     return ret;
@@ -663,7 +685,8 @@ srv_yn_function(const char *query, const char *set, char def)
 
 
 static void
-srv_getline(const char *query, char *buf)
+srv_getline(const char *query, void *callbackarg,
+            void (*callback)(const char *, void *))
 {
     json_t *jobj;
     const char *str;
@@ -672,103 +695,34 @@ srv_getline(const char *query, char *buf)
     jobj = client_request("getline", jobj);
 
     if (json_unpack(jobj, "{ss!}", "line", &str) == -1)
-        exit_client("Bad parameters for getline");
+        exit_client("Bad parameters for getline", 0);
 
-    strncpy(buf, str, BUFSZ - 1);
+    callback(str, callbackarg);
     json_decref(jobj);
+}
+
+static void
+srv_load_progress(int progress)
+{
+    /* Just like with server cancels, we only use a small fraction of
+       the normal sending routines, because no response is expected, we can't
+       send display data, etc.. */
+    char load_progress_msg[sizeof "{\"load_progress\":{\"progress\":10000}}"];
+    snprintf(load_progress_msg, sizeof load_progress_msg,
+             "{\"load_progress\":{\"progress\":%d}}", progress);
+    send_string_to_client(load_progress_msg, FALSE);
+}
+
+static void
+srv_server_cancel(void)
+{
+    client_server_cancel_msg();
 }
 
 /*---------------------------------------------------------------------------*/
 
-static void
-srv_alt_raw_print(const char *str)
-{
-    altproc = TRUE;
-    srv_raw_print(str);
-    altproc = FALSE;
-}
-
-
-static void
-srv_alt_pause(enum nh_pause_reason r)
-{
-    altproc = TRUE;
-    srv_pause(r);
-    altproc = FALSE;
-}
-
-
-static void
-srv_alt_display_buffer(const char *buf, nh_bool trymove)
-{
-    altproc = TRUE;
-    srv_display_buffer(buf, trymove);
-    altproc = FALSE;
-}
-
-
-static void
-srv_alt_update_status(struct nh_player_info *pi)
-{
-    altproc = TRUE;
-    srv_update_status(pi);
-    altproc = FALSE;
-}
-
-
-static void
-srv_alt_print_message(int turn, const char *msg)
-{
-    altproc = TRUE;
-    srv_print_message(turn, msg);
-    altproc = FALSE;
-}
-
-
-static void
-srv_alt_delay_output(void)
-{
-    altproc = TRUE;
-    srv_delay_output();
-    altproc = FALSE;
-}
-
-
-static void
-srv_alt_level_changed(int displaymode)
-{
-    altproc = TRUE;
-    srv_level_changed(displaymode);
-    altproc = FALSE;
-}
-
-
-static void
-srv_alt_outrip(struct nh_menuitem *items, int icount, nh_bool tombstone,
-               const char *name, int gold, const char *killbuf, int end_how,
-               int year)
-{
-    altproc = TRUE;
-    srv_alt_outrip(items, icount, tombstone, name, gold, killbuf, end_how,
-                   year);
-    altproc = FALSE;
-}
-
-
-static nh_bool
-srv_alt_list_items(struct nh_objitem *items, int icount, nh_bool invent)
-{
-    int ret;
-
-    altproc = TRUE;
-    ret = srv_list_items(items, icount, invent);
-    altproc = FALSE;
-    return ret;
-}
-
-
 void
-reset_cached_diplaydata(void)
+reset_cached_displaydata(void)
 {
     if (display_data)
         json_decref(display_data);
