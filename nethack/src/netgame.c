@@ -714,7 +714,7 @@ netgame(void)
         servlist = NULL;
         server = &localserver;
         localserver.hostname = strdup("localhost");
-        localserver.port = 63463;
+        localserver.port = DEFAULT_PORT;
         if (!get_username_password(&localserver))
             goto finally;
     } else {

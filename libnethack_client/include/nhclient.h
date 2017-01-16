@@ -17,8 +17,6 @@
 
 # include <jansson.h>
 
-# define DEFAULT_PORT 53430
-
 extern struct nh_window_procs client_windowprocs;
 extern int current_game;
 extern jmp_buf ex_jmp_buf;
