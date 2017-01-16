@@ -713,7 +713,8 @@ netgame(void)
     if (ui_flags.connection_only) {
         servlist = NULL;
         server = &localserver;
-        localserver.hostname = strdup("::1");
+        localserver.hostname = strdup("localhost");
+        localserver.port = DEFAULT_PORT;
         if (!get_username_password(&localserver))
             goto finally;
     } else {

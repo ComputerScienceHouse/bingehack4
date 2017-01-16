@@ -7,6 +7,8 @@
 
 # include "nethack_types.h"
 
+# define DEFAULT_PORT 53430
+
 # ifdef NETHACK_CLIENT_H_IN_LIBNETHACK_CLIENT
 #  define EXPORT(x) AIMAKE_EXPORT(x)
 # else

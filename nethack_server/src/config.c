@@ -39,7 +39,8 @@ struct { const char *const name; size_t offset; } settings_map[] = {
     SETTINGS_MAP_ENTRY(dbport),
     SETTINGS_MAP_ENTRY(dbuser),
     SETTINGS_MAP_ENTRY(dbpass),
-    SETTINGS_MAP_ENTRY(dbname)
+    SETTINGS_MAP_ENTRY(dbname),
+    SETTINGS_MAP_ENTRY(dboptions)
 };
 
 static int
