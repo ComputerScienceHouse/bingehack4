@@ -37,9 +37,7 @@ def get_twitter_username(name)
     scope: LDAP::SearchScope_SingleLevel,
     attributes: ['twitterName']
   ) do |entry|
-    entry.each do |attribute, value|
-      twitterName = value.first
-    end
+         twitterName = entry.twitterName.first
   end
   twitterName
 rescue
