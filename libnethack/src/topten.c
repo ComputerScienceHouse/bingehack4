@@ -516,7 +516,7 @@ emit_dead_event(struct toptenentry *tt)
     asprintf(&argv[5], "%d", tt->deathlev);
     asprintf(&argv[6], "%d", tt->hp);
     asprintf(&argv[7], "%d", tt->maxhp);
-    argv[8] = tt->points;
+    asprintf(&argv[8], "%d", tt->points);
     argv[9] = tt->death;
     event_trigger_async(EVENT_TYPE_DEAD, 10, argv);
     free(argv[5]);
