@@ -1,5 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
-/* Last modified by Alex Smith, 2015-07-22 */
+/* Last modified by Alex Smith, 2015-10-11 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -761,7 +761,7 @@ clone_mon(struct monst *mon, xchar x, xchar y)
     }
 
     /* may be too weak or have been extinguished for population control */
-    if (mon->mhp <= 1 || (mvitals[monsndx(mon->data)].mvflags & G_EXTINCT))
+    if (mon->mhp < 2 || (mvitals[monsndx(mon->data)].mvflags & G_EXTINCT))
         return NULL;
 
     if (x == 0) {
@@ -1569,7 +1569,7 @@ grow_up(struct monst *mtmp,   /* `mtmp' might "grow up" into a bigger version */
 
     /* monster died after killing enemy but before calling this function */
     /* currently possible if killing a gas spore */
-    if (mtmp->mhp <= 0)
+    if (DEADMONSTER(mtmp))
         return NULL;
 
     /* note: none of the monsters with special hit point calculations have both
@@ -2220,6 +2220,9 @@ restore_mon(struct memfile *mf, struct level *l)
     mon->ispriest = (mflags >> 1) & 1;
     mon->iswiz = (mflags >> 0) & 1;
 
+    /* turnstate has a fixed value on save */
+    mon->deadmonster = 0;
+
     return mon;
 }
 
@@ -2296,14 +2299,14 @@ save_mon(struct memfile *mf, const struct monst *mon, const struct level *l)
     mwrite32(mf, idx);
     mwrite32(mf, mon->m_id);
     /* When monsters regenerate HP, we can interpret the bottom two bytes of
-       their HP as acting like coordinates; the little-endian-first byte ("x
+       their HP as acting like coordinates: the little-endian-first byte ("x
        coordinate") always increases, the second ("y coordinate") sometimes
        increases (if there's a carry), and we can encode these as though they
        were moves east and south-east respectively.
 
        Thus, as a happy coincidence, specifying coordinate encoding for this
        does the right thing. (And mhint_mon_coordinates never changes whether
-       the save file can be created or not; just how efficient it is.) */
+       the save file can be created or not: just how efficient it is.) */
     mhint_mon_coordinates(mf); /* savemap: ignore */
     mwrite32(mf, mon->mhp);
     mwrite32(mf, mon->mhpmax);
@@ -2435,6 +2438,10 @@ save_mon(struct memfile *mf, const struct monst *mon, const struct level *l)
             save_fcorr(mf, &CONST_EGD(mon)->fakecorr[i]);
         break;
     }
+
+    /* verify turnstate */
+    if (mon->deadmonster)
+        panic("attempting to save a dead monster");
 }
 
 /*makemon.c*/

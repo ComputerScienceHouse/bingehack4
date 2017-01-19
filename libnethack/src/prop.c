@@ -231,7 +231,7 @@ msensem(const struct monst *viewer, const struct monst *viewee)
     boolean vertical_loe =
         !(m_mburied(viewer) || m_mburied(viewee) ||
           ((!!m_underwater(viewee)) ^ (!!m_underwater(viewer))) ||
-          m_mhiding(viewee));
+          m_mundetected(viewee));
 
     boolean invisible = !!m_has_property(viewee, INVIS, ANY_PROPERTY, 0);
 
@@ -551,7 +551,7 @@ enlightenment(int final)
     if (Fumbling)
         enl_msg(&menu, "You fumble", "", "d", "");
     if (Wounded_legs && !u.usteed)
-        you_have(&menu, msgcat("wounded", makeplural(body_part(LEG))));;
+        you_have(&menu, msgcat("wounded ", makeplural(body_part(LEG))));;
     if (Wounded_legs && u.usteed && wizard) {
         const char *buf =
             x_monnam(u.usteed, ARTICLE_YOUR, NULL,

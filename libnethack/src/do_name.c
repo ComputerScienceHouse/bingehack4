@@ -1,5 +1,5 @@
 /* vim:set cin ft=c sw=4 sts=4 ts=8 et ai cino=Ls\:0t0(0 : -*- mode:c;fill-column:80;tab-width:8;c-basic-offset:4;indent-tabs-mode:nil;c-file-style:"k&r" -*-*/
-/* Last modified by Alex Smith, 2015-06-09 */
+/* Last modified by Fredrik Ljungdahl, 2015-09-25 */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -805,7 +805,7 @@ k_monnam(const struct monst *mtmp) {
     if (mtmp->data == &mons[PM_GHOST]) {
         buf = msgcat(buf, "ghost");
         if (mtmp->mnamelth)
-            buf = msgprintf("%sof %s", buf, NAME(mtmp));
+            buf = msgprintf("%s of %s", buf, NAME(mtmp));
     } else if (mtmp->isshk) {
         buf = msgprintf("%s%s %s, the shopkeeper", buf,
                         (mtmp->female ? "Ms." : "Mr."), shkname(mtmp));
@@ -832,7 +832,9 @@ s_suffix(const char *s)
     if (!*s)
         return "'s"; /* prevent underflow checking for a trailing 's' */
     if (!strcmpi(s, "it"))
-        return "its";
+        return msgcat(s, "s");
+    if (!strcmpi(s, "you")) /* not perfect if "Yours" is desired, but better than "Yous" anyway */
+        return msgcat(s, "r");
     if (s[strlen(s)-1] == 's')
         return msgcat(s, "'");
     else
