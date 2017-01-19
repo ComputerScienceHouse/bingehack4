@@ -507,7 +507,7 @@ toptenlist_insert(struct toptenentry *ttlist, struct toptenentry *newtt)
 static void
 emit_dead_event(struct toptenentry *tt)
 {
-    char *argv[9];
+    char *argv[10];
     argv[0] = tt->name;
     argv[1] = tt->plrole;
     argv[2] = tt->plrace;
@@ -516,8 +516,9 @@ emit_dead_event(struct toptenentry *tt)
     asprintf(&argv[5], "%d", tt->deathlev);
     asprintf(&argv[6], "%d", tt->hp);
     asprintf(&argv[7], "%d", tt->maxhp);
-    argv[8] = tt->death;
-    event_trigger_async(EVENT_TYPE_DEAD, 9, argv);
+    argv[8] = tt->points;
+    argv[9] = tt->death;
+    event_trigger_async(EVENT_TYPE_DEAD, 10, argv);
     free(argv[5]);
     free(argv[6]);
     free(argv[7]);

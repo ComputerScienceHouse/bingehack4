@@ -7,12 +7,12 @@ require 'twitter'
 require 'net/ldap'
 require 'yaml'
 
-if ARGV.length != 9
-  $stderr.puts "Usage: #{$0} name role race gender align deathlev hp maxhp death"
+if ARGV.length != 10
+  $stderr.puts "Usage: #{$0} name role race gender align deathlev hp maxhp points death"
   exit(false)
 end
 
-name, role, race, gender, align, deathlev, hp, maxhp, death = *ARGV
+name, role, race, gender, align, deathlev, hp, maxhp, points, death = *ARGV
 
 $config = YAML.load_file('twitter-config.yml')
 
@@ -62,4 +62,4 @@ end
 
 client = Twitter::Client.new
 
-client.update("#{name}-#{role}-#{race}-#{gender}-#{align} #{death} on level #{deathlev} (HP: #{hp} [#{maxhp}])"[0,140])
+client.update("#{name}-#{role}-#{race}-#{gender}-#{align} #{death} on level #{deathlev} (HP: #{hp} [#{maxhp}]) Points: #{points}"[0,140])
