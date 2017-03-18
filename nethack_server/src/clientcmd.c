@@ -254,6 +254,12 @@ ccmd_create_game(json_t * params)
                             ri->racenames[race], ri->gendnames[gend],
                             ri->alignnames[align], mode, name,
                             player_info.level_desc);
+        db_add_binge_entry(gameid, player_info.z, player_info.hp,
+                           player_info.hpmax, player_info.gold,
+                           player_info.moves, player_info.en,
+                           player_info.enmax, player_info.st,
+                           player_info.in, player_info.wi, player_info.dx,
+                           player_info.co, player_info.ch, player_info.score);
         log_msg("%s has created a new game (%d) as %s", user_info.username,
                 gameid, name);
         j_msg = json_pack("{si}", "return", gameid);
@@ -349,6 +355,7 @@ ccmd_play_game(json_t * params)
              "list?",
              "yn", 'n') == 'y') {
             db_delete_game(user_info.uid, gid);
+            db_delete_binge_entry(gid);
             log_msg("%s has chosen to remove game %d from the database",
                     user_info.username, gid);
         }
@@ -358,6 +365,13 @@ ccmd_play_game(json_t * params)
 
     db_update_game(gid, player_info.moves, player_info.z,
                    player_info.level_desc);
+
+    db_update_binge_entry(gid, player_info.z, player_info.hp,
+                          player_info.hpmax, player_info.gold,
+                          player_info.moves, player_info.en,
+                          player_info.enmax, player_info.st,
+                          player_info.in, player_info.wi, player_info.dx,
+                          player_info.co, player_info.ch, player_info.score);
 
     /* move the finished game to its final resting place */
     if (status == GAME_OVER) {
@@ -394,6 +408,13 @@ ccmd_exit_game(json_t * params)
     if (status) {
         db_update_game(gameid, player_info.moves, player_info.z,
                        player_info.level_desc);
+        db_update_binge_entry(gameid, player_info.z, player_info.hp,
+                              player_info.hpmax, player_info.gold,
+                              player_info.moves, player_info.en,
+                              player_info.enmax, player_info.st,
+                              player_info.in, player_info.wi, player_info.dx,
+                              player_info.co, player_info.ch, player_info.score);
+
         log_msg("%s has closed game %d", user_info.username, gameid);
         gameid = -1;
         close(gamefd);

@@ -36,6 +36,25 @@ static const char SQL_init_games_table[] =
     "owner integer NOT NULL REFERENCES users (uid), " "ts timestamp NOT NULL, "
     "start_ts timestamp NOT NULL" ");";
 
+static const char SQL_init_binge_table[] =
+    "CREATE TABLE bingeboard ("
+        "gid SERIAL PRIMARY KEY REFERENCES games (gid), "
+        "level integer NOT NULL, "
+        "hp integer NOT NULL, "
+        "max_hp integer NOT NULL, "
+        "gold integer NOT NULL, "
+        "moves integer NOT NULL, "
+        "energy integer NOT NULL, "
+        "max_energy integer NOT NULL, "
+        "attrib_str integer NOT NULL, "
+        "attrib_int integer NOT NULL, "
+        "attrib_wis integer NOT NULL, "
+        "attrib_dex integer NOT NULL, "
+        "attrib_con integer NOT NULL, "
+        "attrib_cha integer NOT NULL, "
+        "score integer NOT NULL "
+    ");";
+
 static const char SQL_init_topten_table[] =
     "CREATE TABLE topten(" "gid integer PRIMARY KEY REFERENCES games (gid), "
     "points integer NOT NULL, " "hp integer NOT NULL, "
@@ -81,8 +100,19 @@ static const char SQL_add_game[] =
     "VALUES ($1::text, $2::text, $3::text, $4::text, $5::text, "
     "$6::integer, 1, 1, $7::integer, $8::text, $9::text, 'now', 'now')";
 
+static const char SQL_add_binge_entry[] =
+    "INSERT INTO bingeboard ("
+        "gid, level, hp, max_hp, gold, moves, energy, max_energy, attrib_str, "
+        "attrib_int, attrib_wis, attrib_dex, attrib_con, attrib_cha, score) "
+        "VALUES ($1::integer, $2::integer, $3::integer, $4::integer, $5::integer, "
+        "$6::integer, $7::integer, $8::integer, $9::integer, $10::integer, $11::integer, "
+        "$12::integer, $13::integer, $14::integer, $15::integer)";
+
 static const char SQL_delete_game[] =
     "DELETE FROM games WHERE owner = $1::integer AND gid = $2::integer;";
+
+static const char SQL_delete_binge_entry[] =
+    "DELETE FROM bingeboard WHERE gid = $1::integer;";
 
 static const char SQL_last_game_id[] = "SELECT currval('games_gid_seq');";
 
@@ -90,6 +120,15 @@ static const char SQL_update_game[] =
     "UPDATE games "
     "SET ts = 'now', moves = $2::integer, depth = $3::integer, level_desc = "
     "$4::text WHERE gid = $1::integer;";
+
+static const char SQL_update_binge_entry[] =
+    "UPDATE bingeboard "
+    "SET level = $2::integer, hp = $3::integer, max_hp = $4::integer, "
+    "gold = $5::integer, moves = $6::integer, energy = $7::integer, "
+    "max_energy = $8::integer, attrib_str = $9::integer, attrib_int = $10::integer, "
+    "attrib_wis = $11::integer, attrib_dex = $12::integer, attrib_con = $13::integer, "
+    "attrib_cha = $14::integer, score = $15::integer WHERE gid = $1::integer;";
+
 
 static const char SQL_set_game_done[] =
     "UPDATE games " "SET done = TRUE " "WHERE gid = $1::integer;";
@@ -208,6 +247,7 @@ check_database(void)
      */
     if (!check_create_table("users", SQL_init_user_table) ||
         !check_create_table("games", SQL_init_games_table) ||
+        !check_create_table("bingeboard", SQL_init_binge_table) ||
         !check_create_table("topten", SQL_init_topten_table))
         goto err;
 
@@ -446,6 +486,60 @@ db_add_new_game(int uid, const char *filename, const char *role,
     return gid;
 }
 
+void
+db_add_binge_entry(int gid, int level, int hp, int max_hp, int gold, int moves,
+                   int energy, int max_energy, int attrib_str, int attrib_int,
+                   int attrib_wis, int attrib_dex, int attrib_con, int attrib_cha,
+                   int score)
+{
+    PGresult *res;
+    char gid_str[16],
+         level_str[16],
+         hp_str[16],
+         max_hp_str[16],
+         gold_str[16],
+         moves_str[16],
+         energy_str[16],
+         max_energy_str[16],
+         attrib_str_str[16],
+         attrib_int_str[16],
+         attrib_wis_str[16],
+         attrib_dex_str[16],
+         attrib_con_str[16],
+         attrib_cha_str[16],
+         score_str[16];
+
+    const char *const params[] = {gid_str, level_str, hp_str, max_hp_str,
+        gold_str, moves_str, energy_str, max_energy_str, attrib_str_str,
+        attrib_int_str, attrib_wis_str, attrib_dex_str, attrib_con_str,
+        attrib_cha_str, score_str
+    };
+    const int paramFormats[15] = { 0 };
+
+    snprintf(gid_str, sizeof(gid_str), "%d", gid);
+    snprintf(level_str, sizeof(level_str), "%d", level);
+    snprintf(hp_str, sizeof(hp_str), "%d", hp);
+    snprintf(max_hp_str, sizeof(max_hp_str), "%d", max_hp);
+    snprintf(gold_str, sizeof(gold_str), "%d", gold);
+    snprintf(moves_str, sizeof(moves_str), "%d", moves);
+    snprintf(energy_str, sizeof(energy_str), "%d", energy);
+    snprintf(max_energy_str, sizeof(max_energy_str), "%d", max_energy);
+    snprintf(attrib_str_str, sizeof(attrib_str_str), "%d", attrib_str);
+    snprintf(attrib_int_str, sizeof(attrib_int_str), "%d", attrib_int);
+    snprintf(attrib_wis_str, sizeof(attrib_wis_str), "%d", attrib_wis);
+    snprintf(attrib_dex_str, sizeof(attrib_dex_str), "%d", attrib_dex);
+    snprintf(attrib_con_str, sizeof(attrib_con_str), "%d", attrib_con);
+    snprintf(attrib_cha_str, sizeof(attrib_cha_str), "%d", attrib_cha);
+    snprintf(score_str, sizeof(score_str), "%d", score);
+
+    res =
+        PQexecParams(conn, SQL_add_binge_entry, 15, NULL, params, NULL, paramFormats,
+                     0);
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        log_msg("db_add_binge_entry error while adding (%d): %s", gid, PQerrorMessage(conn));
+        PQclear(res);
+    }
+}
 
 void
 db_update_game(int game, int moves, int depth, const char *levdesc)
@@ -468,6 +562,60 @@ db_update_game(int game, int moves, int depth, const char *levdesc)
 }
 
 void
+db_update_binge_entry(int gid, int level, int hp, int max_hp, int gold, int moves,
+                   int energy, int max_energy, int attrib_str, int attrib_int,
+                   int attrib_wis, int attrib_dex, int attrib_con, int attrib_cha,
+                   int score)
+{
+    PGresult *res;
+    char gid_str[16],
+         level_str[16],
+         hp_str[16],
+         max_hp_str[16],
+         gold_str[16],
+         moves_str[16],
+         energy_str[16],
+         max_energy_str[16],
+         attrib_str_str[16],
+         attrib_int_str[16],
+         attrib_wis_str[16],
+         attrib_dex_str[16],
+         attrib_con_str[16],
+         attrib_cha_str[16],
+         score_str[16];
+
+    const char *const params[] = {gid_str, level_str, hp_str, max_hp_str,
+        gold_str, moves_str, energy_str, max_energy_str, attrib_str_str,
+        attrib_int_str, attrib_wis_str, attrib_dex_str, attrib_con_str,
+        attrib_cha_str, score_str
+    };
+    const int paramFormats[15] = { 0 };
+
+    snprintf(gid_str, sizeof(gid_str), "%d", gid);
+    snprintf(level_str, sizeof(level_str), "%d", level);
+    snprintf(hp_str, sizeof(hp_str), "%d", hp);
+    snprintf(max_hp_str, sizeof(max_hp_str), "%d", max_hp);
+    snprintf(gold_str, sizeof(gold_str), "%d", gold);
+    snprintf(moves_str, sizeof(moves_str), "%d", moves);
+    snprintf(energy_str, sizeof(energy_str), "%d", energy);
+    snprintf(max_energy_str, sizeof(max_energy_str), "%d", max_energy);
+    snprintf(attrib_str_str, sizeof(attrib_str_str), "%d", attrib_str);
+    snprintf(attrib_int_str, sizeof(attrib_int_str), "%d", attrib_int);
+    snprintf(attrib_wis_str, sizeof(attrib_wis_str), "%d", attrib_wis);
+    snprintf(attrib_dex_str, sizeof(attrib_dex_str), "%d", attrib_dex);
+    snprintf(attrib_con_str, sizeof(attrib_con_str), "%d", attrib_con);
+    snprintf(attrib_cha_str, sizeof(attrib_cha_str), "%d", attrib_cha);
+    snprintf(score_str, sizeof(score_str), "%d", score);
+
+    res =
+        PQexecParams(conn, SQL_update_binge_entry, 15, NULL, params, NULL, paramFormats,
+                     0);
+    if (PQresultStatus(res) != PGRES_COMMAND_OK)
+        log_msg("update_binge_entry error: %s", PQerrorMessage(conn));
+    PQclear(res);
+}
+
+void
 db_delete_game(int uid, int gid)
 {
     PGresult *res;
@@ -483,6 +631,25 @@ db_delete_game(int uid, int gid)
                      0);
     if (PQresultStatus(res) != PGRES_COMMAND_OK)
         log_msg("db_delete_game error: %s", PQerrorMessage(conn));
+
+    PQclear(res);
+}
+
+void
+db_delete_binge_entry(int gid)
+{
+    PGresult *res;
+    char gid_str[16];
+    const char *const params[] = { gid_str };
+    const int paramFormats[] = { 0 };
+
+    snprintf(gid_str, sizeof(gid_str), "%d", gid);
+
+    res =
+        PQexecParams(conn, SQL_delete_binge_entry, 1, NULL, params, NULL, paramFormats,
+                     0);
+    if (PQresultStatus(res) != PGRES_COMMAND_OK)
+        log_msg("db_delete_binge_entry error: %s", PQerrorMessage(conn));
 
     PQclear(res);
 }

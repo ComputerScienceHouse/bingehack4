@@ -126,11 +126,20 @@ extern long db_add_new_game(int uid, const char *filename, const char *role,
                             const char *race, const char *gend,
                             const char *align, int mode, const char *plname,
                             const char *levdesc);
+extern void db_add_binge_entry(int gid, int level, int hp, int max_hp, int gold, int moves,
+                               int energy, int max_energy, int attrib_str, int attrib_int,
+                               int attrib_wis, int attrib_dex, int attrib_con, int attrib_cha,
+                               int score);
 extern void db_update_game(int gameid, int moves, int depth,
                            const char *levdesc);
+extern void db_update_binge_entry(int gid, int level, int hp, int max_hp, int gold, int moves,
+                                  int energy, int max_energy, int attrib_str, int attrib_int,
+                                  int attrib_wis, int attrib_dex, int attrib_con, int attrib_cha,
+                                  int score);
 extern enum getgame_result db_get_game_filename(
     int gid, char *filenamebuf, int buflen);
 extern void db_delete_game(int uid, int gid);
+extern void db_delete_binge_entry(int gid);
 extern struct gamefile_info *db_list_games(int completed, int uid, int limit,
                                            int *count);
 extern void db_add_topten_entry(int gid, int points, int hp, int maxhp,
