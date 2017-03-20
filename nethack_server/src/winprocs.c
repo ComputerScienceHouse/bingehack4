@@ -282,6 +282,13 @@ srv_update_status(struct nh_player_info *pi)
     }
     player_info = *pi;
 
+    db_update_binge_entry(gameid, player_info.z, player_info.hp,
+                          player_info.hpmax, player_info.gold,
+                          player_info.moves, player_info.en,
+                          player_info.enmax, player_info.st,
+                          player_info.in, player_info.wi, player_info.dx,
+                          player_info.co, player_info.ch, player_info.score);
+
     add_display_data("update_status", jobj);
 }
 
