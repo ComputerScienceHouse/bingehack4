@@ -149,7 +149,7 @@ change_password_callback(const char *buf, void *server_void)
     }
 
     curses_getline_pw(
-        "New password: (Beware - it is transmitted in plain text)",
+        "New password:",
         server, confirm_set_password);
 }
 
@@ -347,14 +347,14 @@ get_username_password(struct server_info *server)
             server->password = NULL;
         }
 
-        curses_getline("Username (new or existing account):",
+        curses_getline("Username (new or existing account) (Not a CSH Login!):",
                        &(server->username), getlin_strdup_callback);
         if (!server->username)
             return 0;
 
         do {
             curses_getline_pw(
-                "Password: (beware - it is transmitted in plain text)",
+                "Password:",
                 &(server->password), getlin_strdup_callback);
             if (!server->password) {
                 free(server->username);

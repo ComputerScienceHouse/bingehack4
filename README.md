@@ -7,6 +7,15 @@
 The latest iteration of a long-lived line of patches against NetHack by Computer Science House members.
 For information about in-game features and changes, please refer to [our GitHub Wiki](https://github.com/ComputerScienceHouse/bingehack4/wiki).
 
+## Play the Game! ##
+
+[CSH](https://csh.rit.edu) hosts a running instance of Bingehack4 on our
+servers via an SSH connection. Because the password will change from time to
+time please run `telnet bingehack.csh.rit.edu` for up to date login information.
+
+Because CSH uses a Secure Shell connection for Bingehack user information is no
+longer transmitted over cleartext!
+
 ## Development ##
 
 Development occurs on developer forks and they issue pull requests, which the main developers Russ Harmon ([eatnumber1](https://github.com/eatnumber1)) and Chris Lockfort ([clockfort](https://github.com/clockfort)) review in a timely fashion, examining code quality, testing for possible problems, and addressing other miscellaneous issues like game balance.
@@ -33,7 +42,7 @@ We test our client game terminal support for functionality on:
 
 ## Useful Links ##
 
-* [Play BingeHack4!](telnet://games-ng.csh.rit.edu)
+* [Play BingeHack4!](telnet://bingehack.csh.rit.edu)
 * [CSH's Travis-CI Build Server: BingeHack4 Project](https://travis-ci.org/ComputerScienceHouse/bingehack4)
 * [BingeHack4's Wiki](https://github.com/ComputerScienceHouse/bingehack4/wiki)
 * [Upstream NetHack4 Git Repository](http://gitorious.org/nitrohack/ais523/commits/nicehack)
