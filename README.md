@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.org/ComputerScienceHouse/bingehack4.png?branch=master)](https://travis-ci.org/ComputerScienceHouse/bingehack4)
+[![Build Status](https://drone.csh.rit.edu/api/badges/ComputerScienceHouse/bingehack4/status.svg)](https://drone.csh.rit.edu/ComputerScienceHouse/bingehack4)
 
 # BingeHack 4 #
 
@@ -44,6 +45,7 @@ We test our client game terminal support for functionality on:
 
 * [Play BingeHack4!](telnet://bingehack.csh.rit.edu)
 * [CSH's Travis-CI Build Server: BingeHack4 Project](https://travis-ci.org/ComputerScienceHouse/bingehack4)
+* [CSH's Drone Build Server: BingeHack4 Project](https://drone.csh.rit.edu/ComputerScienceHouse/bingehack4)
 * [BingeHack4's Wiki](https://github.com/ComputerScienceHouse/bingehack4/wiki)
 * [Upstream NetHack4 Git Repository](http://gitorious.org/nitrohack/ais523/commits/nicehack)
 
