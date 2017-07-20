@@ -1,12 +1,24 @@
 pipeline:
   build:
-    image: ubuntu:14.04
+    image: ubuntu:15.04
     commands:
     # set lang for unicode support
       - export LC_ALL=C.UTF-8
     # bingehack prep
       - apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 16126D3A3E5C1192
       - apt-get update -qq
-      - apt-get install -qq g++ gcc flex bison libbison-dev libjansson-dev postgresql-client libpq-dev libsdl2-dev libpng-dev
+      - apt-get install -qq binutils ${CC} ${CXX} flex bison libbison-dev libjansson-dev postgresql-client libpq-dev libsdl2-dev libpng-dev
     # bingehack build
       - ./travis-build
+matrix:
+  include:
+    - CC: gcc-4.6
+      CXX: g++-4.6
+    - CC: gcc-4.7
+      CXX: g++-4.7
+    - CC: gcc-4.8
+      CXX: g++-4.8
+    - CC: clang-3.4
+      CXX: clang-3.4
+    - CC: clang-3.5
+      CXX: clang-3.5
