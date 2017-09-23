@@ -442,7 +442,7 @@ setequip(enum objslot slot, struct obj *otmp, enum equipmsg msgtype)
         break;
     case AMULET_OF_CHANGE_TITLE:
         /* Cursed and uncursed amulets do nothing. */
-        if (uamul->blessed) {
+        if (o->blessed) {
             const char *buf = getlin(
                 "The amulet glows. What do you want to be called?", 0);
             strncpy(u.title, buf, sizeof(u.title) - 1);
