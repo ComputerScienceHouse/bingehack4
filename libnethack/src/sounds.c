@@ -810,6 +810,27 @@ domonnoise(struct monst *mtmp)
         else
             verbl_msg = "Who do you think you are, War?";
         break;
+    case MS_RTP:
+        {
+            static const char *const rtp_foe_msg[] = {
+                "What about our imagine subscription?",
+                "I can ensure everything is down...",
+                "See if you can go to sleep now.",
+            };
+            static const char *const rtp_pax_msg[] = {
+                "Not my server, not my problem.",
+                "You name it, we don't have to vote on it.",
+                "I can get it ALL on it!",
+                "Yeah but that definitely happened again.",
+                "Yeah I'd like to think about what we want",
+                "Why did MegaVM start VMs wtf!? Welp... shit shit shit WHO was last logged in?",
+                "I wasn't saturating the upload on 49net...",
+                "I can't remember how I fixed it.",
+            };
+            verbl_msg = mtmp->mpeaceful ? rtp_pax_msg[rn2(sizeof(rtp_pax_msg))]
+                : rtp_foe_msg[rn2(sizeof(rtp_foe_msg))];
+        }
+        break;
     }
 
     if (pline_msg)

@@ -38,5 +38,6 @@ STAIR:(74,10),up
 STAIR:(22,12),down
 #Potter
 MONSTER:'@',"Potter",(22,11)
+MONSTER:'@',"rtp",(22,8)
 # LIGHT IT UP
 REGION: (0,0,74,20),lit,"delphi"

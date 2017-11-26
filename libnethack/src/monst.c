@@ -3489,6 +3489,14 @@ const struct permonst mons[] = {
         M1_HUMANOID | M1_OMNIVORE,
         M2_NOPOLY | M2_HUMAN | M2_PEACEFUL | M2_STRONG | M2_COLLECT | M2_MAGIC,
         M3_INFRAVISIBLE, HI_GUARDIAN),
+    MON("rtp", S_HUMAN,
+        LVL(10, 6, 5, 10, 0), G_NOGEN,
+        A(ATTK(AT_WEAP, AD_PHYS, 2, 6),
+          NO_ATTK, NO_ATTK, NO_ATTK, NO_ATTK, NO_ATTK),
+        SIZ(WT_HUMAN, 400, 0, MS_RTP, MZ_HUMAN), 0, 0,
+        M1_HUMANOID | M1_OMNIVORE,
+        M2_NOPOLY | M2_HUMAN | M2_PEACEFUL | M2_STRONG | M2_COLLECT,
+        M3_INFRAVISIBLE, CLR_BLUE),
 /*
  * array terminator
  */

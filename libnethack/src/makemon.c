@@ -8,6 +8,7 @@
 #include "emin.h"
 #include "edog.h"
 #include "eshk.h"
+#include "rtp.h"
 #include "vault.h"
 #include <ctype.h>
 
@@ -1221,6 +1222,9 @@ makemon(const struct permonst *ptr, struct level *lev, int x, int y,
     if (!in_mklev && lev == level)
         newsym(mtmp->mx, mtmp->my);     /* make sure the mon shows up */
 
+    if (mndx == PM_RTP) {
+        mtmp = name_rtp(mtmp);
+    }
     return mtmp;
 }
 
