@@ -1,15 +1,15 @@
 pipeline:
   build:
-    image: ubuntu:15.04
+    image: computersciencehouse/bingehack4:latest
     commands:
     # set lang for unicode support
       - export LC_ALL=C.UTF-8
-    # bingehack prep
-      - apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 16126D3A3E5C1192
-      - apt-get update -qq
-      - apt-get install -qq binutils ${CC} ${CXX} flex bison libbison-dev libjansson-dev postgresql-client libpq-dev libsdl2-dev libpng-dev
     # bingehack build
       - ./travis-build
+
+# We still need this matrix to match what versions are listed in the Dockerfile.
+# That way we can still test against different compiler versions
+
 matrix:
   include:
     - CC: gcc-4.6
