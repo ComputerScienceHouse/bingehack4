@@ -18,7 +18,6 @@ static void godvoice(aligntyp, const char *);
 static void god_zaps_you(aligntyp);
 static void fry_by_god(aligntyp);
 static void gods_angry(aligntyp);
-static void gods_upset(aligntyp);
 static void consume_offering(struct obj *);
 static boolean water_prayer(boolean);
 static boolean blocked_boulder(int, int);
@@ -1074,7 +1073,7 @@ gods_angry(aligntyp g_align)
 }
 
 /* The g_align god is upset with you. */
-static void
+void
 gods_upset(aligntyp g_align)
 {
     if (g_align == u.ualign.type)

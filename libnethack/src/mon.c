@@ -6,6 +6,7 @@
 #include "hack.h"
 #include "mfndpos.h"
 #include "edog.h"
+#include "rtp.h"
 #include <ctype.h>
 
 static boolean restrap(struct monst *);
@@ -301,6 +302,9 @@ make_corpse(struct monst *mtmp)
             obj = mksobj_at(SCR_BLANK_PAPER, level, x, y, TRUE, FALSE, rng_main);
         mtmp->mnamelth = 0;
         break;
+    case PM_RTP:
+        obj = create_rtp_corpse(level, x, y, rng_main);
+        break;
     default_1:
     default:
         if (mvitals[mndx].mvflags & G_NOCORPSE)
@@ -318,7 +322,8 @@ make_corpse(struct monst *mtmp)
     if (flags.bypasses)
         bypass_obj(obj);
 
-    if (mtmp->mnamelth)
+    // RTPs drop the root password not a specialized item
+    if (mtmp->mnamelth && mndx != PM_RTP)
         obj = oname(obj, NAME(mtmp));
 
     /* Avoid "It was hidden under a green mold corpse!" during Blind combat. An
@@ -2108,13 +2113,18 @@ xkilled(struct monst *mtmp, int dest)
 cleanup:
     /* punish bad behaviour */
     if (is_human(mdat) && (!always_hostile(mdat) && mtmp->malign <= 0) &&
-        (mndx < PM_ARCHEOLOGIST || mndx > PM_WIZARD) &&
-        u.ualign.type != A_CHAOTIC) {
-        HTelepat &= ~INTRINSIC;
-        change_luck(-2);
-        pline("You murderer!");
-        if (Blind && !Blind_telepat)
-            see_monsters(FALSE);     /* Can't sense monsters any more. */
+        (mndx < PM_ARCHEOLOGIST || mndx > PM_WIZARD)) {
+        if (u.ualign.type != A_CHAOTIC) {
+            HTelepat &= ~INTRINSIC;
+            change_luck(-2);
+            pline("You murderer!");
+            if (Blind && !Blind_telepat)
+                see_monsters(FALSE);     /* Can't sense monsters any more. */
+        }
+        // Even chaotic players get punishment for killing RTPs
+        if (mndx == PM_RTP) {
+            player_killed_rtp(level);
+        }
     }
     if ((mtmp->mpeaceful && !rn2(2)) || mtmp->mtame)
         change_luck(-1);

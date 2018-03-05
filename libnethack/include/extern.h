@@ -1392,7 +1392,7 @@ extern struct monst *split_mon(struct monst *, struct monst *);
 extern const char *bottlename(void);
 
 /* ### pray.c ### */
-
+extern void gods_upset(aligntyp g_align);
 extern int dosacrifice(const struct nh_cmd_arg *);
 extern boolean can_pray(boolean);
 extern int dopray(const struct nh_cmd_arg *);
